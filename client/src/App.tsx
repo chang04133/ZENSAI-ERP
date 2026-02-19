@@ -15,6 +15,17 @@ import ProductDetailPage from './pages/products/ProductDetailPage';
 import UserListPage from './pages/users/UserListPage';
 import UserFormPage from './pages/users/UserFormPage';
 import CodeManagePage from './pages/codes/CodeManagePage';
+import ShipmentRequestPage from './pages/shipment/ShipmentRequestPage';
+import ShipmentProcessPage from './pages/shipment/ShipmentProcessPage';
+import ReturnProcessPage from './pages/shipment/ReturnProcessPage';
+import HorizontalTransferPage from './pages/shipment/HorizontalTransferPage';
+import DataUploadPage from './pages/system/DataUploadPage';
+import DeletedDataPage from './pages/system/DeletedDataPage';
+import InventoryStatusPage from './pages/inventory/InventoryStatusPage';
+import InventoryAdjustPage from './pages/inventory/InventoryAdjustPage';
+import MonthlySalesPage from './pages/sales/MonthlySalesPage';
+import MonthlyRevenuePage from './pages/sales/MonthlyRevenuePage';
+import WeeklyStyleSalesPage from './pages/sales/WeeklyStyleSalesPage';
 import { ROLES } from './constants/roles';
 import './styles/global.css';
 
@@ -58,6 +69,39 @@ export default function App() {
             } />
             <Route path="users/:id/edit" element={
               <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><UserFormPage /></ProtectedRoute>
+            } />
+            <Route path="shipment/request" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><ShipmentRequestPage /></ProtectedRoute>
+            } />
+            <Route path="shipment/process" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><ShipmentProcessPage /></ProtectedRoute>
+            } />
+            <Route path="shipment/return" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><ReturnProcessPage /></ProtectedRoute>
+            } />
+            <Route path="shipment/transfer" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><HorizontalTransferPage /></ProtectedRoute>
+            } />
+            <Route path="sales/monthly-sales" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><MonthlySalesPage /></ProtectedRoute>
+            } />
+            <Route path="sales/monthly-revenue" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><MonthlyRevenuePage /></ProtectedRoute>
+            } />
+            <Route path="sales/weekly-style" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><WeeklyStyleSalesPage /></ProtectedRoute>
+            } />
+            <Route path="system/data-upload" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><DataUploadPage /></ProtectedRoute>
+            } />
+            <Route path="system/deleted-data" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><DeletedDataPage /></ProtectedRoute>
+            } />
+            <Route path="inventory/status" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER]}><InventoryStatusPage /></ProtectedRoute>
+            } />
+            <Route path="inventory/adjust" element={
+              <ProtectedRoute allowedRoles={[ROLES.ADMIN, ROLES.HQ_MANAGER]}><InventoryAdjustPage /></ProtectedRoute>
             } />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />

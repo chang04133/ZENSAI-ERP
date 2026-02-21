@@ -229,7 +229,10 @@ export default function ProductListPage() {
         <Select placeholder="세부카테고리" allowClear value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
           options={subCategoryOptions} disabled={!categoryFilter} />
         <Select placeholder="시즌" allowClear value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[{ label: '2026SS', value: '2026SS' }, { label: '2025FW', value: '2025FW' }, { label: '2025SS', value: '2025SS' }]} />
+          options={[
+            { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
+            { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+          ]} />
         <Select placeholder="핏" allowClear value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
           options={fitOptions} />
         <Select placeholder="판매상태" allowClear value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}

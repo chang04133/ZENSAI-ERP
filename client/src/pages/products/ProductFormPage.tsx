@@ -57,7 +57,18 @@ export default function ProductFormPage() {
       setAllCategoryCodes(allCats);
       setCategoryOptions(allCats.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
       setBrandOptions(toOpts(data.BRAND));
-      setSeasonOptions(toOpts(data.SEASON));
+
+      // 연도 × 시즌 조합 옵션 생성 (예: 2026SA, 2026SM, ...)
+      const years = (data.YEAR || []).filter((c: any) => c.is_active).map((c: any) => c.code_value);
+      const seasons = (data.SEASON || []).filter((c: any) => c.is_active);
+      const combined: { label: string; value: string }[] = [];
+      for (const yr of years.sort().reverse()) {
+        for (const sz of seasons) {
+          combined.push({ label: `${yr} ${sz.code_label}`, value: `${yr}${sz.code_value}` });
+        }
+      }
+      setSeasonOptions(combined);
+
       setFitOptions(toOpts(data.FIT));
       setLengthOptions(toOpts(data.LENGTH));
     }).catch(() => {});

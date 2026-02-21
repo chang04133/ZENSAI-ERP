@@ -166,7 +166,7 @@ export default function ProductionPlanPage() {
         onOk={handleCreate} width={800} okText="등록">
         <Form form={form} layout="vertical">
           <Form.Item name="plan_name" label="계획명" rules={[{ required: true }]}>
-            <Input placeholder="예: 26SS 상의 1차 생산" />
+            <Input placeholder="예: 26SA 상의 1차 생산" />
           </Form.Item>
           <Space style={{ width: '100%' }} size="middle">
             <Form.Item name="season" label="시즌" style={{ width: 150 }}>

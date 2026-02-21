@@ -28,6 +28,14 @@ const migration: Migration = {
         ('SETTING', 'SEASON_PENALTY_WN_WN', '1.0', 18)
       ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = EXCLUDED.code_label
     `);
+
+    // 3) 기존 상품 season 필드 변환: SS→SA, FW→WN
+    await db.query(`UPDATE products SET season = REPLACE(season, 'SS', 'SA') WHERE season LIKE '%SS'`);
+    await db.query(`UPDATE products SET season = REPLACE(season, 'FW', 'WN') WHERE season LIKE '%FW'`);
+
+    // 4) 기존 생산계획 season 필드도 변환
+    await db.query(`UPDATE production_plans SET season = REPLACE(season, 'SS', 'SA') WHERE season LIKE '%SS'`);
+    await db.query(`UPDATE production_plans SET season = REPLACE(season, 'FW', 'WN') WHERE season LIKE '%FW'`);
   },
 };
 

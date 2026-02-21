@@ -1,0 +1,368 @@
+import { BaseRepository } from '../../core/base.repository';
+import { Inventory, InventoryTransaction } from '../../../../shared/types/inventory';
+import { getPool } from '../../db/connection';
+import { QueryBuilder } from '../../core/query-builder';
+
+export class InventoryRepository extends BaseRepository<Inventory> {
+  constructor() {
+    super({
+      tableName: 'inventory',
+      primaryKey: 'inventory_id',
+      searchFields: [],
+      filterFields: ['partner_code'],
+      defaultOrder: 'updated_at DESC',
+    });
+  }
+
+  async listWithDetails(options: any = {}) {
+    const { page = 1, limit = 20, partner_code, search } = options;
+    const offset = (page - 1) * limit;
+    const qb = new QueryBuilder('i');
+    if (partner_code) qb.eq('partner_code', partner_code);
+    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ?)', `%${search}%`, `%${search}%`);
+    const { whereClause, params, nextIdx } = qb.build();
+
+    const countSql = `
+      SELECT COUNT(*) FROM inventory i
+      JOIN product_variants pv ON i.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON i.partner_code = pt.partner_code
+      ${whereClause}`;
+    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT i.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+      FROM inventory i
+      JOIN product_variants pv ON i.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON i.partner_code = pt.partner_code
+      ${whereClause} ORDER BY i.updated_at DESC LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+    const data = await this.pool.query(dataSql, [...params, limit, offset]);
+    return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  /** 외부 트랜잭션 client를 받아 재고 변동 처리 (출고/반품/수평이동/판매 연동용) */
+  async applyChange(
+    partnerCode: string, variantId: number, qtyChange: number,
+    txType: string, refId: number, userId: string, client: any,
+  ): Promise<void> {
+    await client.query(
+      `INSERT INTO inventory (partner_code, variant_id, qty)
+       VALUES ($1, $2, GREATEST(0, $3))
+       ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = GREATEST(0, inventory.qty + $3), updated_at = NOW()`,
+      [partnerCode, variantId, qtyChange],
+    );
+    const inv = await client.query(
+      'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+      [partnerCode, variantId],
+    );
+    await client.query(
+      `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [txType, refId, partnerCode, variantId, qtyChange, inv.rows[0].qty, userId],
+    );
+  }
+
+  /** 카테고리별 재고 요약 */
+  async summaryByCategory() {
+    const sql = `
+      SELECT COALESCE(p.category, '미분류') AS category,
+             COUNT(DISTINCT p.product_code) AS product_count,
+             COUNT(DISTINCT pv.variant_id) AS variant_count,
+             COALESCE(SUM(i.qty), 0)::int AS total_qty
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+      GROUP BY COALESCE(p.category, '미분류')
+      ORDER BY total_qty DESC`;
+    return (await this.pool.query(sql)).rows;
+  }
+
+  /** 핏별 재고 요약 */
+  async summaryByFit() {
+    const sql = `
+      SELECT COALESCE(p.fit, '미지정') AS fit,
+             COUNT(DISTINCT p.product_code) AS product_count,
+             COUNT(DISTINCT pv.variant_id) AS variant_count,
+             COALESCE(SUM(i.qty), 0)::int AS total_qty
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+      GROUP BY COALESCE(p.fit, '미지정')
+      ORDER BY total_qty DESC`;
+    return (await this.pool.query(sql)).rows;
+  }
+
+  /** 기장별 재고 요약 */
+  async summaryByLength() {
+    const sql = `
+      SELECT COALESCE(p.length, '미지정') AS length,
+             COUNT(DISTINCT p.product_code) AS product_count,
+             COUNT(DISTINCT pv.variant_id) AS variant_count,
+             COALESCE(SUM(i.qty), 0)::int AS total_qty
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+      GROUP BY COALESCE(p.length, '미지정')
+      ORDER BY total_qty DESC`;
+    return (await this.pool.query(sql)).rows;
+  }
+
+  /** 전역 재고부족 임계값 조회 */
+  async getLowStockThreshold(): Promise<number> {
+    const r = await this.pool.query(
+      "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'LOW_STOCK_THRESHOLD'",
+    );
+    return r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 5 : 5;
+  }
+
+  /** 전역 중간재고 임계값 조회 */
+  async getMediumStockThreshold(): Promise<number> {
+    const r = await this.pool.query(
+      "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'MEDIUM_STOCK_THRESHOLD'",
+    );
+    return r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 10 : 10;
+  }
+
+  /** 매장별 임계값 조회 (없으면 전역 값 사용) */
+  async getPartnerThresholds(partnerCode: string): Promise<{ low: number; med: number }> {
+    const r = await this.pool.query(
+      'SELECT low_stock_threshold, medium_stock_threshold FROM partners WHERE partner_code = $1',
+      [partnerCode],
+    );
+    const row = r.rows[0];
+    const globalLow = await this.getLowStockThreshold();
+    const globalMed = await this.getMediumStockThreshold();
+    return {
+      low: row?.low_stock_threshold ?? globalLow,
+      med: row?.medium_stock_threshold ?? globalMed,
+    };
+  }
+
+  /** 매장별 임계값 저장 */
+  async setPartnerThresholds(partnerCode: string, low: number, med: number): Promise<void> {
+    await this.pool.query(
+      'UPDATE partners SET low_stock_threshold = $1, medium_stock_threshold = $2, updated_at = NOW() WHERE partner_code = $3',
+      [low, med, partnerCode],
+    );
+  }
+
+  /** 전체 재고 통계 */
+  async overallStats(partnerCode?: string) {
+    const params: any[] = [];
+    let pcFilter = '';
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilter = 'AND i.partner_code = $1';
+    }
+    const sql = `
+      SELECT
+        COALESCE(SUM(i.qty), 0)::int AS total_qty,
+        COUNT(DISTINCT i.variant_id)::int AS total_items,
+        COUNT(DISTINCT i.partner_code)::int AS total_partners,
+        COUNT(*) FILTER (WHERE i.qty = 0)::int AS zero_stock_count
+      FROM inventory i
+      JOIN product_variants pv ON i.variant_id = pv.variant_id
+      WHERE pv.is_active = TRUE ${pcFilter}`;
+    return (await this.pool.query(sql, params)).rows[0];
+  }
+
+  /** 재고부족 알림 대상 목록 (alert ON인 상품만) + 다른 매장 재고 */
+  async lowStockItems(limit = 50, partnerCode?: string) {
+    const threshold = partnerCode
+      ? (await this.getPartnerThresholds(partnerCode)).low
+      : await this.getLowStockThreshold();
+    const pcFilter = partnerCode ? `AND i.partner_code = '${partnerCode}'` : '';
+    const sql = `
+      SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
+             pt.partner_name, pv.sku, pv.color, pv.size, p.product_code, p.product_name,
+             p.low_stock_threshold AS custom_threshold,
+             COALESCE(p.low_stock_threshold, $1) AS effective_threshold,
+             (SELECT COALESCE(json_agg(json_build_object(
+                'partner_code', o.partner_code,
+                'partner_name', op.partner_name,
+                'partner_type', op.partner_type,
+                'qty', o.qty
+              ) ORDER BY o.qty DESC), '[]'::json)
+              FROM inventory o
+              JOIN partners op ON o.partner_code = op.partner_code
+              WHERE o.variant_id = i.variant_id AND o.partner_code != i.partner_code AND o.qty > 0
+             ) AS other_locations
+      FROM inventory i
+      JOIN product_variants pv ON i.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON i.partner_code = pt.partner_code
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+        AND p.low_stock_alert = TRUE
+        AND i.qty < COALESCE(p.low_stock_threshold, $1)
+        ${pcFilter}
+      ORDER BY i.qty ASC, p.product_name
+      LIMIT $2`;
+    return (await this.pool.query(sql, [threshold, limit])).rows;
+  }
+
+  /** 중간재고 알림 대상 목록 (low < qty <= medium) + 다른 매장 재고 */
+  async mediumStockItems(limit = 50, partnerCode?: string) {
+    let lowThreshold: number;
+    let medThreshold: number;
+    if (partnerCode) {
+      const t = await this.getPartnerThresholds(partnerCode);
+      lowThreshold = t.low;
+      medThreshold = t.med;
+    } else {
+      lowThreshold = await this.getLowStockThreshold();
+      medThreshold = await this.getMediumStockThreshold();
+    }
+    const pcFilter = partnerCode ? `AND i.partner_code = '${partnerCode}'` : '';
+    const sql = `
+      SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
+             pt.partner_name, pv.sku, pv.color, pv.size, p.product_code, p.product_name,
+             COALESCE(p.low_stock_threshold, $1) AS low_threshold,
+             COALESCE(p.medium_stock_threshold, $2) AS medium_threshold,
+             (SELECT COALESCE(json_agg(json_build_object(
+                'partner_code', o.partner_code,
+                'partner_name', op.partner_name,
+                'partner_type', op.partner_type,
+                'qty', o.qty
+              ) ORDER BY o.qty DESC), '[]'::json)
+              FROM inventory o
+              JOIN partners op ON o.partner_code = op.partner_code
+              WHERE o.variant_id = i.variant_id AND o.partner_code != i.partner_code AND o.qty > 0
+             ) AS other_locations
+      FROM inventory i
+      JOIN product_variants pv ON i.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON i.partner_code = pt.partner_code
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+        AND p.low_stock_alert = TRUE
+        AND i.qty > COALESCE(p.low_stock_threshold, $1)
+        AND i.qty <= COALESCE(p.medium_stock_threshold, $2)
+        ${pcFilter}
+      ORDER BY i.qty ASC, p.product_name
+      LIMIT $3`;
+    return (await this.pool.query(sql, [lowThreshold, medThreshold, limit])).rows;
+  }
+
+  /** 시즌별 재고 요약 */
+  async summaryBySeason() {
+    const sql = `
+      SELECT p.season,
+             COUNT(DISTINCT p.product_code) AS product_count,
+             COUNT(DISTINCT pv.variant_id) AS variant_count,
+             COALESCE(SUM(i.qty), 0) AS total_qty,
+             COUNT(DISTINCT i.partner_code) AS partner_count
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+      GROUP BY p.season
+      ORDER BY p.season DESC`;
+    return (await this.pool.query(sql)).rows;
+  }
+
+  /** 특정 시즌의 아이템별 재고 */
+  async listBySeason(season: string, options: any = {}) {
+    const { page = 1, limit = 20, partner_code, search } = options;
+    const offset = (Number(page) - 1) * Number(limit);
+    const qb = new QueryBuilder();
+    qb.eq('p.season', season);
+    if (partner_code) qb.eq('i.partner_code', partner_code);
+    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
+    const { whereClause, params, nextIdx } = qb.build();
+
+    const baseSql = `
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      LEFT JOIN partners pt ON i.partner_code = pt.partner_code
+      ${whereClause} AND p.is_active = TRUE AND pv.is_active = TRUE`;
+
+    const countSql = `SELECT COUNT(*) ${baseSql}`;
+    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT p.product_code, p.product_name, p.category, p.brand, p.season,
+             pv.variant_id, pv.sku, pv.color, pv.size, pv.price,
+             COALESCE(i.qty, 0) AS qty,
+             i.partner_code, pt.partner_name,
+             pv.warehouse_location, pv.barcode
+      ${baseSql}
+      ORDER BY p.product_code, pv.color, pv.size, pt.partner_name
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+    const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
+    return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
+  }
+
+  async adjust(partnerCode: string, variantId: number, qtyChange: number, userId: string, memo?: string): Promise<Inventory> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 현재 수량 확인
+      const current = await client.query(
+        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+        [partnerCode, variantId],
+      );
+      const currentQty = current.rows.length > 0 ? current.rows[0].qty : 0;
+      const newQty = Math.max(0, currentQty + qtyChange);
+
+      // Upsert inventory
+      const inv = await client.query(
+        `INSERT INTO inventory (partner_code, variant_id, qty)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = $3, updated_at = NOW()
+         RETURNING *`,
+        [partnerCode, variantId, newQty],
+      );
+      // Record transaction
+      await client.query(
+        `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by, memo)
+         VALUES ('ADJUST', $1, $2, $3, $4, $5, $6)`,
+        [partnerCode, variantId, qtyChange, newQty, userId, memo || null],
+      );
+      await client.query('COMMIT');
+
+      const result = inv.rows[0];
+      // 음수 조정으로 0이 된 경우 경고 포함
+      if (currentQty + qtyChange < 0) {
+        (result as any).warning = `요청 수량(${qtyChange})이 현재 재고(${currentQty})보다 많아 0으로 조정되었습니다.`;
+      }
+      return result;
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
+  }
+
+  /** 재고 거래이력 조회 */
+  async listTransactions(options: any = {}) {
+    const { page = 1, limit = 20, partner_code, variant_id, tx_type, search } = options;
+    const offset = (Number(page) - 1) * Number(limit);
+    const qb = new QueryBuilder('t');
+    if (partner_code) qb.eq('partner_code', partner_code);
+    if (variant_id) qb.eq('variant_id', variant_id);
+    if (tx_type) qb.eq('tx_type', tx_type);
+    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ?)', `%${search}%`, `%${search}%`);
+    const { whereClause, params, nextIdx } = qb.build();
+
+    const baseSql = `
+      FROM inventory_transactions t
+      JOIN product_variants pv ON t.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON t.partner_code = pt.partner_code
+      ${whereClause}`;
+
+    const total = parseInt((await this.pool.query(`SELECT COUNT(*) ${baseSql}`, params)).rows[0].count, 10);
+    const dataSql = `
+      SELECT t.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+      ${baseSql}
+      ORDER BY t.created_at DESC
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+    const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
+    return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
+  }
+}
+
+export const inventoryRepository = new InventoryRepository();

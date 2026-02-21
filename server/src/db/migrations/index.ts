@@ -1,0 +1,23 @@
+import { Migration } from './runner';
+import m001 from './001_initial';
+import m002 from './002_audit';
+import m003 from './003_shipment';
+import m004 from './004_inventory';
+import m005 from './005_sales';
+import m006 from './006_product_fields';
+import m007 from './007_shipment_type_codes';
+import m008 from './008_inventory_tx_memo';
+import m009 from './009_product_fit_length';
+import m010 from './010_sale_type';
+import m011 from './011_sub_category';
+import m012 from './012_low_stock_settings';
+import m013 from './013_restock';
+import m014 from './014_partner_thresholds';
+import m015 from './015_stock_notifications';
+import m016 from './016_production';
+import m017 from './017_fix_material_type';
+import m018 from './018_fund_plans';
+import m019 from './019_sys_admin_role';
+import m020 from './020_fund_sub_categories';
+
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020];

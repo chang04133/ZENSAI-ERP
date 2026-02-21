@@ -19,4 +19,5 @@ export const config = {
   jwtRefreshExpiryDays: parseInt(process.env.JWT_REFRESH_EXPIRY_DAYS || '30', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
+  corsOrigins: process.env.CORS_ORIGINS || '',  // 프로덕션: 쉼표 구분 허용 도메인
 };

@@ -1,18 +1,23 @@
 import { useEffect, useState } from 'react';
-import { Tabs, Table, Button, Modal, Form, Input, InputNumber, Switch, Space, Tag, Popconfirm, message } from 'antd';
+import { Tabs, Table, Button, Modal, Form, Input, InputNumber, Switch, Select, Space, Tag, Popconfirm, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
-import { getAllCodesApi, createCodeApi, updateCodeApi, deleteCodeApi } from '../../api/code.api';
-import { useAuthStore } from '../../store/auth.store';
-import { ROLES } from '../../constants/roles';
+import { codeApi } from '../../modules/code/code.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const CODE_TYPES = [
+  { key: 'CATEGORY', label: '카테고리' },
   { key: 'BRAND', label: '브랜드' },
   { key: 'YEAR', label: '연도' },
   { key: 'SEASON', label: '시즌' },
   { key: 'ITEM', label: '아이템' },
   { key: 'COLOR', label: '색상' },
   { key: 'SIZE', label: '사이즈' },
+  { key: 'SHIPMENT_TYPE', label: '의뢰유형' },
+  { key: 'FIT', label: '핏' },
+  { key: 'LENGTH', label: '기장' },
+  { key: 'SETTING', label: '시스템설정' },
 ];
 
 interface CodeItem {
@@ -22,6 +27,7 @@ interface CodeItem {
   code_label: string;
   sort_order: number;
   is_active: boolean;
+  parent_code: number | null;
 }
 
 export default function CodeManagePage() {
@@ -31,13 +37,13 @@ export default function CodeManagePage() {
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<CodeItem | null>(null);
-  const [activeTab, setActiveTab] = useState('BRAND');
+  const [activeTab, setActiveTab] = useState('CATEGORY');
   const [form] = Form.useForm();
 
   const load = async () => {
     setLoading(true);
     try {
-      const data = await getAllCodesApi();
+      const data = await codeApi.getAll();
       setCodes(data);
     } catch (e: any) {
       message.error(e.message);
@@ -64,10 +70,10 @@ export default function CodeManagePage() {
   const handleSave = async (values: any) => {
     try {
       if (editItem) {
-        await updateCodeApi(editItem.code_id, values);
+        await codeApi.update(editItem.code_id, values);
         message.success('코드가 수정되었습니다.');
       } else {
-        await createCodeApi(values);
+        await codeApi.create(values);
         message.success('코드가 추가되었습니다.');
       }
       setModalOpen(false);
@@ -79,7 +85,7 @@ export default function CodeManagePage() {
 
   const handleDelete = async (id: number) => {
     try {
-      await deleteCodeApi(id);
+      await codeApi.remove(id);
       message.success('코드가 삭제되었습니다.');
       load();
     } catch (e: any) {
@@ -87,14 +93,46 @@ export default function CodeManagePage() {
     }
   };
 
+  // Build hierarchical display for CATEGORY tab
+  const getDisplayData = (items: CodeItem[]): CodeItem[] => {
+    if (activeTab !== 'CATEGORY') return items;
+    const parents = items.filter((i) => !i.parent_code).sort((a, b) => a.sort_order - b.sort_order);
+    const children = items.filter((i) => i.parent_code);
+    const result: CodeItem[] = [];
+    for (const parent of parents) {
+      result.push(parent);
+      result.push(...children.filter((c) => c.parent_code === parent.code_id).sort((a, b) => a.sort_order - b.sort_order));
+    }
+    // Orphan children (parent not in current list)
+    const usedIds = new Set(result.map((r) => r.code_id));
+    result.push(...children.filter((c) => !usedIds.has(c.code_id)));
+    return result;
+  };
+
+  const parentCategories = (codes['CATEGORY'] || []).filter((c) => !c.parent_code);
+
   const columns = [
     { title: '코드값', dataIndex: 'code_value', key: 'code_value', width: 120 },
-    { title: '코드명', dataIndex: 'code_label', key: 'code_label' },
+    {
+      title: '코드명', dataIndex: 'code_label', key: 'code_label',
+      render: (v: string, record: CodeItem) => {
+        if (activeTab !== 'CATEGORY') return v;
+        return record.parent_code
+          ? <span style={{ paddingLeft: 24 }}>└ {v}</span>
+          : <strong>{v}</strong>;
+      },
+    },
     { title: '정렬순서', dataIndex: 'sort_order', key: 'sort_order', width: 100 },
     {
       title: '상태', dataIndex: 'is_active', key: 'is_active', width: 80,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? '활성' : '비활성'}</Tag>,
     },
+    ...(activeTab === 'CATEGORY' ? [{
+      title: '구분', key: 'level', width: 80,
+      render: (_: any, record: CodeItem) => (
+        <Tag color={record.parent_code ? 'blue' : 'gold'}>{record.parent_code ? '소분류' : '대분류'}</Tag>
+      ),
+    }] : []),
     ...(canWrite ? [{
       title: '관리', key: 'actions', width: 150,
       render: (_: any, record: CodeItem) => (
@@ -116,7 +154,7 @@ export default function CodeManagePage() {
     children: (
       <Table
         columns={columns}
-        dataSource={codes[ct.key] || []}
+        dataSource={getDisplayData(codes[ct.key] || [])}
         rowKey="code_id"
         loading={loading}
         pagination={false}
@@ -153,6 +191,15 @@ export default function CodeManagePage() {
           <Form.Item name="code_type" label="코드타입">
             <Input disabled value={activeTab} />
           </Form.Item>
+          {activeTab === 'CATEGORY' && (
+            <Form.Item name="parent_code" label="상위 카테고리">
+              <Select
+                allowClear
+                placeholder="미선택시 대분류로 등록"
+                options={parentCategories.map((c) => ({ label: c.code_label, value: c.code_id }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item name="code_value" label="코드값" rules={[{ required: true, message: '코드값을 입력해주세요' }]}>
             <Input placeholder="예: BK, 2025, SS" disabled={!!editItem} />
           </Form.Item>

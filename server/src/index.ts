@@ -1,15 +1,26 @@
 import { config } from './config/env';
 import { getPool, initDB } from './db/connection';
-import { initSchema } from './db/schema';
+import { runMigrations } from './db/migrations/runner';
+import { allMigrations } from './db/migrations/index';
 import { seedDefaults } from './db/seed';
+import { seedDummyData } from './db/seed-dummy';
 import app from './app';
 
 async function start() {
   try {
-    // Initialize database
+    // Initialize database connection
     await initDB();
-    await initSchema(getPool());
+
+    // Run migrations (replaces old initSchema)
+    await runMigrations(getPool(), allMigrations);
+
+    // Seed default data
     await seedDefaults(getPool());
+
+    // Seed dummy data for development
+    if (config.nodeEnv === 'development') {
+      await seedDummyData(getPool());
+    }
 
     // Start server
     app.listen(config.port, () => {

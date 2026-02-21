@@ -1,37 +1,94 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, Space, Tag, Popconfirm, Upload, Modal, message, Alert } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
-import { useProductStore } from '../../store/product.store';
-import { useAuthStore } from '../../store/auth.store';
-import { deleteProductApi } from '../../api/product.api';
-import { getToken } from '../../api/client';
-import { ROLES } from '../../constants/roles';
+import { useProductStore } from '../../modules/product/product.store';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { productApi } from '../../modules/product/product.api';
+import { codeApi } from '../../modules/code/code.api';
+import { getToken } from '../../core/api.client';
+import { ROLES } from '../../../../shared/constants/roles';
+
+const SALE_STATUS_COLORS: Record<string, string> = {
+  '판매중': 'green',
+  '일시품절': 'orange',
+  '단종': 'red',
+  '승인대기': 'blue',
+};
 
 export default function ProductListPage() {
   const navigate = useNavigate();
-  const { products, total, loading, fetchProducts } = useProductStore();
+  const { data: products, total, loading, fetchList: fetchProducts } = useProductStore();
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  const [seasonFilter, setSeasonFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [fitFilter, setFitFilter] = useState<string | undefined>();
+  const [subCategoryFilter, setSubCategoryFilter] = useState<string | undefined>();
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+
+  useEffect(() => {
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setAllCategoryCodes(data);
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch((e: any) => { message.error('카테고리 로드 실패: ' + e.message); });
+    codeApi.getByType('FIT').then((data: any[]) => {
+      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch((e: any) => { message.error('핏 옵션 로드 실패: ' + e.message); });
+  }, []);
 
   const load = () => {
     const params: Record<string, string> = { page: String(page), limit: '20' };
     if (search) params.search = search;
+    if (categoryFilter) params.category = categoryFilter;
+    if (subCategoryFilter) params.sub_category = subCategoryFilter;
+    if (seasonFilter) params.season = seasonFilter;
+    if (statusFilter) params.sale_status = statusFilter;
+    if (fitFilter) params.fit = fitFilter;
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter]);
+
+  const handleCategoryFilterChange = (value: string | undefined) => {
+    setCategoryFilter(value);
+    setSubCategoryFilter(undefined);
+    setPage(1);
+    if (!value) { setSubCategoryOptions([]); return; }
+    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
+    if (parent) {
+      setSubCategoryOptions(
+        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+    } else {
+      setSubCategoryOptions([]);
+    }
+  };
 
   const handleDelete = async (code: string) => {
     try {
-      await deleteProductApi(code);
+      await productApi.remove(code);
       message.success('상품이 비활성화되었습니다.');
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const handleToggleAlert = async (code: string, checked: boolean) => {
+    try {
+      await productApi.update(code, { low_stock_alert: checked });
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -40,15 +97,13 @@ export default function ProductListPage() {
 
   const handleDownloadTemplate = () => {
     const token = getToken();
-    const link = document.createElement('a');
-    link.href = `/api/products/excel/template`;
-    // Use fetch to add auth header
     fetch('/api/products/excel/template', {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.blob())
       .then((blob) => {
         const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
         link.href = url;
         link.download = 'product_template.xlsx';
         link.click();
@@ -87,7 +142,7 @@ export default function ProductListPage() {
       setUploading(false);
     }
 
-    return false; // prevent default upload
+    return false;
   };
 
   const columns = [
@@ -96,10 +151,41 @@ export default function ProductListPage() {
     },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name' },
     { title: '카테고리', dataIndex: 'category', key: 'category' },
+    { title: '세부카테고리', dataIndex: 'sub_category', key: 'sub_category', render: (v: string) => v || '-' },
     { title: '브랜드', dataIndex: 'brand', key: 'brand' },
     { title: '시즌', dataIndex: 'season', key: 'season' },
+    { title: '핏', dataIndex: 'fit', key: 'fit', render: (v: string) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
+    { title: '기장', dataIndex: 'length', key: 'length', render: (v: string) => v ? <Tag color="volcano">{v}</Tag> : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price',
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
+    },
+    { title: '매입가', dataIndex: 'cost_price', key: 'cost_price',
+      render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
+    },
+    { title: '할인가', dataIndex: 'discount_price', key: 'discount_price',
+      render: (v: number) => v ? <span style={{ color: '#f5222d' }}>{Number(v).toLocaleString()}원</span> : '-',
+    },
+    { title: '행사가', dataIndex: 'event_price', key: 'event_price',
+      render: (v: number) => v ? <span style={{ color: '#fa8c16' }}>{Number(v).toLocaleString()}원</span> : '-',
+    },
+    { title: '판매상태', dataIndex: 'sale_status', key: 'sale_status',
+      render: (v: string) => <Tag color={SALE_STATUS_COLORS[v] || 'default'}>{v}</Tag>,
+    },
+    { title: '재고', dataIndex: 'total_inv_qty', key: 'total_inv_qty', width: 80,
+      render: (v: number) => {
+        const qty = Number(v || 0);
+        return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
+      },
+    },
+    { title: '부족알림', key: 'low_stock_alert', width: 90,
+      render: (_: any, record: any) => (
+        <Switch
+          size="small"
+          checked={record.low_stock_alert}
+          onChange={(checked) => handleToggleAlert(record.product_code, checked)}
+          disabled={!canWrite}
+        />
+      ),
     },
     ...(canWrite ? [{
       title: '관리', key: 'actions',
@@ -129,7 +215,7 @@ export default function ProductListPage() {
           </Space>
         )}
       />
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Input
           placeholder="코드 또는 이름 검색"
           prefix={<SearchOutlined />}
@@ -138,6 +224,16 @@ export default function ProductListPage() {
           onPressEnter={load}
           style={{ width: 250 }}
         />
+        <Select placeholder="카테고리" allowClear value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+          options={categoryOptions} />
+        <Select placeholder="세부카테고리" allowClear value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+          options={subCategoryOptions} disabled={!categoryFilter} />
+        <Select placeholder="시즌" allowClear value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
+          options={[{ label: '2026SS', value: '2026SS' }, { label: '2025FW', value: '2025FW' }, { label: '2025SS', value: '2025SS' }]} />
+        <Select placeholder="핏" allowClear value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+          options={fitOptions} />
+        <Select placeholder="판매상태" allowClear value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+          options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
         <Button onClick={load}>조회</Button>
       </Space>
       <Table

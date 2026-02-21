@@ -4,14 +4,50 @@ import crypto from 'crypto';
 import { signAccessToken, generateRefreshToken, hashToken } from './jwt';
 import { authMiddleware } from './middleware';
 import { config } from '../config/env';
-import {
-  findUserForLogin,
-  updateLastLogin,
-  saveRefreshToken,
-  findRefreshToken,
-  deleteRefreshToken,
-  deleteUserRefreshTokens,
-} from '../db/queries/auth.queries';
+import { getPool } from '../db/connection';
+
+async function findUserForLogin(userId: string) {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT u.user_id, u.user_name, u.password_hash, u.partner_code, u.is_active, rg.group_name AS role_name
+     FROM users u JOIN role_groups rg ON u.role_group = rg.group_id
+     WHERE u.user_id = $1`,
+    [userId],
+  );
+  return result.rows[0] || null;
+}
+
+async function updateLastLogin(userId: string) {
+  const pool = getPool();
+  await pool.query('UPDATE users SET last_login = NOW() WHERE user_id = $1', [userId]);
+}
+
+async function saveRefreshToken(tokenId: string, userId: string, hashedToken: string, expiresAt: number) {
+  const pool = getPool();
+  await pool.query(
+    'INSERT INTO refresh_tokens (id, user_id, token_hash, expires_at, created_at) VALUES ($1, $2, $3, $4, $5)',
+    [tokenId, userId, hashedToken, expiresAt, Date.now()],
+  );
+}
+
+async function findRefreshToken(hashedToken: string) {
+  const pool = getPool();
+  const result = await pool.query(
+    'SELECT id, user_id FROM refresh_tokens WHERE token_hash = $1 AND expires_at > $2',
+    [hashedToken, Date.now()],
+  );
+  return result.rows[0] || null;
+}
+
+async function deleteRefreshToken(id: string) {
+  const pool = getPool();
+  await pool.query('DELETE FROM refresh_tokens WHERE id = $1', [id]);
+}
+
+async function deleteUserRefreshTokens(userId: string) {
+  const pool = getPool();
+  await pool.query('DELETE FROM refresh_tokens WHERE user_id = $1', [userId]);
+}
 
 const router = Router();
 

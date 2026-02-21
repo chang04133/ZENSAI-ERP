@@ -2,13 +2,30 @@ import { useState } from 'react';
 import { Card, Form, Input, Button, Typography, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore } from '../store/auth.store';
+import { useAuthStore } from '../modules/auth/auth.store';
 import AuthLayout from '../layouts/AuthLayout';
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
+  const { isAuthenticated } = useAuthStore();
+
+  // 데모: 자동 로그인 포트는 로그인 페이지 스킵
+  if (import.meta.env.DEV && ['5172', '5173', '5174', '5175'].includes(window.location.port)) {
+    if (isAuthenticated) {
+      navigate('/', { replace: true });
+      return null;
+    }
+    // 아직 자동 로그인 진행 중이면 스피너
+    return (
+      <AuthLayout>
+        <Card style={{ width: 400, textAlign: 'center', padding: 40 }}>
+          <Typography.Title level={4}>자동 로그인 중...</Typography.Title>
+        </Card>
+      </AuthLayout>
+    );
+  }
 
   const onFinish = async (values: { userId: string; password: string }) => {
     setLoading(true);

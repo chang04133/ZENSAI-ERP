@@ -1,45 +1,481 @@
-import { Card, Col, Row, Typography } from 'antd';
-import { ShopOutlined, TagsOutlined, UserOutlined } from '@ant-design/icons';
-import { useAuthStore } from '../store/auth.store';
-import { ROLE_LABELS } from '../constants/roles';
+import { useEffect, useState, CSSProperties } from 'react';
+import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, message } from 'antd';
+import {
+  ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
+  RiseOutlined, ShoppingCartOutlined, WarningOutlined, TruckOutlined,
+  CheckOutlined, CloseOutlined, BellOutlined, SendOutlined,
+} from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore } from '../modules/auth/auth.store';
+import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
+import { apiFetch } from '../core/api.client';
+
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'default', APPROVED: 'blue', PROCESSING: 'orange',
+  SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+};
+const STATUS_LABELS: Record<string, string> = {
+  DRAFT: '초안', APPROVED: '승인', PROCESSING: '처리중',
+  SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소',
+};
+
+/* ── Styled Stat Card ── */
+interface StatCardProps {
+  title: string; value: string | number; icon: React.ReactNode;
+  bg: string; color: string; sub?: string; onClick?: () => void;
+}
+function StatCard({ title, value, icon, bg, color, sub, onClick }: StatCardProps) {
+  const style: CSSProperties = {
+    background: bg, borderRadius: 12, padding: '20px 24px', cursor: onClick ? 'pointer' : 'default',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 110,
+    transition: 'transform 0.15s', border: 'none',
+  };
+  return (
+    <div style={style} onClick={onClick}
+      onMouseEnter={(e) => onClick && (e.currentTarget.style.transform = 'translateY(-2px)')}
+      onMouseLeave={(e) => onClick && (e.currentTarget.style.transform = 'translateY(0)')}>
+      <div>
+        <div style={{ fontSize: 13, color: color + 'cc', marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1.2 }}>{typeof value === 'number' ? value.toLocaleString() : value}</div>
+        {sub && <div style={{ fontSize: 12, color: color + '99', marginTop: 4 }}>{sub}</div>}
+      </div>
+      <div style={{ fontSize: 36, color: color + '44' }}>{icon}</div>
+    </div>
+  );
+}
+
+/* ── Mini Bar for Sales Trend ── */
+function MiniBar({ data }: { data: Array<{ label: string; revenue: number }> }) {
+  if (!data || data.length === 0) return <div style={{ color: '#aaa', textAlign: 'center', padding: 24 }}>매출 데이터가 없습니다</div>;
+  const max = Math.max(...data.map(d => Number(d.revenue)), 1);
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 100, padding: '0 4px' }}>
+      {data.map((d, i) => {
+        const h = Math.max((Number(d.revenue) / max) * 80, 4);
+        return (
+          <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+            <div style={{ fontSize: 10, color: '#888' }}>{Number(d.revenue) > 0 ? `${(Number(d.revenue) / 10000).toFixed(0)}만` : ''}</div>
+            <div style={{ width: '100%', maxWidth: 28, height: h, background: 'linear-gradient(180deg, #4f46e5, #818cf8)', borderRadius: 4 }} />
+            <div style={{ fontSize: 9, color: '#aaa' }}>{d.label}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function DashboardPage() {
   const user = useAuthStore((s) => s.user);
+  const navigate = useNavigate();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notiLoading, setNotiLoading] = useState(false);
+
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.HQ_MANAGER;
+
+  const loadStats = async () => {
+    try {
+      setLoading(true);
+      const res = await apiFetch('/api/dashboard/stats');
+      const data = await res.json();
+      if (data.success) setStats(data.data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setLoading(false); }
+  };
+
+  const loadNotifications = async () => {
+    setNotiLoading(true);
+    try {
+      const res = await apiFetch('/api/notifications?status=PENDING&limit=20');
+      const data = await res.json();
+      if (data.success) setNotifications(data.data);
+    } catch (e: any) { message.error('알림 로드 실패: ' + e.message); }
+    finally { setNotiLoading(false); }
+  };
+
+  const handleMarkRead = async (id: number) => {
+    try {
+      await apiFetch(`/api/notifications/${id}/read`, { method: 'PUT' });
+      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+    } catch (e: any) { message.error('읽음 처리 실패: ' + e.message); }
+  };
+
+  const handleResolve = async (id: number) => {
+    try {
+      await apiFetch(`/api/notifications/${id}/resolve`, { method: 'PUT' });
+      setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
+      message.success('처리 완료');
+    } catch (e: any) { message.error('처리 실패: ' + e.message); }
+  };
+
+  useEffect(() => { loadStats(); loadNotifications(); }, []);
+
+  const handleApprove = async (requestId: number) => {
+    try {
+      const res = await apiFetch(`/api/shipments/${requestId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'APPROVED' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('승인되었습니다.');
+        loadStats();
+      } else { message.error(data.error); }
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleReject = async (requestId: number) => {
+    try {
+      const res = await apiFetch(`/api/shipments/${requestId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('반려되었습니다.');
+        loadStats();
+      } else { message.error(data.error); }
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  // 재고 요청 (매장 매니저용)
+  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
+  const handleStockRequest = async (item: any) => {
+    const key = `${item.partner_code}-${item.variant_id}`;
+    if (requestingIds.has(key)) return;
+    const targets = (item.other_locations || []).filter((loc: any) => loc.qty > 0);
+    if (targets.length === 0) { message.warning('다른 매장에 재고가 없습니다.'); return; }
+    setRequestingIds((prev) => new Set(prev).add(key));
+    try {
+      const res = await apiFetch('/api/notifications/stock-request', {
+        method: 'POST',
+        body: JSON.stringify({
+          variant_id: item.variant_id,
+          from_qty: item.qty,
+          targets: targets.map((t: any) => ({ partner_code: t.partner_code, qty: t.qty })),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) message.success(`${targets.length}개 매장/본사에 재고 요청 완료`);
+      else message.error(data.error);
+    } catch (e: any) { message.error(e.message); }
+    finally {
+      setTimeout(() => setRequestingIds((prev) => { const s = new Set(prev); s.delete(key); return s; }), 3000);
+    }
+  };
+
+  const pendingCount = Number(stats?.shipments?.draft || 0) + Number(stats?.shipments?.approved || 0);
+  const processingCount = Number(stats?.shipments?.processing || 0);
+  const shippedCount = Number(stats?.shipments?.shipped || 0);
+  const totalShipments = pendingCount + processingCount + shippedCount + Number(stats?.shipments?.received || 0);
+
+  const shipmentColumns = [
+    { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 120 },
+    { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true, render: (v: string) => v || '-' },
+    { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+    { title: '상태', dataIndex: 'status', key: 'status', width: 90, render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v] || v}</Tag> },
+  ];
+
+  const productColumns = [
+    { title: '#', key: 'rank', width: 36, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600 }}>{i + 1}</span> },
+    { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+    { title: '판매', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+    { title: '매출', dataIndex: 'total_amount', key: 'amt', width: 100, render: (v: number) => `${(Number(v) / 10000).toFixed(0)}만원` },
+  ];
+
+  const lowStockColumns = [
+    { title: '상품', dataIndex: 'product_name', key: 'name', ellipsis: true,
+      render: (v: string, r: any) => <span>{v} <span style={{ color: '#aaa', fontSize: 11 }}>{r.color}/{r.size}</span></span>,
+    },
+    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 110, ellipsis: true },
+    ...(!isStore ? [{ title: '거래처' as const, dataIndex: 'partner_name' as const, key: 'partner', width: 90, ellipsis: true }] : []),
+    { title: '재고', dataIndex: 'qty', key: 'qty', width: 50, render: (v: number) => <Tag color={v === 0 ? 'red' : 'orange'}>{v}</Tag> },
+    { title: '다른 매장', dataIndex: 'other_locations', key: 'other', ellipsis: true,
+      render: (locs: any[]) => {
+        if (!locs || locs.length === 0) return <span style={{ color: '#ccc', fontSize: 11 }}>없음</span>;
+        return (
+          <span style={{ fontSize: 11 }}>
+            {locs.slice(0, 3).map((loc: any) => (
+              <span key={loc.partner_code} style={{ marginRight: 6 }}>
+                <span style={{ color: loc.partner_type === '본사' ? '#6366f1' : '#888' }}>{loc.partner_name}</span>
+                {' '}<Tag color="blue" style={{ fontSize: 10, margin: 0, padding: '0 4px' }}>{loc.qty}</Tag>
+              </span>
+            ))}
+            {locs.length > 3 && <span style={{ color: '#aaa' }}>+{locs.length - 3}</span>}
+          </span>
+        );
+      },
+    },
+    ...(isStore ? [{
+      title: '' as const, key: 'req', width: 65,
+      render: (_: any, record: any) => {
+        const k = `${record.partner_code}-${record.variant_id}`;
+        const sent = requestingIds.has(k);
+        const hasTargets = (record.other_locations || []).length > 0;
+        return hasTargets ? (
+          <Button type="primary" size="small" icon={<SendOutlined />}
+            loading={sent} disabled={sent} onClick={() => handleStockRequest(record)}
+            style={{ fontSize: 11, padding: '0 6px' }}>
+            {sent ? '완료' : '요청'}
+          </Button>
+        ) : null;
+      },
+    }] : []),
+  ];
+
+  const today = new Date();
+  const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
 
   return (
-    <div>
-      <Typography.Title level={4}>
-        안녕하세요, {user?.userName}님
-      </Typography.Title>
-      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 24 }}>
-        권한: {user ? ROLE_LABELS[user.role] || user.role : ''}
-      </Typography.Text>
-      <Row gutter={16}>
-        <Col span={8}>
-          <Card>
-            <Card.Meta
-              avatar={<ShopOutlined style={{ fontSize: 32, color: '#1890ff' }} />}
-              title="거래처 관리"
-              description="매장 등록 및 조회"
-            />
+    <div style={{ maxWidth: 1200 }}>
+      {/* Header */}
+      <div style={{ marginBottom: 28 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          {user?.userName}님, 좋은 하루 보내세요
+        </Typography.Title>
+        <Typography.Text type="secondary">
+          {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
+          {isStore && stats?.partnerCode && (
+            <Tag color="blue" style={{ marginLeft: 8 }}>{stats.partnerCode}</Tag>
+          )}
+        </Typography.Text>
+      </div>
+
+      {/* Main Stats */}
+      <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard title={isStore ? '내 매장 오늘 매출' : '오늘 매출'} value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
+            icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
+            sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`} />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
+            icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
+            sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`} />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard title={isStore ? '내 매장 재고' : '총 재고'} value={stats?.inventory?.totalQty || 0}
+            icon={<InboxOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
+            sub={`${stats?.inventory?.totalItems || 0}개 품목`} onClick={() => navigate('/inventory/status')} />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
+            icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
+            sub={`처리중 ${processingCount}건`} onClick={() => navigate('/shipment/process')} />
+        </Col>
+      </Row>
+
+      {/* Sub Stats */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        {!isStore && (
+          <>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <ShopOutlined style={{ fontSize: 24, color: '#6366f1' }} />
+                  <div>
+                    <div style={{ fontSize: 12, color: '#888' }}>거래처</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{stats?.partners || 0}</div>
+                  </div>
+                </div>
+              </Card>
+            </Col>
+            <Col xs={12} sm={6}>
+              <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <TagsOutlined style={{ fontSize: 24, color: '#ec4899' }} />
+                  <div>
+                    <div style={{ fontSize: 12, color: '#888' }}>등록 상품</div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>{stats?.products || 0}</div>
+                  </div>
+                </div>
+              </Card>
+            </Col>
+          </>
+        )}
+        <Col xs={12} sm={isStore ? 12 : 6}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <ShoppingCartOutlined style={{ fontSize: 24, color: '#f59e0b' }} />
+              <div>
+                <div style={{ fontSize: 12, color: '#888' }}>{isStore ? '내 매장 주간 매출' : '주간 매출'}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{(Number(stats?.sales?.week_revenue || 0) / 10000).toFixed(0)}만</div>
+              </div>
+            </div>
           </Card>
         </Col>
-        <Col span={8}>
-          <Card>
-            <Card.Meta
-              avatar={<TagsOutlined style={{ fontSize: 32, color: '#52c41a' }} />}
-              title="상품 관리"
-              description="상품 및 변형 관리"
-            />
+        <Col xs={12} sm={isStore ? 12 : 6}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <ShoppingCartOutlined style={{ fontSize: 24, color: '#10b981' }} />
+              <div>
+                <div style={{ fontSize: 12, color: '#888' }}>{isStore ? '내 매장 주간 판매량' : '주간 판매량'}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{Number(stats?.sales?.week_qty || 0).toLocaleString()}개</div>
+              </div>
+            </div>
           </Card>
         </Col>
-        <Col span={8}>
-          <Card>
-            <Card.Meta
-              avatar={<UserOutlined style={{ fontSize: 32, color: '#faad14' }} />}
-              title="사용자 관리"
-              description="계정 및 권한 관리"
-            />
+      </Row>
+
+      {/* Shipment Pipeline + Sales Trend */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} md={12}>
+          <Card title={isStore ? '내 매장 출고 현황' : '출고 현황'} size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
+            extra={<a onClick={() => navigate('/shipment/process')}>전체보기</a>}>
+            <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: 16 }}>
+              {[
+                { label: '대기', count: pendingCount, color: '#6366f1' },
+                { label: '처리중', count: processingCount, color: '#f59e0b' },
+                { label: '출고완료', count: shippedCount, color: '#10b981' },
+                { label: '수령완료', count: Number(stats?.shipments?.received || 0), color: '#06b6d4' },
+              ].map((s) => (
+                <div key={s.label}>
+                  <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.count}</div>
+                  <div style={{ fontSize: 12, color: '#888' }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            {totalShipments > 0 && (
+              <Progress
+                percent={100}
+                success={{ percent: (Number(stats?.shipments?.received || 0) / totalShipments) * 100 }}
+                strokeColor="#f59e0b"
+                trailColor="#f3f4f6"
+                showInfo={false}
+                style={{ marginBottom: 8 }}
+              />
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card title="최근 14일 매출 추이" size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
+            extra={<a onClick={() => navigate('/sales/entry')}>매출등록</a>}>
+            <MiniBar data={stats?.monthlySalesTrend || []} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Stock Request Notifications */}
+      {notifications.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title={<span><BellOutlined style={{ color: '#6366f1', marginRight: 8 }} />재고 요청 알림 <Badge count={notifications.length} style={{ backgroundColor: '#6366f1', marginLeft: 8 }} /></span>}
+              size="small" style={{ borderRadius: 10, borderLeft: '4px solid #6366f1' }} loading={notiLoading}
+            >
+              <Table
+                columns={[
+                  { title: '요청 매장', dataIndex: 'from_partner_name', key: 'from', width: 110 },
+                  { title: '상품', key: 'product', ellipsis: true,
+                    render: (_: any, r: any) => <span>{r.product_name} <span style={{ color: '#888', fontSize: 12 }}>({r.color}/{r.size})</span></span>,
+                  },
+                  { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 130 },
+                  { title: '요청측 재고', dataIndex: 'from_qty', key: 'from_qty', width: 90,
+                    render: (v: number) => <Tag color={v === 0 ? 'red' : 'orange'}>{v}개</Tag>,
+                  },
+                  { title: '우리 재고', dataIndex: 'to_qty', key: 'to_qty', width: 90,
+                    render: (v: number) => <Tag color="blue">{v}개</Tag>,
+                  },
+                  { title: '요청일', dataIndex: 'created_at', key: 'date', width: 100,
+                    render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-',
+                  },
+                  { title: '처리', key: 'action', width: 150, fixed: 'right' as const,
+                    render: (_: any, r: any) => (
+                      <span style={{ display: 'flex', gap: 6 }}>
+                        <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => handleResolve(r.notification_id)}>처리</Button>
+                        <Button size="small" onClick={() => handleMarkRead(r.notification_id)}>확인</Button>
+                      </span>
+                    ),
+                  },
+                ]}
+                dataSource={notifications}
+                rowKey="notification_id"
+                pagination={false}
+                size="small"
+                scroll={{ x: 750 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* Pending Approvals - ADMIN/HQ only */}
+      {isAdmin && (stats?.pendingApprovals || []).length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title={<span><BellOutlined style={{ color: '#f59e0b', marginRight: 8 }} />승인 대기 의뢰 <Badge count={(stats?.pendingApprovals || []).length} style={{ backgroundColor: '#f59e0b', marginLeft: 8 }} /></span>}
+              size="small" style={{ borderRadius: 10, borderLeft: '4px solid #f59e0b' }} loading={loading}
+              extra={<a onClick={() => navigate('/shipment/request')}>전체보기</a>}
+            >
+              <Table
+                columns={[
+                  { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                  { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                  { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                  { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                  { title: '품목수', dataIndex: 'item_count', key: 'items', width: 70, render: (v: number) => `${v}건` },
+                  { title: '총수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                  { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 100, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                  { title: '요청자', dataIndex: 'requested_by_name', key: 'by', width: 100 },
+                  {
+                    title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                    render: (_: any, record: any) => (
+                      <span style={{ display: 'flex', gap: 6 }}>
+                        <Popconfirm title="이 의뢰를 승인하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="승인" cancelText="취소">
+                          <Button type="primary" size="small" icon={<CheckOutlined />}>승인</Button>
+                        </Popconfirm>
+                        <Popconfirm title="이 의뢰를 반려하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="반려" cancelText="취소" okButtonProps={{ danger: true }}>
+                          <Button danger size="small" icon={<CloseOutlined />}>반려</Button>
+                        </Popconfirm>
+                      </span>
+                    ),
+                  },
+                ]}
+                dataSource={stats?.pendingApprovals || []}
+                rowKey="request_id"
+                pagination={false}
+                size="small"
+                scroll={{ x: 800 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* Tables */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} md={8}>
+          <Card title={<span>{isStore ? '내 매장 재고 부족' : '재고 부족'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
+            size="small" style={{ borderRadius: 10 }} loading={loading}
+            extra={<a onClick={() => navigate('/inventory/status')}>전체보기</a>}>
+            {(stats?.lowStock || []).length > 0 ? (
+              <Table columns={lowStockColumns} dataSource={stats?.lowStock || []} rowKey={(r) => `${r.partner_code}-${r.variant_id}`} pagination={false} size="small" scroll={{ x: 500 }} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
+                <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
+                재고 부족 품목이 없습니다
+              </div>
+            )}
+          </Card>
+        </Col>
+        <Col xs={24} md={9}>
+          <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
+            extra={<a onClick={() => navigate('/shipment/request')}>전체보기</a>}>
+            <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" />
+          </Card>
+        </Col>
+        <Col xs={24} md={7}>
+          <Card title={isStore ? '내 매장 인기상품 TOP 5' : '인기상품 TOP 5'} size="small" style={{ borderRadius: 10 }} loading={loading}
+            extra={<span style={{ fontSize: 11, color: '#888' }}>최근 30일</span>}>
+            {(stats?.topProducts || []).length > 0 ? (
+              <Table columns={productColumns} dataSource={stats?.topProducts || []} rowKey="product_code" pagination={false} size="small" />
+            ) : (
+              <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>판매 데이터가 없습니다</div>
+            )}
           </Card>
         </Col>
       </Row>

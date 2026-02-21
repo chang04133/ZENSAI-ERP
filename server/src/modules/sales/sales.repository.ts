@@ -366,67 +366,88 @@ export class SalesRepository {
     return { monthly: rows, totals };
   }
 
-  /** 스타일 판매 분석 (전년대비 종합) */
+  /** 스타일 판매 분석 (전년대비 종합) — 동일기간 비교 */
   async styleAnalytics(year: number) {
     const prevYear = year - 1;
+    const now = new Date();
+    const currentYear = now.getFullYear();
+
+    // 동일기간 비교: 올해면 오늘까지, 과거면 전체연도
+    let curStart: string, curEnd: string, prevStart: string, prevEnd: string;
+    if (year === currentYear) {
+      curStart = `${year}-01-01`;
+      curEnd = now.toISOString().slice(0, 10);
+      prevStart = `${prevYear}-01-01`;
+      prevEnd = `${prevYear}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    } else {
+      curStart = `${year}-01-01`;
+      curEnd = `${year}-12-31`;
+      prevStart = `${prevYear}-01-01`;
+      prevEnd = `${prevYear}-12-31`;
+    }
+
+    // params: $1=curStart, $2=curEnd, $3=prevStart, $4=prevEnd
+    const dateParams = [curStart, curEnd, prevStart, prevEnd];
+    // curOnly: $1=curStart, $2=curEnd
+    const curOnlyParams = [curStart, curEnd];
 
     // 1. 카테고리별 전년대비
     const byCategorySql = `
       SELECT COALESCE(p.category, '미분류') AS category,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY cur_amount DESC`;
-    const byCategory = (await this.pool.query(byCategorySql, [year, prevYear])).rows;
+    const byCategory = (await this.pool.query(byCategorySql, dateParams)).rows;
 
     // 2. 핏별 전년대비
     const byFitSql = `
       SELECT COALESCE(p.fit, '미지정') AS fit,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY cur_amount DESC`;
-    const byFit = (await this.pool.query(byFitSql, [year, prevYear])).rows;
+    const byFit = (await this.pool.query(byFitSql, dateParams)).rows;
 
     // 3. 기장별 전년대비
     const byLengthSql = `
       SELECT COALESCE(p.length, '미지정') AS length,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY cur_amount DESC`;
-    const byLength = (await this.pool.query(byLengthSql, [year, prevYear])).rows;
+    const byLength = (await this.pool.query(byLengthSql, dateParams)).rows;
 
-    // 4. 제품별 증감률 (전년 판매 있는 제품만, 증가순 + 감소순 각 15개)
+    // 4. 제품별 증감률
     const productGrowthSql = `
       WITH product_yoy AS (
         SELECT p.product_code, p.product_name, p.category, p.fit, p.length,
-          COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-          COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-          COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-          COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+          COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+          COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+          COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+          COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
         FROM sales s
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
-        WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+        WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
         GROUP BY p.product_code, p.product_name, p.category, p.fit, p.length
       )
       SELECT *,
@@ -435,44 +456,44 @@ export class SalesRepository {
       FROM product_yoy
       WHERE (cur_qty > 0 OR prev_qty > 0)
       ORDER BY cur_amount DESC`;
-    const productGrowth = (await this.pool.query(productGrowthSql, [year, prevYear])).rows;
+    const productGrowth = (await this.pool.query(productGrowthSql, dateParams)).rows;
 
-    // 5. 사이즈별 판매비중 (올해)
+    // 5. 사이즈별 판매비중 (선택기간)
     const bySizeSql = `
       SELECT pv.size,
         SUM(s.qty)::int AS total_qty,
         SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE EXTRACT(YEAR FROM s.sale_date) = $1
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
       GROUP BY pv.size
       ORDER BY total_qty DESC`;
-    const bySize = (await this.pool.query(bySizeSql, [year])).rows;
+    const bySize = (await this.pool.query(bySizeSql, curOnlyParams)).rows;
 
-    // 6. 컬러별 판매 TOP 15 (올해)
+    // 6. 컬러별 판매 TOP 15 (선택기간)
     const byColorSql = `
       SELECT pv.color,
         SUM(s.qty)::int AS total_qty,
         SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE EXTRACT(YEAR FROM s.sale_date) = $1
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
       GROUP BY pv.color
       ORDER BY total_qty DESC LIMIT 15`;
-    const byColor = (await this.pool.query(byColorSql, [year])).rows;
+    const byColor = (await this.pool.query(byColorSql, curOnlyParams)).rows;
 
     // 7. 월별 YoY 추이
     const monthlyYoYSql = `
       SELECT TO_CHAR(sale_date, 'MM') AS month,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $1 THEN total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $1 THEN qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $2 THEN total_price END), 0)::bigint AS prev_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $2 THEN qty END), 0)::int AS prev_qty
+        COALESCE(SUM(CASE WHEN sale_date >= $1::date AND sale_date <= $2::date THEN total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN sale_date >= $1::date AND sale_date <= $2::date THEN qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN sale_date >= $3::date AND sale_date <= $4::date THEN total_price END), 0)::bigint AS prev_amount,
+        COALESCE(SUM(CASE WHEN sale_date >= $3::date AND sale_date <= $4::date THEN qty END), 0)::int AS prev_qty
       FROM sales
-      WHERE EXTRACT(YEAR FROM sale_date) IN ($1, $2)
+      WHERE sale_date >= $3::date AND sale_date <= $2::date
       GROUP BY TO_CHAR(sale_date, 'MM')
       ORDER BY month`;
-    const monthlyYoY = (await this.pool.query(monthlyYoYSql, [year, prevYear])).rows;
+    const monthlyYoY = (await this.pool.query(monthlyYoYSql, dateParams)).rows;
 
     // 8. 시즌별 전년대비
     const bySeasonSql = `
@@ -483,35 +504,36 @@ export class SalesRepository {
           WHEN p.season LIKE '%WN' THEN '겨울'
           ELSE '기타'
         END AS season_type,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
       GROUP BY season_type
       ORDER BY cur_amount DESC`;
-    const bySeason = (await this.pool.query(bySeasonSql, [year, prevYear])).rows;
+    const bySeason = (await this.pool.query(bySeasonSql, dateParams)).rows;
 
     // 9. 세부카테고리별 전년대비
     const bySubCategorySql = `
       SELECT COALESCE(p.category, '미분류') AS category,
         COALESCE(p.sub_category, '미분류') AS sub_category,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.qty END), 0)::int AS cur_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $1 THEN s.total_price END), 0)::bigint AS cur_amount,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.qty END), 0)::int AS prev_qty,
-        COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM s.sale_date) = $2 THEN s.total_price END), 0)::bigint AS prev_amount
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
+        COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.total_price END), 0)::bigint AS prev_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE EXTRACT(YEAR FROM s.sale_date) IN ($1, $2)
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
       GROUP BY COALESCE(p.category, '미분류'), COALESCE(p.sub_category, '미분류')
       ORDER BY cur_amount DESC`;
-    const bySubCategory = (await this.pool.query(bySubCategorySql, [year, prevYear])).rows;
+    const bySubCategory = (await this.pool.query(bySubCategorySql, dateParams)).rows;
 
-    return { byCategory, byFit, byLength, productGrowth, bySize, byColor, monthlyYoY, bySeason, bySubCategory };
+    const period = { curStart, curEnd, prevStart, prevEnd };
+    return { period, byCategory, byFit, byLength, productGrowth, bySize, byColor, monthlyYoY, bySeason, bySubCategory };
   }
 
   async weeklyStyleSales(options: { weeks?: number; category?: string } = {}) {

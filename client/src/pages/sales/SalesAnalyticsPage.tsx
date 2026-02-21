@@ -66,7 +66,14 @@ export default function SalesAnalyticsPage() {
   return (
     <div>
       <PageHeader title="스타일 판매 분석" extra={
-        <Select value={year} options={yearOptions} onChange={setYear} style={{ width: 100 }} />
+        <Space>
+          {data?.period && (
+            <span style={{ fontSize: 11, color: '#888' }}>
+              비교기간: {data.period.curStart} ~ {data.period.curEnd} vs {data.period.prevStart} ~ {data.period.prevEnd}
+            </span>
+          )}
+          <Select value={year} options={yearOptions} onChange={setYear} style={{ width: 100 }} />
+        </Space>
       } />
 
       {/* 전체 요약 카드 */}
@@ -79,7 +86,7 @@ export default function SalesAnalyticsPage() {
         </Col>
         <Col xs={12} sm={6}>
           <Card size="small">
-            <Statistic title={`${year - 1}년 매출`} value={totalSummary.prev} formatter={(v) => fmtW(Number(v))}
+            <Statistic title={`${year - 1}년 동기 매출`} value={totalSummary.prev} formatter={(v) => fmtW(Number(v))}
               valueStyle={{ fontSize: 16, color: '#888' }} />
           </Card>
         </Col>

@@ -87,14 +87,49 @@ router.put('/:id/read', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
-// PUT /api/notifications/:id/resolve — 처리 완료
+// PUT /api/notifications/:id/resolve — 처리 완료 (같은 요청의 다른 알림 자동 취소)
 router.put('/:id/resolve', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();
-  await pool.query(
-    `UPDATE stock_notifications SET status = 'RESOLVED', read_at = COALESCE(read_at, NOW()) WHERE notification_id = $1`,
-    [req.params.id],
-  );
-  res.json({ success: true });
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 수락할 알림 정보 조회
+    const notif = await client.query(
+      'SELECT from_partner_code, variant_id FROM stock_notifications WHERE notification_id = $1',
+      [req.params.id],
+    );
+    if (notif.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ success: false, error: '알림을 찾을 수 없습니다.' });
+      return;
+    }
+
+    const { from_partner_code, variant_id } = notif.rows[0];
+
+    // 이 알림을 RESOLVED 처리
+    await client.query(
+      `UPDATE stock_notifications SET status = 'RESOLVED', read_at = COALESCE(read_at, NOW()) WHERE notification_id = $1`,
+      [req.params.id],
+    );
+
+    // 같은 요청(같은 요청자 + 같은 상품)의 다른 PENDING 알림은 자동 취소
+    const cancelled = await client.query(
+      `UPDATE stock_notifications SET status = 'CANCELLED', read_at = NOW()
+       WHERE from_partner_code = $1 AND variant_id = $2 AND notification_id != $3
+         AND status IN ('PENDING', 'READ')
+       RETURNING notification_id`,
+      [from_partner_code, variant_id, req.params.id],
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, data: { cancelledCount: cancelled.rowCount } });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }));
 
 // GET /api/notifications/count — 미읽음 알림 수

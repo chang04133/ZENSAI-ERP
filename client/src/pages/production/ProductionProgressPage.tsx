@@ -11,6 +11,8 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
 
+const fmtNum = (v: number) => v.toLocaleString();
+
 export default function ProductionProgressPage() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [total, setTotal] = useState(0);
@@ -66,9 +68,9 @@ export default function ProductionProgressPage() {
     { title: '상태', dataIndex: 'status', key: 'status', width: 80,
       render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v]}</Tag> },
     { title: '계획수량', dataIndex: 'total_plan_qty', key: 'plan', width: 80,
-      render: (v: number) => Number(v).toLocaleString() },
+      render: (v: number) => fmtNum(Number(v)) },
     { title: '생산수량', dataIndex: 'total_produced_qty', key: 'prod', width: 80,
-      render: (v: number) => Number(v).toLocaleString() },
+      render: (v: number) => fmtNum(Number(v)) },
     { title: '진행률', key: 'pct', width: 140, render: (_: any, r: any) => {
       const pct = r.total_plan_qty > 0 ? Math.round((r.total_produced_qty / r.total_plan_qty) * 100) : 0;
       return <Progress percent={pct} size="small" status={pct >= 100 ? 'success' : 'active'}
@@ -85,6 +87,13 @@ export default function ProductionProgressPage() {
       )
     )},
   ];
+
+  const itemLabel = (item: ProductionPlanItem) => {
+    const parts = [item.category];
+    if (item.fit) parts.push(item.fit);
+    if (item.length) parts.push(item.length);
+    return parts.join(' / ');
+  };
 
   return (
     <div style={{ maxWidth: 1200 }}>
@@ -107,7 +116,7 @@ export default function ProductionProgressPage() {
           <Button key="cancel" onClick={() => setUpdateOpen(false)}>닫기</Button>,
           <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveQty}>저장</Button>,
         ] : [<Button key="close" onClick={() => setUpdateOpen(false)}>닫기</Button>]}
-        width={700}>
+        width={750}>
         {activePlan && (
           <>
             <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -119,10 +128,12 @@ export default function ProductionProgressPage() {
 
             <Table
               columns={[
-                { title: '상품', dataIndex: 'product_name', key: 'name', ellipsis: true },
-                { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, render: (v: string) => v || '(전체)' },
-                { title: '옵션', key: 'opt', width: 90, render: (_: any, r: any) => r.color ? `${r.color}/${r.size}` : '-' },
-                { title: '계획', dataIndex: 'plan_qty', key: 'plan', width: 70 },
+                { title: '카테고리 / 핏 / 기장', key: 'name', ellipsis: true,
+                  render: (_: any, r: ProductionPlanItem) => itemLabel(r) },
+                { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 90,
+                  render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
+                { title: '계획', dataIndex: 'plan_qty', key: 'plan', width: 70,
+                  render: (v: number) => fmtNum(v) },
                 { title: '생산수량', key: 'prod', width: 110, render: (_: any, r: ProductionPlanItem, idx: number) => (
                   activePlan.status === 'IN_PRODUCTION' ? (
                     <InputNumber min={0} max={r.plan_qty} value={editItems[idx]?.produced_qty}

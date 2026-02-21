@@ -132,11 +132,11 @@ export default function SystemSettingsPage() {
       </Card>
 
       <Card
-        title={<span><ExperimentOutlined style={{ marginRight: 8 }} />시즌 수요 패널티 설정</span>}
+        title={<span><ExperimentOutlined style={{ marginRight: 8 }} />시즌 수요 가중치 설정</span>}
         style={{ borderRadius: 10, marginTop: 16 }}
       >
         <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
-          현재 시즌에 따라 상품별 수요 예측에 적용되는 계수입니다. 1.0 = 패널티 없음, 0.0 = 수요 0으로 처리.
+          현재 시즌에 따라 상품별 수요 예측에 적용되는 계수입니다. 1.0 = 가중치 없음, 0.0 = 수요 0으로 처리.
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>

@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, message, Typography } from 'antd';
-import { PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
+import { PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
+import { codeApi } from '../../modules/code/code.api';
 import { apiFetch } from '../../core/api.client';
 import type { ProductionPlan } from '../../../../shared/types/production';
 import dayjs from 'dayjs';
@@ -12,6 +13,17 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
+
+const fmtNum = (v: number) => v.toLocaleString();
+
+interface PlanItem {
+  category: string;
+  fit: string | null;
+  length: string | null;
+  plan_qty: number;
+  unit_cost: number | null;
+  memo: string | null;
+}
 
 export default function ProductionPlanPage() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
@@ -24,10 +36,13 @@ export default function ProductionPlanPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProductionPlan | null>(null);
   const [form] = Form.useForm();
-  const [items, setItems] = useState<any[]>([{ product_code: '', variant_id: null, plan_qty: 1, unit_cost: null }]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [variants, setVariants] = useState<Record<string, any[]>>({});
+  const [items, setItems] = useState<PlanItem[]>([{ category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }]);
   const [partners, setPartners] = useState<any[]>([]);
+
+  // 코드 옵션
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,31 +61,27 @@ export default function ProductionPlanPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [pRes, ptRes] = await Promise.all([
-          apiFetch('/api/products?limit=500').then(r => r.json()),
+        const [ptRes, codes] = await Promise.all([
           apiFetch('/api/partners?limit=100').then(r => r.json()),
+          codeApi.getAll(),
         ]);
-        if (pRes.success) setProducts(pRes.data.data || pRes.data);
         if (ptRes.success) setPartners(ptRes.data.data || ptRes.data);
-      } catch (e: any) { console.error('상품/거래처 로드 실패:', e); }
+
+        const toOpts = (items: any[]) => (items || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
+        setCategoryOptions((codes.CATEGORY || []).filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+        setFitOptions(toOpts(codes.FIT));
+        setLengthOptions(toOpts(codes.LENGTH));
+      } catch (e: any) { console.error('코드/거래처 로드 실패:', e); }
     })();
   }, []);
 
-  const loadVariants = async (productCode: string) => {
-    if (variants[productCode]) return;
-    try {
-      const res = await apiFetch(`/api/products/${productCode}`).then(r => r.json());
-      if (res.success && res.data.variants) {
-        setVariants(prev => ({ ...prev, [productCode]: res.data.variants }));
-      }
-    } catch (e: any) { console.error('바리언트 로드 실패:', e); }
-  };
+  const itemsTotal = items.reduce((sum, i) => sum + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
 
   const handleCreate = async () => {
     try {
       const values = await form.validateFields();
-      const validItems = items.filter(i => i.product_code && i.plan_qty > 0);
-      if (validItems.length === 0) { message.error('품목을 추가해주세요.'); return; }
+      const validItems = items.filter(i => i.category && i.plan_qty > 0);
+      if (validItems.length === 0) { message.error('품목을 추가해주세요 (카테고리 필수).'); return; }
       await productionApi.create({
         plan_name: values.plan_name,
         season: values.season,
@@ -81,7 +92,7 @@ export default function ProductionPlanPage() {
       });
       message.success('생산계획이 등록되었습니다.');
       setCreateOpen(false); form.resetFields();
-      setItems([{ product_code: '', variant_id: null, plan_qty: 1, unit_cost: null }]);
+      setItems([{ category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }]);
       load();
     } catch (e: any) { message.error(e.message); }
   };
@@ -111,7 +122,9 @@ export default function ProductionPlanPage() {
     { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
     { title: '거래처', dataIndex: 'partner_name', key: 'partner', width: 100, render: (v: string) => v || '-' },
     { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-    { title: '계획수량', dataIndex: 'total_plan_qty', key: 'plan', width: 80, render: (v: number) => Number(v).toLocaleString() },
+    { title: '계획수량', dataIndex: 'total_plan_qty', key: 'plan', width: 80, render: (v: number) => fmtNum(Number(v)) },
+    { title: '총 비용', dataIndex: 'total_cost', key: 'cost', width: 110,
+      render: (v: number) => v ? `${fmtNum(Number(v))}원` : '-' },
     { title: '진행률', key: 'pct', width: 120, render: (_: any, r: any) => {
       const pct = r.total_plan_qty > 0 ? Math.round((r.total_produced_qty / r.total_plan_qty) * 100) : 0;
       return <Progress percent={pct} size="small" />;
@@ -145,6 +158,9 @@ export default function ProductionPlanPage() {
     )},
   ];
 
+  // 상세 모달 품목 비용 합계
+  const detailTotalCost = (detail?.items || []).reduce((sum, i) => sum + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
+
   return (
     <div style={{ maxWidth: 1200 }}>
       <Card title="생산계획 관리" extra={
@@ -158,12 +174,12 @@ export default function ProductionPlanPage() {
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
           pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
-          size="small" scroll={{ x: 1100 }} />
+          size="small" scroll={{ x: 1200 }} />
       </Card>
 
       {/* 등록 모달 */}
       <Modal title="생산계획 등록" open={createOpen} onCancel={() => setCreateOpen(false)}
-        onOk={handleCreate} width={800} okText="등록">
+        onOk={handleCreate} width={900} okText="등록">
         <Form form={form} layout="vertical">
           <Form.Item name="plan_name" label="계획명" rules={[{ required: true }]}>
             <Input placeholder="예: 26SA 상의 1차 생산" />
@@ -176,6 +192,7 @@ export default function ProductionPlanPage() {
                   { value: '2026SM', label: '26 여름' },
                   { value: '2026WN', label: '26 겨울' },
                   { value: '2025SA', label: '25 봄/가을' },
+                  { value: '2025SM', label: '25 여름' },
                   { value: '2025WN', label: '25 겨울' },
                 ].map(s => <Select.Option key={s.value} value={s.value}>{s.label}</Select.Option>)}
               </Select>
@@ -192,53 +209,67 @@ export default function ProductionPlanPage() {
           <Form.Item name="memo" label="메모"><Input.TextArea rows={2} /></Form.Item>
         </Form>
 
-        <Typography.Text strong>품목 목록</Typography.Text>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <Typography.Text strong>품목 목록</Typography.Text>
+          <Typography.Text type="secondary">
+            총 금액: <strong style={{ color: '#1677ff' }}>{fmtNum(itemsTotal)}원</strong>
+          </Typography.Text>
+        </div>
         <Table
           columns={[
-            { title: '상품', key: 'product', width: 200, render: (_: any, __: any, idx: number) => (
-              <Select value={items[idx]?.product_code || undefined} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], product_code: v, variant_id: null };
-                setItems(next); loadVariants(v);
-              }} style={{ width: '100%' }} placeholder="상품 선택" showSearch optionFilterProp="children">
-                {products.map((p: any) => <Select.Option key={p.product_code} value={p.product_code}>{p.product_name}</Select.Option>)}
-              </Select>
+            { title: '카테고리', key: 'category', width: 130, render: (_: any, __: any, idx: number) => (
+              <Select value={items[idx]?.category || undefined} onChange={(v) => {
+                const next = [...items]; next[idx] = { ...next[idx], category: v }; setItems(next);
+              }} style={{ width: '100%' }} placeholder="카테고리" showSearch optionFilterProp="label"
+                options={categoryOptions} />
             )},
-            { title: '옵션(SKU)', key: 'variant', width: 200, render: (_: any, __: any, idx: number) => {
-              const pc = items[idx]?.product_code;
-              const vList = variants[pc] || [];
-              return (
-                <Select value={items[idx]?.variant_id || undefined} onChange={(v) => {
-                  const next = [...items]; next[idx] = { ...next[idx], variant_id: v }; setItems(next);
-                }} style={{ width: '100%' }} placeholder="전체 또는 선택" allowClear>
-                  {vList.map((v: any) => <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} ({v.color}/{v.size})</Select.Option>)}
-                </Select>
-              );
-            }},
-            { title: '수량', key: 'qty', width: 100, render: (_: any, __: any, idx: number) => (
+            { title: '핏', key: 'fit', width: 120, render: (_: any, __: any, idx: number) => (
+              <Select value={items[idx]?.fit || undefined} onChange={(v) => {
+                const next = [...items]; next[idx] = { ...next[idx], fit: v || null }; setItems(next);
+              }} style={{ width: '100%' }} placeholder="핏" allowClear showSearch optionFilterProp="label"
+                options={fitOptions} />
+            )},
+            { title: '기장', key: 'length', width: 120, render: (_: any, __: any, idx: number) => (
+              <Select value={items[idx]?.length || undefined} onChange={(v) => {
+                const next = [...items]; next[idx] = { ...next[idx], length: v || null }; setItems(next);
+              }} style={{ width: '100%' }} placeholder="기장" allowClear showSearch optionFilterProp="label"
+                options={lengthOptions} />
+            )},
+            { title: '수량', key: 'qty', width: 90, render: (_: any, __: any, idx: number) => (
               <InputNumber min={1} value={items[idx]?.plan_qty} onChange={(v) => {
                 const next = [...items]; next[idx] = { ...next[idx], plan_qty: v || 1 }; setItems(next);
               }} style={{ width: '100%' }} />
             )},
-            { title: '단가', key: 'cost', width: 100, render: (_: any, __: any, idx: number) => (
+            { title: '단가', key: 'cost', width: 110, render: (_: any, __: any, idx: number) => (
               <InputNumber min={0} value={items[idx]?.unit_cost} onChange={(v) => {
                 const next = [...items]; next[idx] = { ...next[idx], unit_cost: v }; setItems(next);
-              }} style={{ width: '100%' }} />
+              }} style={{ width: '100%' }}
+                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                parser={(v) => Number((v || '').replace(/,/g, ''))} />
             )},
+            { title: '금액', key: 'amount', width: 110, render: (_: any, __: any, idx: number) => {
+              const amt = (items[idx]?.plan_qty || 0) * (items[idx]?.unit_cost || 0);
+              return <span style={{ fontWeight: 600 }}>{fmtNum(amt)}</span>;
+            }},
             { title: '', key: 'del', width: 40, render: (_: any, __: any, idx: number) => (
-              items.length > 1 ? <Button size="small" danger onClick={() => setItems(items.filter((_, i) => i !== idx))}>X</Button> : null
+              items.length > 1 ? <Button size="small" danger icon={<DeleteOutlined />}
+                onClick={() => setItems(items.filter((_, i) => i !== idx))} /> : null
             )},
           ]}
           dataSource={items}
           rowKey={(_, i) => String(i)}
           pagination={false}
           size="small"
-          footer={() => <Button type="dashed" block onClick={() => setItems([...items, { product_code: '', variant_id: null, plan_qty: 1, unit_cost: null }])}>+ 품목 추가</Button>}
+          footer={() => <Button type="dashed" block onClick={() =>
+            setItems([...items, { category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }])}>
+            + 품목 추가
+          </Button>}
         />
       </Modal>
 
       {/* 상세 모달 */}
       <Modal title={`생산계획 상세 - ${detail?.plan_no || ''}`} open={detailOpen}
-        onCancel={() => setDetailOpen(false)} footer={null} width={800}>
+        onCancel={() => setDetailOpen(false)} footer={null} width={900}>
         {detail && (
           <>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -253,16 +284,27 @@ export default function ProductionPlanPage() {
             </div>
             {detail.memo && <div style={{ marginBottom: 16, color: '#666' }}>{detail.memo}</div>}
 
-            <Typography.Text strong>품목 목록</Typography.Text>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography.Text strong>품목 목록</Typography.Text>
+              <Typography.Text type="secondary">
+                총 생산비용: <strong style={{ color: '#1677ff' }}>{fmtNum(detailTotalCost)}원</strong>
+              </Typography.Text>
+            </div>
             <Table
               columns={[
-                { title: '상품', dataIndex: 'product_name', key: 'name', ellipsis: true },
-                { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, render: (v: string) => v || '(전체)' },
-                { title: '옵션', key: 'opt', width: 100, render: (_: any, r: any) => r.color ? `${r.color}/${r.size}` : '-' },
-                { title: '계획', dataIndex: 'plan_qty', key: 'plan', width: 70 },
-                { title: '생산', dataIndex: 'produced_qty', key: 'prod', width: 70 },
+                { title: '카테고리', dataIndex: 'category', key: 'cat', width: 100 },
+                { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
+                { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
+                { title: '수량', dataIndex: 'plan_qty', key: 'plan', width: 80, render: (v: number) => fmtNum(v) },
+                { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 100,
+                  render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
+                { title: '금액', key: 'amount', width: 110, render: (_: any, r: any) => {
+                  const amt = (r.plan_qty || 0) * (r.unit_cost || 0);
+                  return amt > 0 ? <strong>{fmtNum(amt)}원</strong> : '-';
+                }},
+                { title: '생산', dataIndex: 'produced_qty', key: 'prod', width: 70, render: (v: number) => fmtNum(v || 0) },
                 { title: '진행률', key: 'pct', width: 120, render: (_: any, r: any) => {
-                  const pct = r.plan_qty > 0 ? Math.round((r.produced_qty / r.plan_qty) * 100) : 0;
+                  const pct = r.plan_qty > 0 ? Math.round(((r.produced_qty || 0) / r.plan_qty) * 100) : 0;
                   return <Progress percent={pct} size="small" />;
                 }},
               ]}

@@ -1,11 +1,12 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined } from '@ant-design/icons';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert } from 'antd';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
+import { getToken } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 import dayjs from 'dayjs';
 
@@ -44,6 +45,11 @@ export default function SalesEntryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
   const [variantSearchMap, setVariantSearchMap] = useState<Record<number, any[]>>({});
+
+  // 엑셀 업로드 상태
+  const [uploadModalOpen, setUploadModalOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<{ total: number; created: number; skipped: number; errors?: string[] } | null>(null);
 
   // 모달 폼 상태
   const [saleDate, setSaleDate] = useState(dayjs());
@@ -146,6 +152,40 @@ export default function SalesEntryPage() {
     setModalOpen(true);
   };
 
+  const handleExcelUpload = async (file: File) => {
+    setUploading(true);
+    setUploadResult(null);
+    try {
+      const result = await salesApi.uploadExcel(file);
+      setUploadResult(result);
+      if (result.created > 0) {
+        message.success(`${result.created}건 매출이 등록되었습니다.`);
+        load();
+      }
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setUploading(false);
+    }
+    return false; // prevent default upload behavior
+  };
+
+  const handleDownloadTemplate = () => {
+    const token = getToken();
+    const link = document.createElement('a');
+    link.href = `/api/sales/excel/template`;
+    link.setAttribute('download', 'sales_template.xlsx');
+    // auth header via fetch
+    fetch(`/api/sales/excel/template`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        link.href = url;
+        link.click();
+        URL.revokeObjectURL(url);
+      });
+  };
+
   const totalAmount = items.reduce((sum, i) => sum + (i.qty || 0) * (i.unit_price || 0), 0);
 
   const partnerOptions = partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }));
@@ -226,7 +266,10 @@ export default function SalesEntryPage() {
   return (
     <div>
       <PageHeader title="매출등록" extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={openModal}>매출 등록</Button>
+        <Space>
+          <Button icon={<UploadOutlined />} onClick={() => { setUploadResult(null); setUploadModalOpen(true); }}>엑셀 업로드</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openModal}>매출 등록</Button>
+        </Space>
       } />
       <Table columns={columns} dataSource={data} rowKey="sale_id" loading={loading}
         pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
@@ -268,6 +311,52 @@ export default function SalesEntryPage() {
             등록
           </Button>
         </div>
+      </Modal>
+
+      {/* 엑셀 업로드 모달 */}
+      <Modal
+        title="매출 엑셀 업로드"
+        open={uploadModalOpen}
+        onCancel={() => setUploadModalOpen(false)}
+        footer={null}
+        width={520}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate} type="link" style={{ padding: 0 }}>
+            엑셀 템플릿 다운로드
+          </Button>
+          <span style={{ color: '#888', fontSize: 12, marginLeft: 8 }}>(.xlsx 형식)</span>
+        </div>
+
+        <Upload.Dragger
+          accept=".xlsx,.xls"
+          maxCount={1}
+          showUploadList={false}
+          beforeUpload={(file) => { handleExcelUpload(file); return false; }}
+          disabled={uploading}
+        >
+          <p style={{ fontSize: 40, color: '#1890ff', margin: 0 }}><UploadOutlined /></p>
+          <p style={{ fontWeight: 600 }}>{uploading ? '업로드 중...' : '클릭 또는 파일을 드래그하세요'}</p>
+          <p style={{ color: '#888', fontSize: 12 }}>지원 형식: .xlsx, .xls (최대 5MB)</p>
+        </Upload.Dragger>
+
+        {uploadResult && (
+          <div style={{ marginTop: 16 }}>
+            <Alert
+              type={uploadResult.created > 0 ? 'success' : 'warning'}
+              message={`처리 완료: 전체 ${uploadResult.total}건 중 ${uploadResult.created}건 등록 / ${uploadResult.skipped}건 건너뜀`}
+              style={{ marginBottom: 8 }}
+            />
+            {uploadResult.errors && uploadResult.errors.length > 0 && (
+              <div style={{ maxHeight: 200, overflow: 'auto', background: '#fff2f0', padding: 12, borderRadius: 6, fontSize: 12 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4, color: '#cf1322' }}>오류 상세:</div>
+                {uploadResult.errors.map((e, i) => (
+                  <div key={i} style={{ color: '#555' }}>{e}</div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </Modal>
     </div>
   );

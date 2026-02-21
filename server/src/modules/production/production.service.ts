@@ -1,7 +1,6 @@
 import { BaseService } from '../../core/base.service';
 import { ProductionPlan } from '../../../../shared/types/production';
 import { productionRepository } from './production.repository';
-import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
 
 class ProductionService extends BaseService<ProductionPlan> {
@@ -47,24 +46,9 @@ class ProductionService extends BaseService<ProductionPlan> {
       vals.push(id);
       await client.query(`UPDATE production_plans SET ${sets.join(', ')} WHERE plan_id = $${idx}`, vals);
 
-      // ── 생산완료 시 재고 자동입고 + 자재 자동차감 ──
+      // ── 생산완료 시 자재 자동차감 ──
+      // (재고 자동입고는 카테고리 기반이므로 개별 상품/variant 미지정 → 제거)
       if (status === 'COMPLETED' && plan.status !== 'COMPLETED') {
-        // 입고 대상 거래처: 계획에 지정된 partner_code, 없으면 본사(P001)
-        const targetPartner = plan.partner_code || 'P001';
-
-        // 1) 생산된 품목 → 재고 입고 (variant_id가 있는 항목만)
-        const items = await client.query(
-          'SELECT variant_id, produced_qty FROM production_plan_items WHERE plan_id = $1 AND variant_id IS NOT NULL AND produced_qty > 0',
-          [id],
-        );
-        for (const item of items.rows) {
-          await inventoryRepository.applyChange(
-            targetPartner, item.variant_id, item.produced_qty,
-            'PRODUCTION', id, userId, client,
-          );
-        }
-
-        // 2) 사용된 자재 → 자재 재고 차감
         const materials = await client.query(
           'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
           [id],

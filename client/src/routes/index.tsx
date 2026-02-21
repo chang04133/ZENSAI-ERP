@@ -42,7 +42,7 @@ const RestockProgressPage = lazy(() => import('../pages/restock/RestockProgressP
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
 const SalesEntryPage = lazy(() => import('../pages/sales/SalesEntryPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
-const MonthlyRevenuePage = lazy(() => import('../pages/sales/MonthlyRevenuePage'));
+const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
 const WeeklyStyleSalesPage = lazy(() => import('../pages/sales/WeeklyStyleSalesPage'));
 
 // Production
@@ -113,7 +113,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
   { path: '/sales/monthly-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ_STORE },
-  { path: '/sales/monthly-revenue', element: <MonthlyRevenuePage />, roles: ADMIN_HQ_STORE },
+  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/weekly-style', element: <WeeklyStyleSalesPage />, roles: ADMIN_HQ_STORE },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)

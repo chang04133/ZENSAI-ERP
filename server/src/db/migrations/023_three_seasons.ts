@@ -14,7 +14,7 @@ const migration: Migration = {
       ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = EXCLUDED.code_label, sort_order = EXCLUDED.sort_order
     `);
 
-    // 2) 시즌 패널티 기본값 (상품시즌 × 현재시즌 = 계수)
+    // 2) 시즌 가중치 기본값 (상품시즌 × 현재시즌 = 계수)
     await db.query(`
       INSERT INTO master_codes (code_type, code_value, code_label, sort_order) VALUES
         ('SETTING', 'SEASON_PENALTY_SA_SA', '1.0', 10),

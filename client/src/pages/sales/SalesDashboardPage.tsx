@@ -310,62 +310,6 @@ function SameMonthChart({ data, currentMonth }: {
   );
 }
 
-/* ── 연단위 비교 차트 ── */
-const MONTH_LABELS = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
-
-function YearCompareChart({ data, curYear }: {
-  data: Array<{ m: string; cur_amount: number; prev_amount: number; cur_qty: number; prev_qty: number }>;
-  curYear: number;
-}) {
-  if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
-  // 12개월 데이터 채우기
-  const filled = MONTH_LABELS.map((_, i) => {
-    const mm = String(i + 1).padStart(2, '0');
-    const row = data.find(d => d.m === mm);
-    return {
-      month: i + 1,
-      cur: row ? Number(row.cur_amount) : 0,
-      prev: row ? Number(row.prev_amount) : 0,
-      curQty: row ? Number(row.cur_qty) : 0,
-      prevQty: row ? Number(row.prev_qty) : 0,
-    };
-  });
-  const max = Math.max(...filled.map(d => Math.max(d.cur, d.prev)), 1);
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 180, padding: '0 4px' }}>
-      {filled.map((d) => {
-        const hCur = Math.max((d.cur / max) * 150, 2);
-        const hPrev = Math.max((d.prev / max) * 150, 2);
-        const nowMonth = new Date().getMonth() + 1;
-        const isCurrent = d.month === nowMonth && curYear === new Date().getFullYear();
-        return (
-          <div key={d.month} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
-            <div style={{ fontSize: 9, color: '#666', textAlign: 'center' }}>
-              {d.cur > 0 ? fmtWon(d.cur) : ''}
-            </div>
-            <div style={{ display: 'flex', gap: 2, alignItems: 'flex-end' }}>
-              <div title={`${curYear - 1}년: ${fmtWon(d.prev)}`} style={{
-                width: 14, height: hPrev, borderRadius: 3,
-                background: 'linear-gradient(180deg, #cbd5e1, #94a3b8)',
-              }} />
-              <div title={`${curYear}년: ${fmtWon(d.cur)}`} style={{
-                width: 14, height: hCur, borderRadius: 3,
-                background: isCurrent
-                  ? 'linear-gradient(180deg, #f59e0b, #fbbf24)'
-                  : 'linear-gradient(180deg, #4f46e5, #818cf8)',
-              }} />
-            </div>
-            <div style={{ fontSize: 10, color: isCurrent ? '#f59e0b' : '#888', fontWeight: isCurrent ? 700 : 400 }}>
-              {d.month}월
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 const PERIOD_OPTIONS = [
   { label: '이번달', value: 'month' },
   ...Array.from({ length: 2 }, (_, i) => {
@@ -381,9 +325,6 @@ export default function SalesDashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
-  const [yearCompare, setYearCompare] = useState<any>(null);
-  const [yearLoading, setYearLoading] = useState(false);
-  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const loadStats = async (p: string) => {
     setLoading(true);
@@ -397,26 +338,11 @@ export default function SalesDashboardPage() {
 
   useEffect(() => {
     loadStats(period);
-    loadYearCompare(selectedYear);
   }, []);
 
   const handlePeriodChange = (v: string) => {
     setPeriod(v);
     loadStats(v);
-  };
-
-  const loadYearCompare = async (year: number) => {
-    setYearLoading(true);
-    try {
-      const data = await salesApi.yearComparison(year);
-      setYearCompare(data);
-    } catch (e: any) { message.error(e.message); }
-    finally { setYearLoading(false); }
-  };
-
-  const handleYearChange = (year: number) => {
-    setSelectedYear(year);
-    loadYearCompare(year);
   };
 
   const periodLabel = period === 'month' ? '이번달' : `${period}년`;
@@ -436,22 +362,32 @@ export default function SalesDashboardPage() {
 
       {/* ── 통계 카드 ── */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard title={`${storePrefix}이틀전 매출`} value={fmtWon(Number(p.two_days_ago_revenue || 0))}
+            icon={<CalendarOutlined />} bg="linear-gradient(135deg, #a8b8d8 0%, #7b8ea8 100%)" color="#fff"
+            sub={`${Number(p.two_days_ago_qty || 0).toLocaleString()}개 판매`} />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard title={`${storePrefix}어제 매출`} value={fmtWon(Number(p.yesterday_revenue || 0))}
+            icon={<CalendarOutlined />} bg="linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)" color="#fff"
+            sub={`${Number(p.yesterday_qty || 0).toLocaleString()}개 판매`} />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard title={`${storePrefix}오늘 매출`} value={fmtWon(Number(p.today_revenue || 0))}
             icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
             sub={`${Number(p.today_qty || 0).toLocaleString()}개 판매`} />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard title={`${storePrefix}이번주 매출`} value={fmtWon(Number(p.week_revenue || 0))}
             icon={<CalendarOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
             sub={`${Number(p.week_qty || 0).toLocaleString()}개 판매`} />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard title={`${storePrefix}이번달 매출`} value={fmtWon(Number(p.month_revenue || 0))}
             icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
             sub={monthGrowth !== null ? `전월 대비 ${Number(monthGrowth) >= 0 ? '+' : ''}${monthGrowth}%` : `${Number(p.month_qty || 0).toLocaleString()}개 판매`} />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={4}>
           <StatCard title={`${storePrefix}전월 매출`} value={fmtWon(Number(p.prev_month_revenue || 0))}
             icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
             sub={`${Number(p.prev_month_qty || 0).toLocaleString()}개 판매`} />
@@ -530,56 +466,61 @@ export default function SalesDashboardPage() {
         </Row>
       )}
 
-      {/* ── 연단위 비교 ── */}
+      {/* ── 시즌별 판매 빈도 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
           <Card
-            title={
-              <span>
-                <CalendarOutlined style={{ marginRight: 8 }} />
-                연단위 매출 비교
-                <span style={{ fontSize: 12, fontWeight: 400, color: '#888', marginLeft: 8 }}>
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#818cf8', marginRight: 4, verticalAlign: 'middle' }} />{selectedYear}년
-                  <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#94a3b8', marginLeft: 10, marginRight: 4, verticalAlign: 'middle' }} />{selectedYear - 1}년
-                </span>
-              </span>
-            }
-            size="small" style={{ borderRadius: 10 }} loading={yearLoading}
-            extra={
-              <Select value={selectedYear} onChange={handleYearChange} size="small" style={{ width: 90 }}
-                options={Array.from({ length: 2 }, (_, i) => ({ label: `${new Date().getFullYear() - i}년`, value: new Date().getFullYear() - i }))}
-              />
-            }
+            title={<span><CalendarOutlined style={{ marginRight: 8 }} />시즌별 판매 비중 ({periodLabel})</span>}
+            size="small" style={{ borderRadius: 10 }} loading={loading}
           >
-            <YearCompareChart data={yearCompare?.monthly || []} curYear={selectedYear} />
-            {yearCompare?.totals && yearCompare.totals.length > 0 && (
-              <div style={{ display: 'flex', gap: 24, marginTop: 12, padding: '8px 12px', background: '#f8f9fb', borderRadius: 6 }}>
-                {yearCompare.totals.map((t: any) => {
-                  const y = Number(t.y);
-                  const isCur = y === selectedYear;
-                  return (
-                    <div key={y} style={{ fontSize: 12 }}>
-                      <span style={{ fontWeight: 600, color: isCur ? '#4f46e5' : '#888' }}>{y}년</span>
-                      <span style={{ marginLeft: 8 }}>{fmtWon(Number(t.total_amount))}</span>
-                      <span style={{ marginLeft: 8, color: '#888' }}>{Number(t.total_qty).toLocaleString()}개</span>
-                      <span style={{ marginLeft: 8, color: '#aaa' }}>{t.sale_count}건</span>
+            {(() => {
+              const seasonData: Array<{ season_type: string; total_amount: number; total_qty: number }> = stats?.bySeason || [];
+              const grandTotal = seasonData.reduce((s, d) => s + Number(d.total_amount), 0);
+              const SEASON_COLORS_MAP: Record<string, string> = { '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8' };
+              if (seasonData.length === 0) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>매출 데이터가 없습니다</div>;
+              return (
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                  {/* 비율 바 */}
+                  <div style={{ flex: 1, minWidth: 300 }}>
+                    <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', height: 32, marginBottom: 16 }}>
+                      {seasonData.map(d => {
+                        const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
+                        if (pct === 0) return null;
+                        return (
+                          <div key={d.season_type} style={{
+                            width: `${pct}%`, background: SEASON_COLORS_MAP[d.season_type] || '#94a3b8',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            fontSize: 12, color: '#fff', fontWeight: 600, minWidth: pct > 5 ? 0 : 30,
+                          }}>
+                            {pct >= 8 ? `${pct.toFixed(0)}%` : ''}
+                          </div>
+                        );
+                      })}
                     </div>
-                  );
-                })}
-                {yearCompare.totals.length === 2 && (() => {
-                  const cur = Number(yearCompare.totals.find((t: any) => Number(t.y) === selectedYear)?.total_amount || 0);
-                  const prev = Number(yearCompare.totals.find((t: any) => Number(t.y) === selectedYear - 1)?.total_amount || 0);
-                  const diff = cur - prev;
-                  const pct = prev > 0 ? ((diff / prev) * 100).toFixed(0) : '∞';
-                  const color = diff > 0 ? '#1677ff' : diff < 0 ? '#ff4d4f' : '#999';
-                  return (
-                    <div style={{ fontSize: 12, marginLeft: 'auto' }}>
-                      전년대비 <span style={{ fontWeight: 700, color }}>{diff > 0 ? '+' : ''}{fmtWon(diff)} ({diff > 0 ? '+' : ''}{pct}%)</span>
+                    {seasonData.map(d => {
+                      const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
+                      const c = SEASON_COLORS_MAP[d.season_type] || '#94a3b8';
+                      return (
+                        <div key={d.season_type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <span style={{ width: 12, height: 12, borderRadius: 3, background: c, display: 'inline-block' }} />
+                            <span style={{ fontSize: 14, fontWeight: 500 }}>{d.season_type}</span>
+                          </span>
+                          <span style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+                            <span style={{ fontSize: 14, fontWeight: 700, color: c }}>{pct.toFixed(1)}%</span>
+                            <span style={{ fontSize: 12, color: '#888' }}>{fmtWon(Number(d.total_amount))}</span>
+                            <span style={{ fontSize: 12, color: '#aaa' }}>{Number(d.total_qty).toLocaleString()}개</span>
+                          </span>
+                        </div>
+                      );
+                    })}
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 0', fontSize: 13, fontWeight: 600 }}>
+                      합계: {fmtWon(grandTotal)}
                     </div>
-                  );
-                })()}
-              </div>
-            )}
+                  </div>
+                </div>
+              );
+            })()}
           </Card>
         </Col>
       </Row>

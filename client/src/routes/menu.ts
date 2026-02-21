@@ -46,7 +46,7 @@ export const menuItems: MenuItem[] = [
       { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: STORE_ALL },
       { key: '/sales/monthly-sales', label: '종합매출조회', icon: 'CalendarOutlined', roles: ADMIN_HQ },
-      { key: '/sales/monthly-revenue', label: '월별매출현황', icon: 'DollarOutlined', roles: ADMIN_HQ },
+      { key: '/sales/analytics', label: '스타일판매분석', icon: 'BarChartOutlined', roles: ADMIN_HQ },
       { key: '/sales/weekly-style', label: '주간스타일판매', icon: 'SkinOutlined', roles: ADMIN_HQ },
     ],
   },

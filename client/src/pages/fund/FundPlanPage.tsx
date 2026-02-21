@@ -16,6 +16,7 @@ const ML = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10�
 interface Category {
   category_id: number; category_name: string; plan_type: string;
   sort_order: number; parent_id: number | null; is_active: boolean;
+  auto_source?: string | null;
 }
 interface PlanEntry {
   fund_plan_id?: number; plan_year: number; plan_month: number; category_id: number;
@@ -37,6 +38,9 @@ export default function FundPlanPage() {
   const [showActual, setShowActual] = useState(false);
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 
+  // 생산계획 자동비용
+  const [productionCosts, setProductionCosts] = useState<{ purchase: Record<number, number>; material: Record<number, number> }>({ purchase: {}, material: {} });
+
   const [catModal, setCatModal] = useState(false);
   const [catName, setCatName] = useState('');
   const [catParent, setCatParent] = useState<number | null>(null);
@@ -47,11 +51,16 @@ export default function FundPlanPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [cats, plans] = await Promise.all([fundApi.categories(), fundApi.list(year)]);
+      const [cats, plans, costs] = await Promise.all([
+        fundApi.categories(),
+        fundApi.list(year),
+        fundApi.productionCosts(year),
+      ]);
       setCategories(cats);
       const map: Record<string, PlanEntry> = {};
       for (const p of plans) map[cellKey(p.category_id, p.plan_month)] = p;
       setPlanMap(map);
+      setProductionCosts(costs || { purchase: {}, material: {} });
       setDirty(false);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -74,6 +83,15 @@ export default function FundPlanPage() {
     [categories],
   );
 
+  // auto_source 조회
+  const getAutoSource = useCallback(
+    (catId: number): string | null => {
+      const cat = categories.find(c => c.category_id === catId);
+      return cat?.auto_source || null;
+    },
+    [categories],
+  );
+
   const toggle = (catId: number) => {
     setExpanded(prev => {
       const next = new Set(prev);
@@ -83,6 +101,13 @@ export default function FundPlanPage() {
   };
 
   const field: 'plan_amount' | 'actual_amount' = showActual ? 'actual_amount' : 'plan_amount';
+
+  // 자동 비용 가져오기 (auto_source별)
+  const getAutoCost = (autoSource: string, month: number): number => {
+    if (autoSource === 'PRODUCTION') return productionCosts.purchase[month] || 0;
+    if (autoSource === 'MATERIAL') return productionCosts.material[month] || 0;
+    return 0;
+  };
 
   // 셀 수정
   const updateCell = (catId: number, month: number, f: 'plan_amount' | 'actual_amount', value: number) => {
@@ -124,10 +149,14 @@ export default function FundPlanPage() {
   // 재귀: 서브트리 월별 합계 (리프면 자기 값, 아니면 자식 합)
   const subtreeMonthTotal = useCallback(
     (catId: number, month: number, f: 'plan_amount' | 'actual_amount'): number => {
+      const autoSource = getAutoSource(catId);
+      if (autoSource && f === 'plan_amount') {
+        return getAutoCost(autoSource, month);
+      }
       if (isLeaf(catId)) return planMap[cellKey(catId, month)]?.[f] || 0;
       return childrenOf(catId).reduce((sum, c) => sum + subtreeMonthTotal(c.category_id, month, f), 0);
     },
-    [planMap, isLeaf, childrenOf],
+    [planMap, isLeaf, childrenOf, getAutoSource, productionCosts],
   );
 
   // 재귀: 서브트리 연간 합계
@@ -209,25 +238,35 @@ export default function FundPlanPage() {
     padding: '3px 2px', fontSize: 12, textAlign: 'right',
     borderBottom: '1px solid #eee', whiteSpace: 'nowrap',
   };
+  const autoTdS: React.CSSProperties = {
+    ...tdS, background: '#f0f5ff',
+  };
 
   // 아이콘 버튼 3개: 수정 / 채우기 / 삭제
-  const renderActions = (cat: Category, depth: number, leaf: boolean) => (
-    <span style={{ marginLeft: 6 }}>
-      <EditOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#999', cursor: 'pointer', marginRight: 3 }}
-        onClick={(e) => { e.stopPropagation(); openEdit(cat); }} />
-      {leaf && (
-        <Tooltip title="1월 값으로 전체 채우기">
-          <CopyOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#1890ff', cursor: 'pointer', marginRight: 3 }}
-            onClick={(e) => { e.stopPropagation(); fillAllMonths(cat.category_id); }} />
-        </Tooltip>
-      )}
-      <Popconfirm title={`삭제하시겠습니까?${!leaf ? ' (하위 항목도 모두 삭제)' : ''}`}
-        onConfirm={() => handleDeleteCategory(cat.category_id)}>
-        <DeleteOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#ff4d4f', cursor: 'pointer' }}
-          onClick={(e) => e.stopPropagation()} />
-      </Popconfirm>
-    </span>
-  );
+  const renderActions = (cat: Category, depth: number, leaf: boolean) => {
+    const isAuto = !!cat.auto_source;
+    return (
+      <span style={{ marginLeft: 6 }}>
+        {!isAuto && (
+          <EditOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#999', cursor: 'pointer', marginRight: 3 }}
+            onClick={(e) => { e.stopPropagation(); openEdit(cat); }} />
+        )}
+        {leaf && !isAuto && (
+          <Tooltip title="1월 값으로 전체 채우기">
+            <CopyOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#1890ff', cursor: 'pointer', marginRight: 3 }}
+              onClick={(e) => { e.stopPropagation(); fillAllMonths(cat.category_id); }} />
+          </Tooltip>
+        )}
+        {!isAuto && (
+          <Popconfirm title={`삭제하시겠습니까?${!leaf ? ' (하위 항목도 모두 삭제)' : ''}`}
+            onConfirm={() => handleDeleteCategory(cat.category_id)}>
+            <DeleteOutlined style={{ fontSize: depth === 0 ? 11 : 10, color: '#ff4d4f', cursor: 'pointer' }}
+              onClick={(e) => e.stopPropagation()} />
+          </Popconfirm>
+        )}
+      </span>
+    );
+  };
 
   // 재귀 렌더: 한 노드 + 자식들
   const renderNode = (cat: Category, depth: number): React.ReactNode[] => {
@@ -237,17 +276,18 @@ export default function FundPlanPage() {
     const indent = 12 + depth * 20;
     const rowBg = depth === 0 ? '#f5f7fa' : depth % 2 === 0 ? '#f8f9fc' : '#fafbfe';
     const stickyBg = rowBg;
+    const isAuto = !!cat.auto_source;
 
     const rows: React.ReactNode[] = [];
 
     // 이 노드의 행
     rows.push(
-      <tr key={`n-${cat.category_id}`} style={{ background: rowBg }}>
+      <tr key={`n-${cat.category_id}`} style={{ background: isAuto ? '#f0f5ff' : rowBg }}>
         <td
           style={{
             ...tdS, textAlign: 'left', fontWeight: leaf ? 400 : 600,
             cursor: leaf ? 'default' : 'pointer', padding: `5px 8px 5px ${indent}px`,
-            position: 'sticky', left: 0, background: stickyBg, zIndex: 1,
+            position: 'sticky', left: 0, background: isAuto ? '#f0f5ff' : stickyBg, zIndex: 1,
           }}
           onClick={leaf ? undefined : () => toggle(cat.category_id)}
         >
@@ -258,11 +298,21 @@ export default function FundPlanPage() {
           )}
           {leaf && depth > 0 && <span style={{ color: '#bbb', marginRight: 4 }}>&#8226;</span>}
           {cat.category_name}
+          {isAuto && <Tag color="blue" style={{ marginLeft: 6, fontSize: 10, lineHeight: '16px' }}>자동</Tag>}
           {renderActions(cat, depth, leaf)}
         </td>
 
         {/* 월별 셀 */}
         {MONTHS.map(m => {
+          // auto_source 카테고리: read-only 표시
+          if (isAuto) {
+            const val = getAutoCost(cat.auto_source!, m);
+            return (
+              <td key={m} style={autoTdS}>
+                <span style={{ fontWeight: 500, color: val > 0 ? '#1677ff' : '#ccc' }}>{fmt(val)}</span>
+              </td>
+            );
+          }
           if (leaf) {
             return (
               <td key={m} style={tdS}>
@@ -283,7 +333,7 @@ export default function FundPlanPage() {
         })}
 
         {/* 합계 */}
-        <td style={{ ...tdS, fontWeight: leaf ? 500 : 700, background: '#f0f2f5', padding: '5px 8px' }}>
+        <td style={{ ...tdS, fontWeight: leaf ? 500 : 700, background: isAuto ? '#e6f0ff' : '#f0f2f5', padding: '5px 8px' }}>
           {fmt(subtreeYearTotal(cat.category_id, field))}
         </td>
       </tr>,
@@ -294,17 +344,19 @@ export default function FundPlanPage() {
       for (const kid of kids) {
         rows.push(...renderNode(kid, depth + 1));
       }
-      // 하위 항목 추가 버튼
-      rows.push(
-        <tr key={`add-${cat.category_id}`} style={{ background: rowBg }}>
-          <td colSpan={14} style={{ padding: `3px 8px 3px ${indent + 20}px`, borderBottom: '1px solid #eee' }}>
-            <Button type="link" size="small" icon={<PlusOutlined />} style={{ fontSize: 11, color: '#999', padding: 0 }}
-              onClick={() => { setCatParent(cat.category_id); setCatName(''); setCatModal(true); }}>
-              하위항목 추가
-            </Button>
-          </td>
-        </tr>,
-      );
+      // 하위 항목 추가 버튼 (auto_source 부모에는 추가 안 함)
+      if (!isAuto) {
+        rows.push(
+          <tr key={`add-${cat.category_id}`} style={{ background: rowBg }}>
+            <td colSpan={14} style={{ padding: `3px 8px 3px ${indent + 20}px`, borderBottom: '1px solid #eee' }}>
+              <Button type="link" size="small" icon={<PlusOutlined />} style={{ fontSize: 11, color: '#999', padding: 0 }}
+                onClick={() => { setCatParent(cat.category_id); setCatName(''); setCatModal(true); }}>
+                하위항목 추가
+              </Button>
+            </td>
+          </tr>,
+        );
+      }
     }
 
     return rows;

@@ -23,23 +23,22 @@ export interface ProductionPlan {
   materials?: ProductionMaterialUsage[];
   total_plan_qty?: number;
   total_produced_qty?: number;
+  total_cost?: number;
   item_count?: number;
 }
 
 export interface ProductionPlanItem {
   item_id: number;
   plan_id: number;
-  product_code: string;
-  variant_id: number | null;
+  category: string;
+  fit: string | null;
+  length: string | null;
+  product_code?: string | null;
+  variant_id?: number | null;
   plan_qty: number;
   produced_qty: number;
   unit_cost: number | null;
   memo: string | null;
-  // Joined
-  product_name?: string;
-  sku?: string;
-  color?: string;
-  size?: string;
 }
 
 export interface Material {

@@ -35,6 +35,13 @@ router.get('/weekly-style', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// 스타일 판매 분석 (전년대비 종합)
+router.get('/style-analytics', authMiddleware, asyncHandler(async (req, res) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const data = await salesRepository.styleAnalytics(year);
+  res.json({ success: true, data });
+}));
+
 // 연단위 비교
 router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();

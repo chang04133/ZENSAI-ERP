@@ -164,7 +164,7 @@ export default function ProductionDashboardPage() {
                     render: (v: string) => <Tag color="blue">{v}</Tag> },
                   { title: '시즌', dataIndex: 'product_season', key: 'season', width: 75, align: 'center' as const,
                     render: (v: string) => <Tag color={SEASON_COLORS[v] || 'default'}>{SEASON_LABELS[v] || v}</Tag> },
-                  { title: '패널티', dataIndex: 'season_penalty', key: 'penalty', width: 65, align: 'center' as const,
+                  { title: '가중치', dataIndex: 'season_penalty', key: 'penalty', width: 65, align: 'center' as const,
                     render: (v: number) => {
                       const n = Number(v);
                       const color = n >= 1 ? '#52c41a' : n >= 0.6 ? '#fa8c16' : '#ff4d4f';
@@ -222,8 +222,9 @@ export default function ProductionDashboardPage() {
               <Table
                 columns={[
                   { title: '계획', dataIndex: 'plan_no', key: 'plan', width: 110 },
-                  { title: '상품', dataIndex: 'product_name', key: 'product', ellipsis: true },
-                  { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, render: (v: string) => v || '-' },
+                  { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80, render: (v: string) => <Tag color="blue">{v}</Tag> },
+                  { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
+                  { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
                   { title: '계획', dataIndex: 'plan_qty', key: 'plan_qty', width: 60 },
                   { title: '생산', dataIndex: 'produced_qty', key: 'prod_qty', width: 60 },
                   { title: '진행률', key: 'pct', width: 100, render: (_: any, r: any) => {

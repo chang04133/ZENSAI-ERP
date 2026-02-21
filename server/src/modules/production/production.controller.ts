@@ -25,6 +25,14 @@ class ProductionController extends BaseController<ProductionPlan> {
     if (!items || items.length === 0) {
       res.status(400).json({ success: false, error: '품목을 1개 이상 추가해주세요.' }); return;
     }
+    for (const item of items) {
+      if (!item.category) {
+        res.status(400).json({ success: false, error: '각 품목의 카테고리는 필수입니다.' }); return;
+      }
+      if (!item.plan_qty || item.plan_qty <= 0) {
+        res.status(400).json({ success: false, error: '수량은 1 이상이어야 합니다.' }); return;
+      }
+    }
     const result = await productionService.createWithItems(
       { ...header, created_by: req.user!.userId }, items,
     );

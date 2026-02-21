@@ -40,6 +40,11 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/weekly-style${q}`));
   },
 
+  // 스타일 판매 분석
+  styleAnalytics: async (year: number) => {
+    return parse(await apiFetch(`/api/sales/style-analytics?year=${year}`));
+  },
+
   // 연단위 비교
   yearComparison: async (year: number) => {
     return parse(await apiFetch(`/api/sales/year-comparison?year=${year}`));
@@ -50,4 +55,20 @@ export const salesApi = {
     const q = `?date_from=${dateFrom}&date_to=${dateTo}`;
     return parse(await apiFetch(`/api/sales/comprehensive${q}`));
   },
+
+  // 엑셀 업로드
+  uploadExcel: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiFetch('/api/sales/excel/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { total: number; created: number; skipped: number; errors?: string[] };
+  },
+
+  // 엑셀 템플릿 다운로드 URL
+  templateUrl: '/api/sales/excel/template',
 };

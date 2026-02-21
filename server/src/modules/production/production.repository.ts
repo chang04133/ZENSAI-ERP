@@ -39,7 +39,8 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       SELECT pp.*, pt.partner_name, u.user_name as created_by_name,
              COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
              COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty,
-             COUNT(pi.item_id)::int as item_count
+             COUNT(pi.item_id)::int as item_count,
+             COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0)::bigint as total_cost
       FROM production_plans pp
       LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
       LEFT JOIN users u ON pp.created_by = u.user_id
@@ -77,9 +78,10 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
       for (const item of items) {
         await client.query(
-          `INSERT INTO production_plan_items (plan_id, product_code, variant_id, plan_qty, unit_cost, memo)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [plan.plan_id, item.product_code, item.variant_id || null, item.plan_qty, item.unit_cost || null, item.memo || null],
+          `INSERT INTO production_plan_items (plan_id, category, fit, length, plan_qty, unit_cost, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [plan.plan_id, item.category, item.fit || null, item.length || null,
+           item.plan_qty, item.unit_cost || null, item.memo || null],
         );
       }
 
@@ -105,10 +107,8 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     if (header.rows.length === 0) return null;
 
     const itemsSql = `
-      SELECT pi.*, p.product_name, pv.sku, pv.color, pv.size
+      SELECT pi.*
       FROM production_plan_items pi
-      JOIN products p ON pi.product_code = p.product_code
-      LEFT JOIN product_variants pv ON pi.variant_id = pv.variant_id
       WHERE pi.plan_id = $1
       ORDER BY pi.item_id`;
     const items = await pool.query(itemsSql, [id]);
@@ -162,13 +162,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         GROUP BY pp.season ORDER BY pp.season DESC
       `),
       pool.query(`
-        SELECT pi.item_id, pi.plan_id, pi.product_code, pi.plan_qty, pi.produced_qty,
-               p.product_name, pv.sku, pv.color, pv.size,
+        SELECT pi.item_id, pi.plan_id, pi.category, pi.fit, pi.length,
+               pi.plan_qty, pi.produced_qty, pi.unit_cost,
                pp.plan_no, pp.plan_name, pp.status as plan_status
         FROM production_plan_items pi
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
-        JOIN products p ON pi.product_code = p.product_code
-        LEFT JOIN product_variants pv ON pi.variant_id = pv.variant_id
         WHERE pp.status = 'IN_PRODUCTION' AND pi.produced_qty < pi.plan_qty
         ORDER BY (pi.produced_qty::float / NULLIF(pi.plan_qty, 0)) ASC
         LIMIT 15
@@ -236,12 +234,16 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         GROUP BY pv.product_code
       ),
       in_production AS (
-        SELECT pi.product_code,
-               COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
+        SELECT p.product_code,
+               COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int
+                 / GREATEST(1, COUNT(DISTINCT p.product_code))::int AS pending_qty
         FROM production_plan_items pi
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        JOIN products p ON p.category = pi.category
+          AND (pi.fit IS NULL OR p.fit = pi.fit)
+          AND (pi.length IS NULL OR p.length = pi.length)
         WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
-        GROUP BY pi.product_code
+        GROUP BY p.product_code
       )
       SELECT
         sv.product_code, sv.product_name, sv.category, sv.season,
@@ -337,13 +339,12 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       ),
       category_production AS (
         SELECT
-          COALESCE(p.category, '미분류') AS category,
+          pi.category AS category,
           COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
         FROM production_plan_items pi
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
-        JOIN products p ON pi.product_code = p.product_code
-        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
-        GROUP BY COALESCE(p.category, '미분류')
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category IS NOT NULL
+        GROUP BY pi.category
       )
       SELECT
         cs.category,

@@ -7,7 +7,7 @@ import { getPool } from '../../db/connection';
 const router = Router();
 const adminOnly = [authMiddleware, requireRole('ADMIN')];
 
-// ── 카테고리 목록 (EXPENSE만, parent_id 포함) ──
+// ── 카테고리 목록 (EXPENSE만, parent_id + auto_source 포함) ──
 router.get('/categories', ...adminOnly, asyncHandler(async (_req: Request, res: Response) => {
   const pool = getPool();
   const result = await pool.query(
@@ -16,6 +16,47 @@ router.get('/categories', ...adminOnly, asyncHandler(async (_req: Request, res: 
      ORDER BY sort_order, category_id`,
   );
   res.json({ success: true, data: result.rows });
+}));
+
+// ── 생산계획 기반 비용 자동계산 (월별) ──
+router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const pool = getPool();
+
+  // 매입 비용: 생산계획 품목 × 단가
+  const purchaseResult = await pool.query(
+    `SELECT EXTRACT(MONTH FROM pp.target_date)::int AS plan_month,
+            SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0))::bigint AS cost
+     FROM production_plan_items pi
+     JOIN production_plans pp ON pi.plan_id = pp.plan_id
+     WHERE EXTRACT(YEAR FROM pp.target_date) = $1
+       AND pp.status NOT IN ('CANCELLED')
+       AND pp.target_date IS NOT NULL
+     GROUP BY plan_month`,
+    [year],
+  );
+
+  // 부자재 비용: 자재 사용량 × 자재 단가
+  const materialResult = await pool.query(
+    `SELECT EXTRACT(MONTH FROM pp.target_date)::int AS plan_month,
+            SUM(pmu.required_qty * COALESCE(m.unit_price, 0))::bigint AS cost
+     FROM production_material_usage pmu
+     JOIN production_plans pp ON pmu.plan_id = pp.plan_id
+     JOIN materials m ON pmu.material_id = m.material_id
+     WHERE EXTRACT(YEAR FROM pp.target_date) = $1
+       AND pp.status NOT IN ('CANCELLED')
+       AND pp.target_date IS NOT NULL
+     GROUP BY plan_month`,
+    [year],
+  );
+
+  const purchase: Record<number, number> = {};
+  for (const r of purchaseResult.rows) purchase[r.plan_month] = Number(r.cost);
+
+  const material: Record<number, number> = {};
+  for (const r of materialResult.rows) material[r.plan_month] = Number(r.cost);
+
+  res.json({ success: true, data: { purchase, material } });
 }));
 
 // ── 카테고리 추가 ──
@@ -63,6 +104,11 @@ router.delete('/categories/:id', ...adminOnly, asyncHandler(async (req: Request,
   try {
     await client.query('BEGIN');
     const id = parseInt(req.params.id as string, 10);
+    // auto_source가 설정된 카테고리는 삭제 불가
+    const cat = await client.query('SELECT auto_source FROM fund_categories WHERE category_id = $1', [id]);
+    if (cat.rows.length > 0 && cat.rows[0].auto_source) {
+      res.status(400).json({ success: false, error: '자동 연동 항목은 삭제할 수 없습니다.' }); return;
+    }
     // 하위 카테고리 ID 조회
     const children = await client.query('SELECT category_id FROM fund_categories WHERE parent_id = $1', [id]);
     const childIds = children.rows.map((r: any) => r.category_id);
@@ -117,11 +163,23 @@ router.get('/summary', ...adminOnly, asyncHandler(async (req: Request, res: Resp
   res.json({ success: true, data: result.rows });
 }));
 
+// auto_source 카테고리 ID 집합 조회 헬퍼
+async function getAutoSourceIds(): Promise<Set<number>> {
+  const pool = getPool();
+  const result = await pool.query("SELECT category_id FROM fund_categories WHERE auto_source IS NOT NULL");
+  return new Set(result.rows.map((r: any) => r.category_id));
+}
+
 // ── 단건 UPSERT ──
 router.post('/', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const { plan_year, plan_month, category_id, plan_amount, actual_amount, memo } = req.body;
   if (!plan_year || !plan_month || !category_id) {
     res.status(400).json({ success: false, error: 'plan_year, plan_month, category_id 필수' }); return;
+  }
+  // auto_source 카테고리 차단
+  const autoIds = await getAutoSourceIds();
+  if (autoIds.has(category_id)) {
+    res.status(400).json({ success: false, error: '자동 연동 항목은 수동 입력할 수 없습니다.' }); return;
   }
   const pool = getPool();
   const result = await pool.query(
@@ -141,12 +199,16 @@ router.post('/batch', ...adminOnly, asyncHandler(async (req: Request, res: Respo
   if (!Array.isArray(items) || items.length === 0) {
     res.status(400).json({ success: false, error: 'items 필수' }); return;
   }
+  // auto_source 카테고리 필터링 (자동 항목은 저장에서 제외)
+  const autoIds = await getAutoSourceIds();
+  const filteredItems = items.filter((i: any) => !autoIds.has(i.category_id));
+
   const pool = getPool();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const results = [];
-    for (const item of items) {
+    for (const item of filteredItems) {
       const { plan_year, plan_month, category_id, plan_amount, actual_amount, memo } = item;
       if (!plan_year || !plan_month || !category_id) continue;
       const r = await client.query(

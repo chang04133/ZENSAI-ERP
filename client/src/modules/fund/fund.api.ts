@@ -41,4 +41,6 @@ export const fundApi = {
     })),
 
   remove: async (id: number) => parse(await apiFetch(`/api/funds/${id}`, { method: 'DELETE' })),
+
+  productionCosts: async (year: number) => parse(await apiFetch(`/api/funds/production-costs?year=${year}`)),
 };

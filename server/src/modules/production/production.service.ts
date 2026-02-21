@@ -1,6 +1,7 @@
 import { BaseService } from '../../core/base.service';
 import { ProductionPlan } from '../../../../shared/types/production';
 import { productionRepository } from './production.repository';
+import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
 
 class ProductionService extends BaseService<ProductionPlan> {
@@ -26,6 +27,7 @@ class ProductionService extends BaseService<ProductionPlan> {
       await client.query('BEGIN');
       const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1', [id]);
       if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다');
+      const plan = current.rows[0];
 
       const sets: string[] = ['status = $1', 'updated_at = NOW()'];
       const vals: any[] = [status];
@@ -35,7 +37,7 @@ class ProductionService extends BaseService<ProductionPlan> {
         sets.push(`approved_by = $${idx++}`);
         vals.push(userId);
       }
-      if (status === 'IN_PRODUCTION' && !current.rows[0].start_date) {
+      if (status === 'IN_PRODUCTION' && !plan.start_date) {
         sets.push(`start_date = CURRENT_DATE`);
       }
       if (status === 'COMPLETED') {
@@ -44,6 +46,37 @@ class ProductionService extends BaseService<ProductionPlan> {
 
       vals.push(id);
       await client.query(`UPDATE production_plans SET ${sets.join(', ')} WHERE plan_id = $${idx}`, vals);
+
+      // ── 생산완료 시 재고 자동입고 + 자재 자동차감 ──
+      if (status === 'COMPLETED' && plan.status !== 'COMPLETED') {
+        // 입고 대상 거래처: 계획에 지정된 partner_code, 없으면 본사(P001)
+        const targetPartner = plan.partner_code || 'P001';
+
+        // 1) 생산된 품목 → 재고 입고 (variant_id가 있는 항목만)
+        const items = await client.query(
+          'SELECT variant_id, produced_qty FROM production_plan_items WHERE plan_id = $1 AND variant_id IS NOT NULL AND produced_qty > 0',
+          [id],
+        );
+        for (const item of items.rows) {
+          await inventoryRepository.applyChange(
+            targetPartner, item.variant_id, item.produced_qty,
+            'PRODUCTION', id, userId, client,
+          );
+        }
+
+        // 2) 사용된 자재 → 자재 재고 차감
+        const materials = await client.query(
+          'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
+          [id],
+        );
+        for (const mat of materials.rows) {
+          await client.query(
+            'UPDATE materials SET stock_qty = GREATEST(0, stock_qty - $1), updated_at = NOW() WHERE material_id = $2',
+            [mat.used_qty, mat.material_id],
+          );
+        }
+      }
+
       await client.query('COMMIT');
       return productionRepository.getWithItems(id);
     } catch (e) {

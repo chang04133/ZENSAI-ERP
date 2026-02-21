@@ -59,11 +59,11 @@ export default function StoreShipmentPage() {
 
   useEffect(() => { load(); }, [page, statusFilter]);
   useEffect(() => {
-    (async () => { try { const r = await partnerApi.list({ limit: '1000' }); setPartners(r.data); } catch {} })();
+    (async () => { try { const r = await partnerApi.list({ limit: '1000' }); setPartners(r.data); } catch (e: any) { message.error('거래처 목록 로드 실패'); } })();
   }, []);
 
   const handleVariantSearch = async (value: string) => {
-    if (value.length >= 2) { try { setVariantOptions(await productApi.searchVariants(value)); } catch {} }
+    if (value.length >= 2) { try { setVariantOptions(await productApi.searchVariants(value)); } catch (e: any) { message.error('품목 검색 실패'); } }
   };
 
   const handleAddItem = (variantId: number) => {
@@ -146,7 +146,7 @@ export default function StoreShipmentPage() {
               });
             }
           }
-        } catch {}
+        } catch (e: any) { console.error('SKU 조회 실패:', sku, e); }
       }
 
       if (foundItems.length === 0) {

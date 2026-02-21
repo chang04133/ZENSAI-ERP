@@ -40,7 +40,7 @@ export default function MaterialManagePage() {
     try {
       const [ls, sm] = await Promise.all([materialApi.lowStock(), materialApi.summary()]);
       setLowStock(ls); setSummary(sm);
-    } catch {}
+    } catch (e: any) { console.error('부자재 부가정보 로드 실패:', e); }
   };
 
   useEffect(() => { load(); loadExtra(); }, [load]);

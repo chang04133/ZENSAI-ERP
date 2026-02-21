@@ -98,6 +98,14 @@ export default function InventoryStatusPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
   const reorderDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
+  // 타이머 정리
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (reorderDebounceRef.current) clearTimeout(reorderDebounceRef.current);
+    };
+  }, []);
+
   const onSearchChange = (value: string) => {
     setSearchText(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -106,7 +114,7 @@ export default function InventoryStatusPage() {
       try {
         const data = await inventoryApi.searchSuggest(value);
         setSuggestions(data);
-      } catch { /* ignore */ }
+      } catch (e: any) { console.error('검색 자동완성 실패:', e); }
     }, 300);
   };
 
@@ -128,7 +136,7 @@ export default function InventoryStatusPage() {
       try {
         const data = await inventoryApi.reorderAlerts(urgent, recommend);
         setReorderData(data);
-      } catch { /* ignore */ }
+      } catch (e: any) { console.error('리오더 조회 실패:', e); }
       finally { setReorderLoading(false); }
     }, 400);
   }, []);

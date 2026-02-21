@@ -175,7 +175,15 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const threshold = partnerCode
       ? (await this.getPartnerThresholds(partnerCode)).low
       : await this.getLowStockThreshold();
-    const pcFilter = partnerCode ? `AND i.partner_code = '${partnerCode}'` : '';
+    const params: any[] = [threshold];
+    let pIdx = 2;
+    let pcFilter = '';
+    if (partnerCode) {
+      pcFilter = `AND i.partner_code = $${pIdx}`;
+      params.push(partnerCode);
+      pIdx++;
+    }
+    params.push(limit);
     const sql = `
       SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
              pt.partner_name, pv.sku, pv.color, pv.size, p.product_code, p.product_name,
@@ -200,8 +208,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         AND i.qty < COALESCE(p.low_stock_threshold, $1)
         ${pcFilter}
       ORDER BY i.qty ASC, p.product_name
-      LIMIT $2`;
-    return (await this.pool.query(sql, [threshold, limit])).rows;
+      LIMIT $${pIdx}`;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 중간재고 알림 대상 목록 (low < qty <= medium) + 다른 매장 재고 */
@@ -216,7 +224,15 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       lowThreshold = await this.getLowStockThreshold();
       medThreshold = await this.getMediumStockThreshold();
     }
-    const pcFilter = partnerCode ? `AND i.partner_code = '${partnerCode}'` : '';
+    const params: any[] = [lowThreshold, medThreshold];
+    let pIdx = 3;
+    let pcFilter = '';
+    if (partnerCode) {
+      pcFilter = `AND i.partner_code = $${pIdx}`;
+      params.push(partnerCode);
+      pIdx++;
+    }
+    params.push(limit);
     const sql = `
       SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
              pt.partner_name, pv.sku, pv.color, pv.size, p.product_code, p.product_name,
@@ -242,8 +258,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         AND i.qty <= COALESCE(p.medium_stock_threshold, $2)
         ${pcFilter}
       ORDER BY i.qty ASC, p.product_name
-      LIMIT $3`;
-    return (await this.pool.query(sql, [lowThreshold, medThreshold, limit])).rows;
+      LIMIT $${pIdx}`;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 시즌별 재고 요약 */
@@ -302,9 +318,9 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     try {
       await client.query('BEGIN');
 
-      // 현재 수량 확인
+      // 현재 수량 확인 (동시성 보호를 위한 FOR UPDATE 락)
       const current = await client.query(
-        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2 FOR UPDATE',
         [partnerCode, variantId],
       );
       const currentQty = current.rows.length > 0 ? current.rows[0].qty : 0;

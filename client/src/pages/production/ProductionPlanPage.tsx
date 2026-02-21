@@ -52,7 +52,7 @@ export default function ProductionPlanPage() {
         ]);
         if (pRes.success) setProducts(pRes.data.data || pRes.data);
         if (ptRes.success) setPartners(ptRes.data.data || ptRes.data);
-      } catch {}
+      } catch (e: any) { console.error('상품/거래처 로드 실패:', e); }
     })();
   }, []);
 
@@ -63,7 +63,7 @@ export default function ProductionPlanPage() {
       if (res.success && res.data.variants) {
         setVariants(prev => ({ ...prev, [productCode]: res.data.variants }));
       }
-    } catch {}
+    } catch (e: any) { console.error('바리언트 로드 실패:', e); }
   };
 
   const handleCreate = async () => {

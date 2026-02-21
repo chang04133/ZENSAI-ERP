@@ -65,7 +65,7 @@ export default function ShipmentRequestPage() {
     try {
       const result = await partnerApi.list({ limit: '1000' });
       setPartners(result.data);
-    } catch {}
+    } catch (e: any) { message.error('거래처 목록 로드 실패'); }
   };
 
   useEffect(() => { load(); }, [page]);
@@ -89,7 +89,7 @@ export default function ShipmentRequestPage() {
       try {
         const results = await productApi.searchVariants(value);
         setVariantOptions(results);
-      } catch {}
+      } catch (e: any) { message.error('품목 검색 실패'); setVariantOptions([]); }
     }
   };
 

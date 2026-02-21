@@ -2,30 +2,41 @@ import { Router } from 'express';
 import { authMiddleware } from '../../auth/middleware';
 import { getPool } from '../../db/connection';
 import { asyncHandler } from '../../core/async-handler';
-import { inventoryRepository } from '../inventory/inventory.repository';
 
 const router = Router();
 
 router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();
   const role = req.user?.role;
-  const pc = req.user?.partnerCode; // 매장 사용자면 partner_code 있음
+  const pc = req.user?.partnerCode;
   const isStore = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc;
 
-  // 매장별 임계값 조회
-  let lowThreshold: number;
+  // 재고 부족 임계값 (기본 5)
+  const lowThresholdR = await pool.query(
+    "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'LOW_STOCK_THRESHOLD'",
+  );
+  const lowThreshold = lowThresholdR.rows.length > 0 ? parseInt(lowThresholdR.rows[0].code_label, 10) || 5 : 5;
+
+  // 파라미터화된 필터 구성
+  const params: any[] = [];
+  let pIdx = 1;
+
+  let salesFilter = '';
+  let invFilter = '';
+  let shipFilter = '';
+
   if (isStore) {
-    const t = await inventoryRepository.getPartnerThresholds(pc!);
-    lowThreshold = t.low;
-  } else {
-    lowThreshold = await inventoryRepository.getLowStockThreshold();
+    params.push(pc);
+    salesFilter = `AND s.partner_code = $${pIdx}`;
+    invFilter = `AND i.partner_code = $${pIdx}`;
+    shipFilter = `AND (sr.from_partner = $${pIdx} OR sr.to_partner = $${pIdx})`;
+    pIdx++;
   }
 
-  // 매장 사용자: 자기 매장만 필터
-  const salesFilter = isStore ? `AND s.partner_code = '${pc}'` : '';
-  const salesFilterSimple = isStore ? `AND partner_code = '${pc}'` : '';
-  const invFilter = isStore ? `AND i.partner_code = '${pc}'` : '';
-  const shipFilter = isStore ? `AND (sr.from_partner = '${pc}' OR sr.to_partner = '${pc}')` : '';
+  // lowStock용 파라미터
+  const lowStockParams = isStore ? [pc, lowThreshold] : [lowThreshold];
+  const lowStockPcFilter = isStore ? `AND i.partner_code = $1` : '';
+  const lowStockThresholdIdx = isStore ? 2 : 1;
 
   const [partners, products, shipments, inventory, sales, todaySales] = await Promise.all([
     pool.query('SELECT COUNT(*) FROM partners WHERE is_active = TRUE'),
@@ -36,18 +47,18 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       COUNT(*) FILTER (WHERE status = 'PROCESSING') as processing,
       COUNT(*) FILTER (WHERE status = 'SHIPPED') as shipped,
       COUNT(*) FILTER (WHERE status = 'RECEIVED') as received
-    FROM shipment_requests sr WHERE 1=1 ${shipFilter}`),
-    pool.query(`SELECT COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_items FROM inventory i WHERE 1=1 ${invFilter}`),
+    FROM shipment_requests sr WHERE 1=1 ${shipFilter}`, params),
+    pool.query(`SELECT COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_items FROM inventory i WHERE 1=1 ${invFilter}`, params),
     pool.query(`SELECT
       COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' THEN total_price END), 0) as month_revenue,
       COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' THEN qty END), 0) as month_qty,
       COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' THEN total_price END), 0) as week_revenue,
       COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' THEN qty END), 0) as week_qty
-    FROM sales s WHERE 1=1 ${salesFilter}`),
+    FROM sales s WHERE 1=1 ${salesFilter}`, params),
     pool.query(`SELECT
       COALESCE(SUM(total_price), 0) as today_revenue,
       COALESCE(SUM(qty), 0) as today_qty
-    FROM sales s WHERE sale_date = CURRENT_DATE ${salesFilter}`),
+    FROM sales s WHERE sale_date = CURRENT_DATE ${salesFilter}`, params),
   ]);
 
   const [recentShipments, topProducts, lowStock, monthlySalesTrend, pendingApprovals] = await Promise.all([
@@ -59,7 +70,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
       WHERE 1=1 ${shipFilter}
       ORDER BY sr.created_at DESC LIMIT 5
-    `),
+    `, params),
     pool.query(`
       SELECT p.product_name, p.product_code, SUM(s.qty) as total_qty, SUM(s.total_price) as total_amount
       FROM sales s
@@ -68,7 +79,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       WHERE s.sale_date >= CURRENT_DATE - INTERVAL '30 days' ${salesFilter}
       GROUP BY p.product_code, p.product_name
       ORDER BY total_qty DESC LIMIT 5
-    `),
+    `, params),
     pool.query(`
       SELECT i.qty, i.variant_id, i.partner_code, pv.sku, pv.color, pv.size,
              p.product_name, p.product_code, pt.partner_name,
@@ -87,17 +98,16 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON i.partner_code = pt.partner_code
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
-        AND i.qty <= $1 AND i.qty >= 0 ${invFilter}
+        AND i.qty <= $${lowStockThresholdIdx} AND i.qty >= 0 ${lowStockPcFilter}
       ORDER BY i.qty ASC LIMIT 10
-    `, [lowThreshold]),
+    `, lowStockParams),
     pool.query(`
       SELECT TO_CHAR(s.sale_date, 'MM/DD') as label,
              SUM(s.total_price) as revenue, SUM(s.qty) as qty
       FROM sales s
       WHERE s.sale_date >= CURRENT_DATE - INTERVAL '14 days' ${salesFilter}
       GROUP BY s.sale_date ORDER BY s.sale_date
-    `),
-    // 승인 대기 의뢰 (ADMIN/HQ만 의미있지만, 쿼리 자체는 항상 실행)
+    `, params),
     isStore ? Promise.resolve({ rows: [] }) : pool.query(`
       SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
              sr.from_partner, sr.to_partner, sr.memo, sr.requested_by,

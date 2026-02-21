@@ -64,16 +64,34 @@ export class SalesRepository {
 
   /** 매출현황 대시보드 통계 */
   async dashboardStats(year?: number, partnerCode?: string) {
-    // year가 있으면 해당 연도 전체, 없으면 이번달
-    const dateFilter = year
-      ? `EXTRACT(YEAR FROM s.sale_date) = ${Number(year)}`
-      : `s.sale_date >= DATE_TRUNC('month', CURRENT_DATE)`;
-    const dateFilterSimple = year
-      ? `EXTRACT(YEAR FROM sale_date) = ${Number(year)}`
-      : `sale_date >= DATE_TRUNC('month', CURRENT_DATE)`;
-    // 매장 필터
-    const pcFilter = partnerCode ? `AND s.partner_code = '${partnerCode}'` : '';
-    const pcFilterSimple = partnerCode ? `AND partner_code = '${partnerCode}'` : '';
+    // 파라미터 배열 구성
+    const baseParams: any[] = [];
+    let pIdx = 1;
+
+    let dateFilter: string;
+    let dateFilterSimple: string;
+    if (year) {
+      baseParams.push(Number(year));
+      dateFilter = `EXTRACT(YEAR FROM s.sale_date) = $${pIdx}`;
+      dateFilterSimple = `EXTRACT(YEAR FROM sale_date) = $${pIdx}`;
+      pIdx++;
+    } else {
+      dateFilter = `s.sale_date >= DATE_TRUNC('month', CURRENT_DATE)`;
+      dateFilterSimple = `sale_date >= DATE_TRUNC('month', CURRENT_DATE)`;
+    }
+
+    let pcFilter = '';
+    let pcFilterSimple = '';
+    if (partnerCode) {
+      baseParams.push(partnerCode);
+      pcFilter = `AND s.partner_code = $${pIdx}`;
+      pcFilterSimple = `AND partner_code = $${pIdx}`;
+      pIdx++;
+    }
+    // pcOnly: 파트너코드만 있는 파라미터 배열 (period 쿼리용)
+    const pcOnlyParams = partnerCode ? [partnerCode] : [];
+    const pcOnlyFilter = partnerCode ? `AND partner_code = $1` : '';
+    const pcOnlyFilterS = partnerCode ? `AND s.partner_code = $1` : '';
 
     // 오늘/이번주/이번달/지난달 매출 (항상 고정)
     const periodSql = `
@@ -90,8 +108,8 @@ export class SalesRepository {
                            AND sale_date < DATE_TRUNC('month', CURRENT_DATE) THEN qty END), 0)::int AS prev_month_qty,
         COUNT(DISTINCT partner_code)::int AS total_partners,
         COUNT(*)::int AS total_sales
-      FROM sales WHERE 1=1 ${pcFilterSimple}`;
-    const periods = (await this.pool.query(periodSql)).rows[0];
+      FROM sales WHERE 1=1 ${pcOnlyFilter}`;
+    const periods = (await this.pool.query(periodSql, pcOnlyParams)).rows[0];
 
     // 카테고리별 매출
     const categorySql = `
@@ -104,7 +122,7 @@ export class SalesRepository {
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY total_amount DESC`;
-    const byCategory = (await this.pool.query(categorySql)).rows;
+    const byCategory = (await this.pool.query(categorySql, baseParams)).rows;
 
     // 거래처별 매출 TOP 10
     const partnerSql = `
@@ -116,7 +134,7 @@ export class SalesRepository {
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY s.partner_code, pt.partner_name
       ORDER BY total_amount DESC LIMIT 10`;
-    const byPartner = (await this.pool.query(partnerSql)).rows;
+    const byPartner = (await this.pool.query(partnerSql, baseParams)).rows;
 
     // 인기상품 TOP 10
     const topProductsSql = `
@@ -129,7 +147,7 @@ export class SalesRepository {
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY p.product_code, p.product_name, p.category
       ORDER BY total_amount DESC LIMIT 10`;
-    const topProducts = (await this.pool.query(topProductsSql)).rows;
+    const topProducts = (await this.pool.query(topProductsSql, baseParams)).rows;
 
     // 일별 매출 추이 (최근 30일 - 항상 고정)
     const dailyTrendSql = `
@@ -137,10 +155,10 @@ export class SalesRepository {
              SUM(total_price)::bigint AS revenue,
              SUM(qty)::int AS qty
       FROM sales
-      WHERE sale_date >= CURRENT_DATE - INTERVAL '30 days' ${pcFilterSimple}
+      WHERE sale_date >= CURRENT_DATE - INTERVAL '30 days' ${pcOnlyFilter}
       GROUP BY sale_date
       ORDER BY sale_date`;
-    const dailyTrend = (await this.pool.query(dailyTrendSql)).rows;
+    const dailyTrend = (await this.pool.query(dailyTrendSql, pcOnlyParams)).rows;
 
     // 월별 매출 추이 (최근 6개월 - 항상 고정)
     const monthlyTrendSql = `
@@ -148,10 +166,10 @@ export class SalesRepository {
              SUM(total_price)::bigint AS revenue,
              SUM(qty)::int AS qty
       FROM sales
-      WHERE sale_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months' ${pcFilterSimple}
+      WHERE sale_date >= DATE_TRUNC('month', CURRENT_DATE) - INTERVAL '5 months' ${pcOnlyFilter}
       GROUP BY TO_CHAR(sale_date, 'YYYY-MM')
       ORDER BY month`;
-    const monthlyTrend = (await this.pool.query(monthlyTrendSql)).rows;
+    const monthlyTrend = (await this.pool.query(monthlyTrendSql, pcOnlyParams)).rows;
 
     // 핏별 매출 — 아이템수 대비 평균
     const byFitSql = `
@@ -167,7 +185,7 @@ export class SalesRepository {
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY avg_per_item DESC`;
-    const byFit = (await this.pool.query(byFitSql)).rows;
+    const byFit = (await this.pool.query(byFitSql, baseParams)).rows;
 
     // 기장별 매출 — 아이템수 대비 평균
     const byLengthSql = `
@@ -183,7 +201,7 @@ export class SalesRepository {
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY avg_per_item DESC`;
-    const byLength = (await this.pool.query(byLengthSql)).rows;
+    const byLength = (await this.pool.query(byLengthSql, baseParams)).rows;
 
     // 같은달 연도별 비교 (이번달 모드일 때만)
     let sameMonthHistory = null;
@@ -198,10 +216,10 @@ export class SalesRepository {
         FROM sales
         WHERE EXTRACT(MONTH FROM sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND EXTRACT(YEAR FROM sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 3 AND EXTRACT(YEAR FROM CURRENT_DATE)
-          ${pcFilterSimple}
+          ${pcOnlyFilter}
         GROUP BY EXTRACT(YEAR FROM sale_date)
         ORDER BY year`;
-      const sameMonthRows = (await this.pool.query(sameMonthSql)).rows;
+      const sameMonthRows = (await this.pool.query(sameMonthSql, pcOnlyParams)).rows;
 
       // 같은 월 카테고리별 연도비교
       const sameMonthCatSql = `
@@ -214,10 +232,10 @@ export class SalesRepository {
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 3 AND EXTRACT(YEAR FROM CURRENT_DATE)
-          ${pcFilter}
+          ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.category, '미분류')
         ORDER BY year, total_amount DESC`;
-      const sameMonthCat = (await this.pool.query(sameMonthCatSql)).rows;
+      const sameMonthCat = (await this.pool.query(sameMonthCatSql, pcOnlyParams)).rows;
 
       // 같은 월 핏별 연도비교
       const sameMonthFitSql = `
@@ -230,10 +248,10 @@ export class SalesRepository {
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 2 AND EXTRACT(YEAR FROM CURRENT_DATE)
-          ${pcFilter}
+          ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.fit, '미지정')
         ORDER BY year, total_amount DESC`;
-      const sameMonthFit = (await this.pool.query(sameMonthFitSql)).rows;
+      const sameMonthFit = (await this.pool.query(sameMonthFitSql, pcOnlyParams)).rows;
 
       // 같은 월 기장별 연도비교
       const sameMonthLenSql = `
@@ -246,10 +264,10 @@ export class SalesRepository {
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
           AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 2 AND EXTRACT(YEAR FROM CURRENT_DATE)
-          ${pcFilter}
+          ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.length, '미지정')
         ORDER BY year, total_amount DESC`;
-      const sameMonthLen = (await this.pool.query(sameMonthLenSql)).rows;
+      const sameMonthLen = (await this.pool.query(sameMonthLenSql, pcOnlyParams)).rows;
 
       sameMonthHistory = { yearly: sameMonthRows, byCategory: sameMonthCat, byFit: sameMonthFit, byLength: sameMonthLen };
     }

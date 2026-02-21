@@ -1,8 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Card, InputNumber, Button, message, Descriptions, Spin } from 'antd';
-import { SettingOutlined } from '@ant-design/icons';
+import { Card, InputNumber, Button, message, Descriptions, Spin, Typography } from 'antd';
+import { SettingOutlined, ExperimentOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
+
+const SEASONS = ['SA', 'SM', 'WN'] as const;
+const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
+
+function getCurrentSeason(): string {
+  const m = new Date().getMonth() + 1;
+  if ([3, 4, 5, 9, 10, 11].includes(m)) return 'SA';
+  if ([6, 7, 8].includes(m)) return 'SM';
+  return 'WN';
+}
 
 export default function SystemSettingsPage() {
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -10,6 +20,9 @@ export default function SystemSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [low, setLow] = useState(1);
   const [med, setMed] = useState(10);
+  const [penalties, setPenalties] = useState<Record<string, number>>({});
+
+  const currentSeason = getCurrentSeason();
 
   const loadSettings = async () => {
     try {
@@ -19,6 +32,14 @@ export default function SystemSettingsPage() {
         setSettings(data.data);
         setLow(parseInt(data.data.LOW_STOCK_THRESHOLD || '1', 10));
         setMed(parseInt(data.data.MEDIUM_STOCK_THRESHOLD || '10', 10));
+        const p: Record<string, number> = {};
+        for (const ps of SEASONS) {
+          for (const cs of SEASONS) {
+            const key = `SEASON_PENALTY_${ps}_${cs}`;
+            p[key] = parseFloat(data.data[key] || (ps === cs ? '1.0' : '0.5'));
+          }
+        }
+        setPenalties(p);
       }
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -33,12 +54,16 @@ export default function SystemSettingsPage() {
     }
     setSaving(true);
     try {
+      const body: Record<string, string> = {
+        LOW_STOCK_THRESHOLD: String(low),
+        MEDIUM_STOCK_THRESHOLD: String(med),
+        ...Object.fromEntries(
+          Object.entries(penalties).map(([k, v]) => [k, String(v)]),
+        ),
+      };
       const res = await apiFetch('/api/system/settings', {
         method: 'PUT',
-        body: JSON.stringify({
-          LOW_STOCK_THRESHOLD: String(low),
-          MEDIUM_STOCK_THRESHOLD: String(med),
-        }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       if (data.success) {
@@ -49,6 +74,13 @@ export default function SystemSettingsPage() {
       }
     } catch (e: any) { message.error(e.message); }
     finally { setSaving(false); }
+  };
+
+  const setPenalty = (productSeason: string, currentSz: string, val: number) => {
+    setPenalties((prev) => ({
+      ...prev,
+      [`SEASON_PENALTY_${productSeason}_${currentSz}`]: val,
+    }));
   };
 
   if (loading) return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
@@ -97,13 +129,87 @@ export default function SystemSettingsPage() {
             <span style={{ color: '#10b981', fontWeight: 600 }}>정상</span> = {med + 1}개 이상
           </div>
         </div>
+      </Card>
 
-        <div style={{ marginTop: 20, textAlign: 'right' }}>
-          <Button type="primary" size="large" onClick={handleSave} loading={saving}>
-            설정 저장
-          </Button>
+      <Card
+        title={<span><ExperimentOutlined style={{ marginRight: 8 }} />시즌 수요 패널티 설정</span>}
+        style={{ borderRadius: 10, marginTop: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          현재 시즌에 따라 상품별 수요 예측에 적용되는 계수입니다. 1.0 = 패널티 없음, 0.0 = 수요 0으로 처리.
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, width: 100 }}>
+                상품 시즌 ↓
+              </th>
+              {SEASONS.map((cs) => (
+                <th key={cs} style={{
+                  padding: '8px 12px', background: cs === currentSeason ? '#e6f7ff' : '#fafafa',
+                  border: '1px solid #f0f0f0', textAlign: 'center', fontSize: 13,
+                }}>
+                  {SEASON_LABELS[cs]}
+                  {cs === currentSeason && (
+                    <div style={{ fontSize: 11, color: '#1890ff', fontWeight: 400 }}>(현재)</div>
+                  )}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {SEASONS.map((ps) => (
+              <tr key={ps}>
+                <td style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontWeight: 600, fontSize: 13 }}>
+                  {SEASON_LABELS[ps]}
+                </td>
+                {SEASONS.map((cs) => {
+                  const key = `SEASON_PENALTY_${ps}_${cs}`;
+                  const isDiagonal = ps === cs;
+                  return (
+                    <td key={cs} style={{
+                      padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center',
+                      background: isDiagonal ? '#f6ffed' : cs === currentSeason ? '#f0f8ff' : '#fff',
+                    }}>
+                      <InputNumber
+                        min={0} max={1} step={0.1}
+                        value={penalties[key] ?? 1.0}
+                        onChange={(v) => v !== null && setPenalty(ps, cs, v)}
+                        disabled={isDiagonal}
+                        style={{ width: 80 }}
+                        size="small"
+                      />
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>해석 예시</strong> (현재: {SEASON_LABELS[currentSeason]})</div>
+          <div style={{ marginTop: 4 }}>
+            {SEASONS.filter((ps) => ps !== currentSeason).map((ps) => {
+              const val = penalties[`SEASON_PENALTY_${ps}_${currentSeason}`] ?? 0.5;
+              return (
+                <div key={ps}>
+                  {SEASON_LABELS[ps]} 상품 → 수요의 <strong>{Math.round(val * 100)}%</strong> 반영
+                  {val < 0.5 ? ' (대폭 감소)' : val < 0.8 ? ' (소폭 감소)' : ''}
+                </div>
+              );
+            })}
+            <div>{SEASON_LABELS[currentSeason]} 상품 → 수요의 <strong>100%</strong> 반영 (정시즌)</div>
+          </div>
         </div>
       </Card>
+
+      <div style={{ marginTop: 20, textAlign: 'right' }}>
+        <Button type="primary" size="large" onClick={handleSave} loading={saving}>
+          설정 저장
+        </Button>
+      </div>
     </div>
   );
 }

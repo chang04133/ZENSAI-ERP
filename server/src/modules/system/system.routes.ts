@@ -80,16 +80,31 @@ router.get('/settings', ...admin, asyncHandler(async (_req, res) => {
 router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   const pool = getPool();
   const updates = req.body as Record<string, string>;
-  const allowed = ['LOW_STOCK_THRESHOLD', 'MEDIUM_STOCK_THRESHOLD'];
+  const allowed = [
+    'LOW_STOCK_THRESHOLD', 'MEDIUM_STOCK_THRESHOLD',
+    'SEASON_PENALTY_SA_SA', 'SEASON_PENALTY_SA_SM', 'SEASON_PENALTY_SA_WN',
+    'SEASON_PENALTY_SM_SA', 'SEASON_PENALTY_SM_SM', 'SEASON_PENALTY_SM_WN',
+    'SEASON_PENALTY_WN_SA', 'SEASON_PENALTY_WN_SM', 'SEASON_PENALTY_WN_WN',
+  ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;
-    const numVal = parseInt(value, 10);
-    if (isNaN(numVal) || numVal < 0) continue;
+
+    let saveVal: string;
+    if (key.startsWith('SEASON_PENALTY_')) {
+      const fv = parseFloat(value);
+      if (isNaN(fv) || fv < 0 || fv > 1) continue;
+      saveVal = fv.toFixed(2);
+    } else {
+      const numVal = parseInt(value, 10);
+      if (isNaN(numVal) || numVal < 0) continue;
+      saveVal = String(numVal);
+    }
+
     await pool.query(
       `INSERT INTO master_codes (code_type, code_value, code_label, sort_order)
        VALUES ('SETTING', $1, $2, 0)
        ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = $2`,
-      [key, String(numVal)],
+      [key, saveVal],
     );
   }
   res.json({ success: true });

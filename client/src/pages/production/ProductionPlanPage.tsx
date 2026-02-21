@@ -171,7 +171,13 @@ export default function ProductionPlanPage() {
           <Space style={{ width: '100%' }} size="middle">
             <Form.Item name="season" label="시즌" style={{ width: 150 }}>
               <Select allowClear placeholder="시즌">
-                {['26SS', '26FW', '25FW', '25SS'].map(s => <Select.Option key={s} value={s}>{s}</Select.Option>)}
+                {[
+                  { value: '2026SA', label: '26 봄/가을' },
+                  { value: '2026SM', label: '26 여름' },
+                  { value: '2026WN', label: '26 겨울' },
+                  { value: '2025SA', label: '25 봄/가을' },
+                  { value: '2025WN', label: '25 겨울' },
+                ].map(s => <Select.Option key={s.value} value={s.value}>{s.label}</Select.Option>)}
               </Select>
             </Form.Item>
             <Form.Item name="target_date" label="목표일">

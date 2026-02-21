@@ -11,6 +11,8 @@ import { productionApi } from '../../modules/production/production.api';
 const CAT_LABELS: Record<string, string> = {
   TOP: '상의', BOTTOM: '하의', OUTER: '아우터', DRESS: '원피스', ACC: '악세서리',
 };
+const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
+const SEASON_COLORS: Record<string, string> = { SA: 'green', SM: 'orange', WN: 'blue' };
 
 export default function ProductionDashboardPage() {
   const navigate = useNavigate();
@@ -160,6 +162,14 @@ export default function ProductionDashboardPage() {
                   { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
                   { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
                     render: (v: string) => <Tag color="blue">{v}</Tag> },
+                  { title: '시즌', dataIndex: 'product_season', key: 'season', width: 75, align: 'center' as const,
+                    render: (v: string) => <Tag color={SEASON_COLORS[v] || 'default'}>{SEASON_LABELS[v] || v}</Tag> },
+                  { title: '패널티', dataIndex: 'season_penalty', key: 'penalty', width: 65, align: 'center' as const,
+                    render: (v: number) => {
+                      const n = Number(v);
+                      const color = n >= 1 ? '#52c41a' : n >= 0.6 ? '#fa8c16' : '#ff4d4f';
+                      return <span style={{ color, fontWeight: 600 }}>{'\u00D7'}{n.toFixed(1)}</span>;
+                    } },
                   { title: '90일 판매', dataIndex: 'total_sold_90d', key: 'sold', width: 85, align: 'right' as const,
                     render: (v: number) => Number(v).toLocaleString() },
                   { title: '일평균', dataIndex: 'avg_daily_sales', key: 'daily', width: 70, align: 'right' as const,

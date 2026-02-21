@@ -21,5 +21,6 @@ import m019 from './019_sys_admin_role';
 import m020 from './020_fund_sub_categories';
 import m021 from './021_notification_cancelled';
 import m022 from './022_production_tx_type';
+import m023 from './023_three_seasons';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023];

@@ -69,7 +69,7 @@ app.use('/api/funds', fundRoutes);
 
 // Production: serve static files
 if (config.nodeEnv === 'production') {
-  const clientPath = path.join(__dirname, '../../dist-client');
+  const clientPath = path.join(__dirname, '../../../../dist-client');
   app.use(express.static(clientPath));
   app.get('*', (_req, res) => {
     res.sendFile(path.join(clientPath, 'index.html'));

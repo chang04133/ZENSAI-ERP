@@ -69,32 +69,44 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   }
   console.log('  사용자 6개 삽입 (비밀번호: test1234!)');
 
-  // ──────────────── 3. 상품 (15개 + 가격포함) ────────────────
+  // ──────────────── 3. 상품 (25개 + 가격/세부카테고리 포함) ────────────────
   await pool.query(`
-    INSERT INTO products (product_code, product_name, category, brand, season, base_price, discount_price, event_price, cost_price, fit, length) VALUES
-      ('ZS26SS-T001', '오버핏 코튼 티셔츠', 'TOP', 'ZENSAI', '2026SA', 49000, 39000, 29000, 18000, '오버핏', '레귤러'),
-      ('ZS26SS-T002', '슬림핏 스트라이프 셔츠', 'TOP', 'ZENSAI', '2026SA', 69000, 55000, 45000, 25000, '슬림핏', '레귤러'),
-      ('ZS26SS-T003', '크롭 니트 탑', 'TOP', 'ZENSAI', '2026SM', 59000, 47000, 35000, 22000, '레귤러핏', '크롭'),
-      ('ZS26SS-B001', '와이드 데님 팬츠', 'BOTTOM', 'ZENSAI', '2026SA', 89000, 71000, 59000, 32000, '와이드핏', '롱'),
-      ('ZS26SS-B002', '테이퍼드 슬랙스', 'BOTTOM', 'ZENSAI', '2026SA', 79000, 63000, 49000, 28000, '테이퍼드핏', '레귤러'),
-      ('ZS26SS-B003', '플리츠 미디스커트', 'BOTTOM', 'ZENSAI', '2026SM', 65000, 52000, 39000, 24000, '레귤러핏', '레귤러'),
-      ('ZS26SS-O001', '린넨 블렌드 재킷', 'OUTER', 'ZENSAI', '2026SM', 159000, 127000, 99000, 58000, '레귤러핏', '숏'),
-      ('ZS26SS-O002', '라이트 트렌치코트', 'OUTER', 'ZENSAI', '2026SA', 189000, 151000, 119000, 68000, '오버핏', '롱'),
-      ('ZS26SS-D001', '플라워 프린트 원피스', 'DRESS', 'ZENSAI', '2026SM', 119000, 95000, 79000, 42000, '레귤러핏', '롱'),
-      ('ZS26SS-D002', '리넨 셔츠 원피스', 'DRESS', 'ZENSAI', '2026SM', 99000, 79000, 59000, 36000, '오버사이즈핏', '롱'),
-      ('ZS25FW-T001', '캐시미어 블렌드 니트', 'TOP', 'ZENSAI', '2025WN', 89000, 71000, 55000, 32000, '세미오버핏', '레귤러'),
-      ('ZS25FW-O001', '울 더블 코트', 'OUTER', 'ZENSAI', '2025WN', 289000, 231000, 189000, 105000, '레귤러핏', '롱'),
-      ('ZS25FW-O002', '패딩 점퍼', 'OUTER', 'ZENSAI', '2025WN', 239000, 191000, 149000, 88000, '오버핏', '숏'),
-      ('ZS25FW-B001', '기모 스트레이트 팬츠', 'BOTTOM', 'ZENSAI', '2025WN', 79000, 63000, 49000, 28000, '스트레이트핏', '레귤러'),
-      ('ZS26SS-A001', '레더 미니 백', 'ACC', 'ZENSAI', '2026SA', 129000, 103000, 79000, 45000, NULL, NULL)
+    INSERT INTO products (product_code, product_name, category, sub_category, brand, season, base_price, discount_price, event_price, cost_price, fit, length) VALUES
+      ('ZS26SS-T001', '오버핏 코튼 티셔츠', 'TOP', 'SHORT_SLEEVE', 'ZENSAI', '2026SA', 49000, 39000, 29000, 18000, '오버핏', '레귤러'),
+      ('ZS26SS-T002', '슬림핏 스트라이프 셔츠', 'TOP', 'LONG_SLEEVE', 'ZENSAI', '2026SA', 69000, 55000, 45000, 25000, '슬림핏', '레귤러'),
+      ('ZS26SS-T003', '크롭 니트 탑', 'TOP', 'KNIT', 'ZENSAI', '2026SM', 59000, 47000, 35000, 22000, '레귤러핏', '크롭'),
+      ('ZS26SA-T004', '오버사이즈 후디', 'TOP', 'HOODIE', 'ZENSAI', '2026SA', 79000, 63000, 49000, 29000, '오버사이즈핏', '레귤러'),
+      ('ZS26SA-T005', '크루넥 맨투맨', 'TOP', 'SWEATSHIRT', 'ZENSAI', '2026SA', 59000, 47000, 35000, 21000, '세미오버핏', '레귤러'),
+      ('ZS26SS-B001', '와이드 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 89000, 71000, 59000, 32000, '와이드핏', '롱'),
+      ('ZS26SS-B002', '테이퍼드 슬랙스', 'BOTTOM', 'SLACKS', 'ZENSAI', '2026SA', 79000, 63000, 49000, 28000, '테이퍼드핏', '레귤러'),
+      ('ZS26SS-B003', '플리츠 미디스커트', 'BOTTOM', 'SKIRT', 'ZENSAI', '2026SM', 65000, 52000, 39000, 24000, '레귤러핏', '레귤러'),
+      ('ZS26SA-B004', '부츠컷 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 95000, 76000, 62000, 34000, '부츠컷핏', '롱'),
+      ('ZS26SS-O001', '린넨 블렌드 재킷', 'OUTER', 'JACKET', 'ZENSAI', '2026SM', 159000, 127000, 99000, 58000, '레귤러핏', '숏'),
+      ('ZS26SS-O002', '라이트 트렌치코트', 'OUTER', 'COAT', 'ZENSAI', '2026SA', 189000, 151000, 119000, 68000, '오버핏', '롱'),
+      ('ZS26SS-D001', '플라워 프린트 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2026SM', 119000, 95000, 79000, 42000, '레귤러핏', '롱'),
+      ('ZS26SS-D002', '리넨 셔츠 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2026SM', 99000, 79000, 59000, 36000, '오버사이즈핏', '롱'),
+      ('ZS26SM-D003', '미니 플레어 원피스', 'DRESS', 'MINI_DRESS', 'ZENSAI', '2026SM', 89000, 71000, 55000, 32000, '레귤러핏', '숏'),
+      ('ZS25FW-T001', '캐시미어 블렌드 니트', 'TOP', 'KNIT', 'ZENSAI', '2025WN', 89000, 71000, 55000, 32000, '세미오버핏', '레귤러'),
+      ('ZS25FW-T002', '터틀넥 울 니트', 'TOP', 'KNIT', 'ZENSAI', '2025WN', 99000, 79000, 59000, 36000, '레귤러핏', '레귤러'),
+      ('ZS25FW-O001', '울 더블 코트', 'OUTER', 'COAT', 'ZENSAI', '2025WN', 289000, 231000, 189000, 105000, '레귤러핏', '롱'),
+      ('ZS25FW-O002', '패딩 점퍼', 'OUTER', 'PADDING', 'ZENSAI', '2025WN', 239000, 191000, 149000, 88000, '오버핏', '숏'),
+      ('ZS25WN-O003', '레더 바이커 자켓', 'OUTER', 'JACKET', 'ZENSAI', '2025WN', 199000, 159000, 129000, 72000, '슬림핏', '숏'),
+      ('ZS25FW-B001', '기모 스트레이트 팬츠', 'BOTTOM', 'SLACKS', 'ZENSAI', '2025WN', 79000, 63000, 49000, 28000, '스트레이트핏', '레귤러'),
+      ('ZS25SA-T003', '스트라이프 반팔 티', 'TOP', 'SHORT_SLEEVE', 'ZENSAI', '2025SA', 45000, 36000, 27000, 16000, '레귤러핏', '레귤러'),
+      ('ZS25SA-B002', '와이드 코튼 팬츠', 'BOTTOM', 'SLACKS', 'ZENSAI', '2025SA', 75000, 60000, 45000, 27000, '와이드핏', '레귤러'),
+      ('ZS25SA-D001', '셔링 미디 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2025SA', 109000, 87000, 69000, 39000, '레귤러핏', '롱'),
+      ('ZS26SS-A001', '레더 미니 백', 'ACC', 'BAG', 'ZENSAI', '2026SA', 129000, 103000, 79000, 45000, NULL, NULL),
+      ('ZS26SA-A002', '코튼 버킷햇', 'ACC', 'HAT', 'ZENSAI', '2026SA', 35000, 28000, 22000, 12000, NULL, NULL),
+      ('ZS26SA-A003', '레더 스퀘어 벨트', 'ACC', 'BELT', 'ZENSAI', '2026SA', 49000, 39000, 29000, 17000, NULL, NULL)
     ON CONFLICT (product_code) DO UPDATE SET
       discount_price = EXCLUDED.discount_price,
       event_price = EXCLUDED.event_price,
       cost_price = EXCLUDED.cost_price,
       fit = EXCLUDED.fit,
-      length = EXCLUDED.length;
+      length = EXCLUDED.length,
+      sub_category = EXCLUDED.sub_category;
   `);
-  console.log('  상품 15개 삽입 (할인가/행사가 포함)');
+  console.log('  상품 26개 삽입 (할인가/행사가/세부카테고리 포함)');
 
   // ──────────────── 4. 상품 변형 (SKU) ────────────────
   const variants: [string, string, string, string, number][] = [
@@ -183,6 +195,67 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     ['ZS26SS-A001', '블랙', 'FREE', 'ZS26SS-A001-BK-FREE', 129000],
     ['ZS26SS-A001', '베이지', 'FREE', 'ZS26SS-A001-BG-FREE', 129000],
     ['ZS26SS-A001', '레드', 'FREE', 'ZS26SS-A001-RD-FREE', 129000],
+    // ── 추가 상품 변형 ──
+    // T004 - 오버사이즈 후디
+    ['ZS26SA-T004', '블랙', 'M', 'ZS26SA-T004-BK-M', 79000],
+    ['ZS26SA-T004', '블랙', 'L', 'ZS26SA-T004-BK-L', 79000],
+    ['ZS26SA-T004', '그레이', 'M', 'ZS26SA-T004-GR-M', 79000],
+    ['ZS26SA-T004', '그레이', 'L', 'ZS26SA-T004-GR-L', 79000],
+    ['ZS26SA-T004', '네이비', 'M', 'ZS26SA-T004-NV-M', 79000],
+    ['ZS26SA-T004', '네이비', 'L', 'ZS26SA-T004-NV-L', 79000],
+    // T005 - 크루넥 맨투맨
+    ['ZS26SA-T005', '블랙', 'M', 'ZS26SA-T005-BK-M', 59000],
+    ['ZS26SA-T005', '블랙', 'L', 'ZS26SA-T005-BK-L', 59000],
+    ['ZS26SA-T005', '화이트', 'M', 'ZS26SA-T005-WH-M', 59000],
+    ['ZS26SA-T005', '화이트', 'L', 'ZS26SA-T005-WH-L', 59000],
+    // B004 - 부츠컷 데님 팬츠
+    ['ZS26SA-B004', '블루', 'S', 'ZS26SA-B004-BL-S', 95000],
+    ['ZS26SA-B004', '블루', 'M', 'ZS26SA-B004-BL-M', 95000],
+    ['ZS26SA-B004', '블루', 'L', 'ZS26SA-B004-BL-L', 95000],
+    ['ZS26SA-B004', '블랙', 'S', 'ZS26SA-B004-BK-S', 95000],
+    ['ZS26SA-B004', '블랙', 'M', 'ZS26SA-B004-BK-M', 95000],
+    ['ZS26SA-B004', '블랙', 'L', 'ZS26SA-B004-BK-L', 95000],
+    // D003 - 미니 플레어 원피스
+    ['ZS26SM-D003', '화이트', 'S', 'ZS26SM-D003-WH-S', 89000],
+    ['ZS26SM-D003', '화이트', 'M', 'ZS26SM-D003-WH-M', 89000],
+    ['ZS26SM-D003', '블랙', 'S', 'ZS26SM-D003-BK-S', 89000],
+    ['ZS26SM-D003', '블랙', 'M', 'ZS26SM-D003-BK-M', 89000],
+    // FW T002 - 터틀넥 울 니트
+    ['ZS25FW-T002', '블랙', 'M', 'ZS25FW-T002-BK-M', 99000],
+    ['ZS25FW-T002', '블랙', 'L', 'ZS25FW-T002-BK-L', 99000],
+    ['ZS25FW-T002', '베이지', 'M', 'ZS25FW-T002-BG-M', 99000],
+    ['ZS25FW-T002', '베이지', 'L', 'ZS25FW-T002-BG-L', 99000],
+    // WN O003 - 레더 바이커 자켓
+    ['ZS25WN-O003', '블랙', 'S', 'ZS25WN-O003-BK-S', 199000],
+    ['ZS25WN-O003', '블랙', 'M', 'ZS25WN-O003-BK-M', 199000],
+    ['ZS25WN-O003', '블랙', 'L', 'ZS25WN-O003-BK-L', 199000],
+    ['ZS25WN-O003', '브라운', 'M', 'ZS25WN-O003-BR-M', 199000],
+    ['ZS25WN-O003', '브라운', 'L', 'ZS25WN-O003-BR-L', 199000],
+    // 25SA T003 - 스트라이프 반팔 티
+    ['ZS25SA-T003', '화이트', 'S', 'ZS25SA-T003-WH-S', 45000],
+    ['ZS25SA-T003', '화이트', 'M', 'ZS25SA-T003-WH-M', 45000],
+    ['ZS25SA-T003', '화이트', 'L', 'ZS25SA-T003-WH-L', 45000],
+    ['ZS25SA-T003', '네이비', 'S', 'ZS25SA-T003-NV-S', 45000],
+    ['ZS25SA-T003', '네이비', 'M', 'ZS25SA-T003-NV-M', 45000],
+    ['ZS25SA-T003', '네이비', 'L', 'ZS25SA-T003-NV-L', 45000],
+    // 25SA B002 - 와이드 코튼 팬츠
+    ['ZS25SA-B002', '베이지', 'S', 'ZS25SA-B002-BG-S', 75000],
+    ['ZS25SA-B002', '베이지', 'M', 'ZS25SA-B002-BG-M', 75000],
+    ['ZS25SA-B002', '베이지', 'L', 'ZS25SA-B002-BG-L', 75000],
+    ['ZS25SA-B002', '블랙', 'M', 'ZS25SA-B002-BK-M', 75000],
+    ['ZS25SA-B002', '블랙', 'L', 'ZS25SA-B002-BK-L', 75000],
+    // 25SA D001 - 셔링 미디 원피스
+    ['ZS25SA-D001', '블루', 'S', 'ZS25SA-D001-BL-S', 109000],
+    ['ZS25SA-D001', '블루', 'M', 'ZS25SA-D001-BL-M', 109000],
+    ['ZS25SA-D001', '베이지', 'S', 'ZS25SA-D001-BG-S', 109000],
+    ['ZS25SA-D001', '베이지', 'M', 'ZS25SA-D001-BG-M', 109000],
+    // A002 - 코튼 버킷햇
+    ['ZS26SA-A002', '블랙', 'FREE', 'ZS26SA-A002-BK-FREE', 35000],
+    ['ZS26SA-A002', '베이지', 'FREE', 'ZS26SA-A002-BG-FREE', 35000],
+    ['ZS26SA-A002', '네이비', 'FREE', 'ZS26SA-A002-NV-FREE', 35000],
+    // A003 - 레더 스퀘어 벨트
+    ['ZS26SA-A003', '블랙', 'FREE', 'ZS26SA-A003-BK-FREE', 49000],
+    ['ZS26SA-A003', '브라운', 'FREE', 'ZS26SA-A003-BR-FREE', 49000],
   ];
 
   for (const [product_code, color, size, sku, price] of variants) {
@@ -236,6 +309,23 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     ['P005', 'ZS26SS-T001-BK-M', 7], ['P005', 'ZS26SS-T001-NV-M', 5],
     ['P005', 'ZS26SS-B001-BL-M', 4], ['P005', 'ZS26SS-B002-GR-M', 3],
     ['P005', 'ZS26SS-D002-WH-M', 3], ['P005', 'ZS26SS-D002-BG-M', 2],
+    // ── 추가 상품 재고 ──
+    // 본사 (P001)
+    ['P001', 'ZS26SA-T004-BK-M', 60], ['P001', 'ZS26SA-T004-BK-L', 45], ['P001', 'ZS26SA-T004-GR-M', 50], ['P001', 'ZS26SA-T004-NV-M', 40],
+    ['P001', 'ZS26SA-T005-BK-M', 55], ['P001', 'ZS26SA-T005-WH-M', 50],
+    ['P001', 'ZS26SA-B004-BL-M', 40], ['P001', 'ZS26SA-B004-BL-L', 30], ['P001', 'ZS26SA-B004-BK-M', 35],
+    ['P001', 'ZS26SM-D003-WH-M', 25], ['P001', 'ZS26SM-D003-BK-M', 20],
+    ['P001', 'ZS25FW-T002-BK-M', 30], ['P001', 'ZS25FW-T002-BG-M', 25],
+    ['P001', 'ZS25WN-O003-BK-M', 20], ['P001', 'ZS25WN-O003-BR-M', 15],
+    ['P001', 'ZS26SA-A002-BK-FREE', 50], ['P001', 'ZS26SA-A002-BG-FREE', 45],
+    ['P001', 'ZS26SA-A003-BK-FREE', 35], ['P001', 'ZS26SA-A003-BR-FREE', 30],
+    // 강남점 (P002)
+    ['P002', 'ZS26SA-T004-BK-M', 8], ['P002', 'ZS26SA-T005-BK-M', 6],
+    ['P002', 'ZS26SA-B004-BL-M', 5], ['P002', 'ZS26SM-D003-WH-M', 3],
+    ['P002', 'ZS26SA-A002-BK-FREE', 8], ['P002', 'ZS26SA-A003-BK-FREE', 5],
+    // 홍대점 (P003)
+    ['P003', 'ZS26SA-T004-GR-M', 7], ['P003', 'ZS26SA-T005-WH-M', 5],
+    ['P003', 'ZS26SM-D003-BK-M', 3], ['P003', 'ZS26SA-A002-BG-FREE', 6],
   ];
 
   for (const [partner_code, sku, qty] of inventoryData) {
@@ -323,15 +413,42 @@ export async function seedDummyData(pool: Pool): Promise<void> {
 
   // ──────────────── 7. 판매 데이터 (4개년: 2023~2026) ────────────────
   const hotSkus = [
+    // TOP - 반팔
     'ZS26SS-T001-BK-M', 'ZS26SS-T001-BK-L', 'ZS26SS-T001-WH-M', 'ZS26SS-T001-WH-L',
-    'ZS26SS-T001-NV-M', 'ZS26SS-T002-WH-M', 'ZS26SS-T002-BL-M',
-    'ZS26SS-B001-BL-M', 'ZS26SS-B001-BK-M', 'ZS26SS-B002-BK-M', 'ZS26SS-B002-GR-M',
-    'ZS26SS-T003-BG-M', 'ZS26SS-T003-BK-M', 'ZS26SS-B003-BG-M', 'ZS26SS-B003-BK-M',
-    'ZS26SS-O001-BG-M', 'ZS26SS-O001-NV-M', 'ZS26SS-O002-BG-M',
+    'ZS26SS-T001-NV-M', 'ZS25SA-T003-WH-M', 'ZS25SA-T003-NV-M',
+    // TOP - 긴팔
+    'ZS26SS-T002-WH-M', 'ZS26SS-T002-BL-M',
+    // TOP - 니트
+    'ZS26SS-T003-BG-M', 'ZS26SS-T003-BK-M', 'ZS25FW-T001-BK-M', 'ZS25FW-T001-GR-M',
+    'ZS25FW-T002-BK-M', 'ZS25FW-T002-BG-M',
+    // TOP - 후디
+    'ZS26SA-T004-BK-M', 'ZS26SA-T004-GR-M', 'ZS26SA-T004-NV-M',
+    // TOP - 맨투맨
+    'ZS26SA-T005-BK-M', 'ZS26SA-T005-WH-M',
+    // BOTTOM - 청바지
+    'ZS26SS-B001-BL-M', 'ZS26SS-B001-BK-M', 'ZS26SA-B004-BL-M', 'ZS26SA-B004-BK-M',
+    // BOTTOM - 슬랙스
+    'ZS26SS-B002-BK-M', 'ZS26SS-B002-GR-M', 'ZS25FW-B001-BK-M', 'ZS25FW-B001-NV-M',
+    'ZS25SA-B002-BG-M', 'ZS25SA-B002-BK-M',
+    // BOTTOM - 스커트
+    'ZS26SS-B003-BG-M', 'ZS26SS-B003-BK-M',
+    // OUTER - 자켓
+    'ZS26SS-O001-BG-M', 'ZS26SS-O001-NV-M', 'ZS25WN-O003-BK-M', 'ZS25WN-O003-BR-M',
+    // OUTER - 코트
+    'ZS26SS-O002-BG-M', 'ZS25FW-O001-BK-M', 'ZS25FW-O001-NV-M',
+    // OUTER - 패딩
+    'ZS25FW-O002-BK-M',
+    // DRESS - 롱원피스
     'ZS26SS-D001-BL-M', 'ZS26SS-D001-RD-M', 'ZS26SS-D002-WH-M', 'ZS26SS-D002-BG-M',
+    'ZS25SA-D001-BL-M', 'ZS25SA-D001-BG-M',
+    // DRESS - 미니원피스
+    'ZS26SM-D003-WH-M', 'ZS26SM-D003-BK-M',
+    // ACC - 가방
     'ZS26SS-A001-BK-FREE', 'ZS26SS-A001-BG-FREE', 'ZS26SS-A001-RD-FREE',
-    'ZS25FW-T001-BK-M', 'ZS25FW-T001-GR-M', 'ZS25FW-O001-BK-M', 'ZS25FW-O001-NV-M',
-    'ZS25FW-O002-BK-M', 'ZS25FW-B001-BK-M', 'ZS25FW-B001-NV-M',
+    // ACC - 모자
+    'ZS26SA-A002-BK-FREE', 'ZS26SA-A002-BG-FREE',
+    // ACC - 벨트
+    'ZS26SA-A003-BK-FREE', 'ZS26SA-A003-BR-FREE',
   ];
   const salesPartners = ['P002', 'P003', 'P004', 'P005', 'P006', 'P007', 'P008', 'P009', 'P010'];
   const saleTypes = ['정상', '정상', '정상', '정상', '정상', '할인', '할인', '행사']; // 정상 비중 높게
@@ -343,18 +460,29 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     'ZS26SS-T001': { base: 49000, discount: 39000, event: 29000 },
     'ZS26SS-T002': { base: 69000, discount: 55000, event: 45000 },
     'ZS26SS-T003': { base: 59000, discount: 47000, event: 35000 },
+    'ZS26SA-T004': { base: 79000, discount: 63000, event: 49000 },
+    'ZS26SA-T005': { base: 59000, discount: 47000, event: 35000 },
     'ZS26SS-B001': { base: 89000, discount: 71000, event: 59000 },
     'ZS26SS-B002': { base: 79000, discount: 63000, event: 49000 },
     'ZS26SS-B003': { base: 65000, discount: 52000, event: 39000 },
+    'ZS26SA-B004': { base: 95000, discount: 76000, event: 62000 },
     'ZS26SS-O001': { base: 159000, discount: 127000, event: 99000 },
     'ZS26SS-O002': { base: 189000, discount: 151000, event: 119000 },
     'ZS26SS-D001': { base: 119000, discount: 95000, event: 79000 },
     'ZS26SS-D002': { base: 99000, discount: 79000, event: 59000 },
+    'ZS26SM-D003': { base: 89000, discount: 71000, event: 55000 },
     'ZS25FW-T001': { base: 89000, discount: 71000, event: 55000 },
+    'ZS25FW-T002': { base: 99000, discount: 79000, event: 59000 },
     'ZS25FW-O001': { base: 289000, discount: 231000, event: 189000 },
     'ZS25FW-O002': { base: 239000, discount: 191000, event: 149000 },
+    'ZS25WN-O003': { base: 199000, discount: 159000, event: 129000 },
     'ZS25FW-B001': { base: 79000, discount: 63000, event: 49000 },
+    'ZS25SA-T003': { base: 45000, discount: 36000, event: 27000 },
+    'ZS25SA-B002': { base: 75000, discount: 60000, event: 45000 },
+    'ZS25SA-D001': { base: 109000, discount: 87000, event: 69000 },
     'ZS26SS-A001': { base: 129000, discount: 103000, event: 79000 },
+    'ZS26SA-A002': { base: 35000, discount: 28000, event: 22000 },
+    'ZS26SA-A003': { base: 49000, discount: 39000, event: 29000 },
   };
 
   const randomDate = (year: number, month: number) => {

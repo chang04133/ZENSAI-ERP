@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { productionApi } from '../../modules/production/production.api';
+import PendingActionsBanner from '../../components/PendingActionsBanner';
 
 const CAT_LABELS: Record<string, string> = {
   TOP: '상의', BOTTOM: '하의', OUTER: '아우터', DRESS: '원피스', ACC: '악세서리',
@@ -76,6 +77,7 @@ export default function ProductionDashboardPage() {
 
   return (
     <div>
+      <PendingActionsBanner />
       <Typography.Title level={4} style={{ marginBottom: 20 }}>
         <ExperimentOutlined style={{ marginRight: 8 }} />생산기획 대시보드
       </Typography.Title>

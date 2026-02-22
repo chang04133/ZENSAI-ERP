@@ -172,12 +172,12 @@ export default function DailySalesPage() {
             <Table
               columns={[
                 { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110 },
-                { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
                 { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
                   render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag>,
                   filters: Object.entries(CAT_COLORS).map(([k]) => ({ text: k, value: k })),
                   onFilter: (v: any, r: any) => r.category === v },
-                { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 80,
+                { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 100,
                   render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
                 { title: '핏', dataIndex: 'fit', key: 'fit', width: 80,
                   render: (v: string) => v || '-' },
@@ -186,7 +186,7 @@ export default function DailySalesPage() {
                 { title: '판매수량', dataIndex: 'total_qty', key: 'qty', width: 80, align: 'right' as const,
                   render: (v: number) => <strong>{fmt(v)}</strong>,
                   sorter: (a: any, b: any) => a.total_qty - b.total_qty },
-                { title: '매출액', dataIndex: 'total_amount', key: 'amt', width: 110, align: 'right' as const,
+                { title: '매출액', dataIndex: 'total_amount', key: 'amt', width: 130, align: 'right' as const,
                   render: (v: number) => <strong>{fmt(v)}원</strong>,
                   sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
                   defaultSortOrder: 'descend' as const },

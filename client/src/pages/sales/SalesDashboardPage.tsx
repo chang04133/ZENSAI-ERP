@@ -7,6 +7,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
+import PendingActionsBanner from '../../components/PendingActionsBanner';
 import { salesApi } from '../../modules/sales/sales.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
@@ -355,6 +356,7 @@ export default function SalesDashboardPage() {
 
   return (
     <div>
+      <PendingActionsBanner />
       <PageHeader title={isStore ? '내 매장 매출현황' : '매출현황'} extra={
         <Select value={period} onChange={handlePeriodChange} style={{ width: 110 }}
           options={PERIOD_OPTIONS} />

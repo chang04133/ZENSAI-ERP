@@ -8,6 +8,8 @@ import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import type { RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
@@ -34,6 +36,9 @@ function StatCard({ title, count, qty, icon, bg, color }: {
 }
 
 export default function RestockProgressPage() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
   const [partners, setPartners] = useState<any[]>([]);
   const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
@@ -175,10 +180,12 @@ export default function RestockProgressPage() {
     <div>
       <PageHeader title="재입고 진행" extra={
         <Space>
-          <Select placeholder="거래처" allowClear value={partnerFilter}
-            onChange={setPartnerFilter} style={{ width: 150 }}
-            options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
-          />
+          {!isStore && (
+            <Select placeholder="거래처" allowClear value={partnerFilter}
+              onChange={setPartnerFilter} style={{ width: 150 }}
+              options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+            />
+          )}
           <Button icon={<ReloadOutlined />} onClick={() => { loadStats(); loadList(); }}>새로고침</Button>
         </Space>
       } />

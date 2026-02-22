@@ -183,11 +183,14 @@ export default function InventoryStatusPage() {
   const handleStockRequest = async (item: any) => {
     const key = `${item.variant_id}`;
     if (requestingIds.has(key)) return;
-    const targets = (item.other_locations || []).filter((loc: any) => loc.qty > 0);
-    if (targets.length === 0) {
+    const allTargets = (item.other_locations || []).filter((loc: any) => loc.qty >= 1);
+    if (allTargets.length === 0) {
       message.warning('다른 매장에 재고가 없습니다.');
       return;
     }
+    // 가장 수량 많은 지점만 요청 (동일 수량이면 전부)
+    const maxQty = Math.max(...allTargets.map((t: any) => t.qty));
+    const targets = allTargets.filter((t: any) => t.qty === maxQty);
     setRequestingIds((prev) => new Set(prev).add(key));
     try {
       const res = await apiFetch('/api/notifications/stock-request', {
@@ -200,7 +203,7 @@ export default function InventoryStatusPage() {
       });
       const data = await res.json();
       if (data.success) {
-        message.success(`${targets.length}개 매장/본사에 재고 요청을 보냈습니다.`);
+        message.success(`${targets.length}개 매장/본사에 재고 요청 완료 (최다재고 ${maxQty}개)`);
       } else { message.error(data.error); }
     } catch (e: any) { message.error(e.message); }
     finally {

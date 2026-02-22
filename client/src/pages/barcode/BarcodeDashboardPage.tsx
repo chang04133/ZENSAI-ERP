@@ -10,6 +10,7 @@ import {
 } from '@ant-design/icons';
 import { productApi } from '../../modules/product/product.api';
 import { salesApi } from '../../modules/sales/sales.api';
+import PendingActionsBanner from '../../components/PendingActionsBanner';
 import BarcodeScanner from '../../components/BarcodeScanner';
 
 const fmt = (v: number) => Number(v).toLocaleString();
@@ -128,6 +129,7 @@ export default function BarcodeDashboardPage() {
 
   return (
     <div>
+      <PendingActionsBanner />
       {/* 스캔 입력 */}
       <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}>
         <Row gutter={16} align="middle">

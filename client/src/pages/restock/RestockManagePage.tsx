@@ -5,6 +5,8 @@ import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import type { RestockSuggestion, SellingVelocity, RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
@@ -14,6 +16,9 @@ const STATUS_COLORS: Record<string, string> = { DRAFT: 'default', APPROVED: 'blu
 const STATUS_LABELS: Record<string, string> = { DRAFT: '작성중', APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소' };
 
 export default function RestockManagePage() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
   const [tab, setTab] = useState('suggestions');
   const [partners, setPartners] = useState<any[]>([]);
   const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
@@ -87,6 +92,7 @@ export default function RestockManagePage() {
     selectedItems.forEach(i => { qtys[i.variant_id] = i.suggested_qty; });
     setItemQtys(qtys);
     createForm.resetFields();
+    if (isStore && user?.partnerCode) createForm.setFieldsValue({ partner_code: user.partnerCode });
     setCreateOpen(true);
   };
 
@@ -203,10 +209,12 @@ export default function RestockManagePage() {
         title="재입고 관리"
         extra={
           <Space>
-            <Select placeholder="거래처 필터" allowClear value={partnerFilter}
-              onChange={setPartnerFilter} style={{ width: 150 }}
-              options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
-            />
+            {!isStore && (
+              <Select placeholder="거래처 필터" allowClear value={partnerFilter}
+                onChange={setPartnerFilter} style={{ width: 150 }}
+                options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+              />
+            )}
             {tab === 'suggestions' && selectedItems.length > 0 && (
               <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
                 재입고 의뢰 ({selectedItems.length}건)
@@ -300,7 +308,7 @@ export default function RestockManagePage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="partner_code" label="입고 거래처" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
-                <Select showSearch placeholder="거래처" optionFilterProp="label"
+                <Select showSearch placeholder="거래처" optionFilterProp="label" disabled={isStore}
                   options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
                 />
               </Form.Item>

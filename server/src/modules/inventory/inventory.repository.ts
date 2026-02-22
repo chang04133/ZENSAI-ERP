@@ -15,30 +15,46 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   async listWithDetails(options: any = {}) {
-    const { page = 1, limit = 20, partner_code, search } = options;
+    const { page = 1, limit = 20, partner_code, search, category, season, size, color, fit, stock_level, sort_field, sort_dir } = options;
     const offset = (page - 1) * limit;
     const qb = new QueryBuilder('i');
     if (partner_code) qb.eq('partner_code', partner_code);
-    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ?)', `%${search}%`, `%${search}%`);
+    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
+    if (category) qb.raw('p.category = ?', category);
+    if (season) qb.raw('p.season = ?', season);
+    if (size) qb.raw('pv.size = ?', size);
+    if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
+    if (fit) qb.raw('p.fit = ?', fit);
+    if (stock_level === 'zero') qb.raw('i.qty = 0');
+    else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= 5');
+    else if (stock_level === 'medium') qb.raw('i.qty > 5 AND i.qty <= 15');
+    else if (stock_level === 'good') qb.raw('i.qty > 15');
     const { whereClause, params, nextIdx } = qb.build();
 
-    const countSql = `
-      SELECT COUNT(*) FROM inventory i
-      JOIN product_variants pv ON i.variant_id = pv.variant_id
-      JOIN products p ON pv.product_code = p.product_code
-      JOIN partners pt ON i.partner_code = pt.partner_code
-      ${whereClause}`;
-    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
-
-    const dataSql = `
-      SELECT i.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+    const baseSql = `
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON i.partner_code = pt.partner_code
-      ${whereClause} ORDER BY i.updated_at DESC LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+      ${whereClause}`;
+
+    const countSql = `SELECT COUNT(*) ${baseSql}`;
+    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+
+    // 합계
+    const sumSql = `SELECT COALESCE(SUM(i.qty), 0)::int AS sum_qty ${baseSql}`;
+    const sumQty = parseInt((await this.pool.query(sumSql, params)).rows[0].sum_qty, 10);
+
+    const orderMap: Record<string, string> = { qty: 'i.qty', product_name: 'p.product_name', category: 'p.category', season: 'p.season', sku: 'pv.sku' };
+    const orderCol = orderMap[sort_field] || 'i.qty';
+    const orderDir = sort_dir === 'ASC' ? 'ASC' : 'DESC';
+
+    const dataSql = `
+      SELECT i.*, pt.partner_name, pv.sku, pv.color, pv.size,
+             p.product_code, p.product_name, p.category, p.brand, p.season, p.fit, p.base_price
+      ${baseSql} ORDER BY ${orderCol} ${orderDir}, p.product_name LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, limit, offset]);
-    return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+    return { data: data.rows, total, sumQty, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
   /** 외부 트랜잭션 client를 받아 재고 변동 처리 (출고/반품/수평이동/판매 연동용) */

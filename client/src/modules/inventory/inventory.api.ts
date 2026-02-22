@@ -2,8 +2,19 @@ import { createCrudApi } from '../../core/crud.api';
 import { apiFetch } from '../../core/api.client';
 import type { Inventory } from '../../../../shared/types/inventory';
 
+const crud = createCrudApi<Inventory>('/api/inventory');
+
 export const inventoryApi = {
-  ...createCrudApi<Inventory>('/api/inventory'),
+  ...crud,
+
+  /** list with extended sumQty */
+  list: async (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/inventory${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { data: Inventory[]; total: number; sumQty: number; page: number; limit: number; totalPages: number };
+  },
 
   dashboardStats: async (scope?: 'all') => {
     const q = scope ? `?scope=${scope}` : '';

@@ -20,7 +20,7 @@ class PartnerController extends BaseController<Partner> {
       return;
     }
 
-    const { page, limit, search, ...filters } = req.query;
+    const { page, limit, search, scope, ...filters } = req.query;
     const result = await partnerService.list({
       page: page ? parseInt(page as string, 10) : undefined,
       limit: limit ? parseInt(limit as string, 10) : undefined,

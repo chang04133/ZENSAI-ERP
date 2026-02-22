@@ -109,22 +109,36 @@ export default function InventoryStatusPage() {
   const onSearchChange = (value: string) => {
     setSearchText(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!value.trim()) { setSuggestions([]); return; }
+    if (!value.trim()) { setSuggestions([]); setSearchResult(null); return; }
     debounceRef.current = setTimeout(async () => {
       try {
         const data = await inventoryApi.searchSuggest(value);
-        setSuggestions(data);
-      } catch (e: any) { console.error('검색 자동완성 실패:', e); }
+        setSuggestions(Array.isArray(data) ? data : []);
+      } catch (e: any) {
+        console.error('검색 자동완성 실패:', e);
+        setSuggestions([]);
+      }
     }, 300);
   };
 
   const onSearchSelect = async (value: string) => {
-    setSearchText(value);
+    const q = (value || '').trim();
+    if (!q) return;
+    setSearchText(q);
     setSearchLoading(true);
+    setSearchResult(null);
     try {
-      const data = await inventoryApi.searchItem(value);
-      setSearchResult(data);
-    } catch (e: any) { message.error(e.message); }
+      const data = await inventoryApi.searchItem(q);
+      if (!data || (!data.product && (!data.variants || data.variants.length === 0))) {
+        setSearchResult({ product: null, variants: [] });
+        message.info('검색 결과가 없습니다.');
+      } else {
+        setSearchResult(data);
+      }
+    } catch (e: any) {
+      message.error('검색 실패: ' + (e.message || '알 수 없는 오류'));
+      setSearchResult(null);
+    }
     finally { setSearchLoading(false); }
   };
 
@@ -467,9 +481,9 @@ export default function InventoryStatusPage() {
           <Table
             dataSource={reorderData.urgent}
             rowKey="variant_id"
-            pagination={{ pageSize: 20, size: 'small' }}
             size="small"
-            scroll={{ x: 900 }}
+            scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+            pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
             columns={allColumns}
           />
         ) : (
@@ -503,9 +517,9 @@ export default function InventoryStatusPage() {
           <Table
             dataSource={reorderData.recommend}
             rowKey="variant_id"
-            pagination={{ pageSize: 20, size: 'small' }}
             size="small"
-            scroll={{ x: 900 }}
+            scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+            pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
             columns={allColumns}
           />
         ) : (

@@ -291,29 +291,27 @@ export default function InventoryStatusPage() {
 
       {/* ── 통계 카드 ── */}
       <Row gutter={[16, 16]}>
+        <Col xs={24} sm={12} lg={effectiveStore ? 6 : 5}>
+          <StatCard title={effectiveStore ? '내 매장 총 재고' : '총 재고수량'} value={Number(overall.total_qty || 0)}
+            icon={<InboxOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
+            sub={`${Number(overall.total_items || 0)}개 품목`} />
+        </Col>
         {!effectiveStore && (
-          <>
-            <Col xs={24} sm={12} lg={5}>
-              <StatCard title="총 재고수량" value={Number(overall.total_qty || 0)}
-                icon={<InboxOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
-                sub={`${Number(overall.total_items || 0)}개 품목`} />
-            </Col>
-            <Col xs={24} sm={12} lg={5}>
-              <StatCard title="거래처 수" value={Number(overall.total_partners || 0)}
-                icon={<ShopOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
-                sub="재고 보유 거래처" onClick={() => navigate('/inventory/store')} />
-            </Col>
-          </>
+          <Col xs={24} sm={12} lg={5}>
+            <StatCard title="거래처 수" value={Number(overall.total_partners || 0)}
+              icon={<ShopOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
+              sub="재고 보유 거래처" onClick={() => navigate('/inventory/store')} />
+          </Col>
         )}
-        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 5}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
           <StatCard title="리오더 긴급" value={reorderLoading ? '...' : reorderData.urgent.length}
             icon={<ThunderboltOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff" />
         </Col>
-        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 5}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
           <StatCard title="리오더 추천" value={reorderLoading ? '...' : reorderData.recommend.length}
             icon={<AlertOutlined />} bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e" />
         </Col>
-        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 4}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 4}>
           <StatCard title="품절" value={Number(overall.zero_stock_count || 0)}
             icon={<StopOutlined />} bg="linear-gradient(135deg, #fa709a 0%, #fee140 100%)" color="#fff"
             sub="재고 0개" />

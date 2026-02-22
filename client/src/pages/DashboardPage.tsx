@@ -301,7 +301,7 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
             icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
-            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate('/shipment/process')} />
+            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')} />
         </Col>
       </Row>
 
@@ -361,7 +361,7 @@ export default function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={12}>
           <Card title={isStore ? '내 매장 출고 현황' : '출고 현황'} size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate('/shipment/process')}>전체보기</a>}>
+            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')}>전체보기</a>}>
             <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: 16 }}>
               {[
                 { label: '대기', count: pendingCount, color: '#6366f1' },
@@ -568,7 +568,7 @@ export default function DashboardPage() {
                     <TruckOutlined style={{ color: '#f59e0b' }} />
                     <Typography.Text strong>출고 처리 대기</Typography.Text>
                     <Badge count={(pa.shipmentsToProcess || []).length} style={{ backgroundColor: '#f59e0b' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>처리하기</a>
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/store')}>처리하기</a>
                   </div>
                   <Table
                     columns={[
@@ -580,7 +580,7 @@ export default function DashboardPage() {
                       { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
                       {
                         title: '', key: 'action', width: 80,
-                        render: () => <Button type="primary" size="small" onClick={() => navigate('/shipment/process')}>처리</Button>,
+                        render: () => <Button type="primary" size="small" onClick={() => navigate('/shipment/store')}>처리</Button>,
                       },
                     ]}
                     dataSource={pa.shipmentsToProcess || []}
@@ -599,7 +599,7 @@ export default function DashboardPage() {
                     <InboxOutlined style={{ color: '#10b981' }} />
                     <Typography.Text strong>수령확인 대기</Typography.Text>
                     <Badge count={(pa.shipmentsToReceive || []).length} style={{ backgroundColor: '#10b981' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>확인하기</a>
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/store')}>확인하기</a>
                   </div>
                   <Table
                     columns={[
@@ -611,7 +611,7 @@ export default function DashboardPage() {
                       { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
                       {
                         title: '', key: 'action', width: 80,
-                        render: () => <Button size="small" type="primary" onClick={() => navigate('/shipment/process')}>수령</Button>,
+                        render: () => <Button size="small" type="primary" onClick={() => navigate('/shipment/store')}>수령</Button>,
                       },
                     ]}
                     dataSource={pa.shipmentsToReceive || []}
@@ -674,7 +674,7 @@ export default function DashboardPage() {
         </Col>
         <Col xs={24} md={9}>
           <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate('/shipment/request')}>전체보기</a>}>
+            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/request')}>전체보기</a>}>
             <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" />
           </Card>
         </Col>

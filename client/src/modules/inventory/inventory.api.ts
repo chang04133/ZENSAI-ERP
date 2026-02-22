@@ -5,8 +5,9 @@ import type { Inventory } from '../../../../shared/types/inventory';
 export const inventoryApi = {
   ...createCrudApi<Inventory>('/api/inventory'),
 
-  dashboardStats: async () => {
-    const res = await apiFetch('/api/inventory/dashboard-stats');
+  dashboardStats: async (scope?: 'all') => {
+    const q = scope ? `?scope=${scope}` : '';
+    const res = await apiFetch(`/api/inventory/dashboard-stats${q}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as {
@@ -65,8 +66,9 @@ export const inventoryApi = {
     return data.data as Array<{ product_code: string; product_name: string; category: string }>;
   },
 
-  reorderAlerts: async (urgent = 5, recommend = 10) => {
-    const res = await apiFetch(`/api/inventory/reorder-alerts?urgent=${urgent}&recommend=${recommend}`);
+  reorderAlerts: async (urgent = 5, recommend = 10, scope?: 'all') => {
+    const scopeQ = scope ? `&scope=${scope}` : '';
+    const res = await apiFetch(`/api/inventory/reorder-alerts?urgent=${urgent}&recommend=${recommend}${scopeQ}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as {

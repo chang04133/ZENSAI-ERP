@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, CSSProperties } from 'react';
-import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button, InputNumber } from 'antd';
+import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button, InputNumber, Segmented } from 'antd';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
@@ -79,6 +79,10 @@ export default function InventoryStatusPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  // 매장 매니저: 내 매장 / 전체 전환
+  const [viewScope, setViewScope] = useState<'my_store' | 'all'>('my_store');
+  const effectiveStore = isStore && viewScope === 'my_store';
+
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
@@ -143,39 +147,41 @@ export default function InventoryStatusPage() {
   };
 
   // 리오더 데이터 로드 (디바운스)
-  const loadReorder = useCallback((urgent: number, recommend: number) => {
+  const loadReorder = useCallback((urgent: number, recommend: number, scope?: 'all') => {
     if (reorderDebounceRef.current) clearTimeout(reorderDebounceRef.current);
     reorderDebounceRef.current = setTimeout(async () => {
       setReorderLoading(true);
       try {
-        const data = await inventoryApi.reorderAlerts(urgent, recommend);
+        const data = await inventoryApi.reorderAlerts(urgent, recommend, scope);
         setReorderData(data);
       } catch (e: any) { console.error('리오더 조회 실패:', e); }
       finally { setReorderLoading(false); }
     }, 400);
   }, []);
 
-  useEffect(() => {
-    // 대시보드 통계 로드
-    inventoryApi.dashboardStats()
+  const loadAll = useCallback(() => {
+    const scope = isStore && viewScope === 'all' ? 'all' as const : undefined;
+    setStatsLoading(true);
+    inventoryApi.dashboardStats(scope)
       .then(setStats)
       .catch((e: any) => message.error(e.message))
       .finally(() => setStatsLoading(false));
+    loadReorder(urgentThreshold, recommendThreshold, scope);
+  }, [viewScope, urgentThreshold, recommendThreshold, isStore, loadReorder]);
 
-    // 리오더 초기 로드
-    loadReorder(urgentThreshold, recommendThreshold);
-  }, []);
+  useEffect(() => { loadAll(); }, [viewScope]);
 
   // 임계값 변경 시 재조회
+  const currentScope = isStore && viewScope === 'all' ? 'all' as const : undefined;
   const handleUrgentChange = (v: number | null) => {
     if (v === null || v < 0) return;
     setUrgentThreshold(v);
-    loadReorder(v, recommendThreshold);
+    loadReorder(v, recommendThreshold, currentScope);
   };
   const handleRecommendChange = (v: number | null) => {
     if (v === null || v < 0) return;
     setRecommendThreshold(v);
-    loadReorder(urgentThreshold, v);
+    loadReorder(urgentThreshold, v, currentScope);
   };
 
   // 재고 요청 보내기 (매장용)
@@ -246,7 +252,7 @@ export default function InventoryStatusPage() {
   ];
 
   // 매장용: 다른매장재고 + 요청 버튼 추가
-  const storeExtraColumns = isStore ? [
+  const storeExtraColumns = effectiveStore ? [
     { title: '다른 매장 재고', dataIndex: 'other_locations', key: 'other_locations',
       render: (locs: any[]) => {
         if (!locs || locs.length === 0) return <span style={{ color: '#ccc', fontSize: 12 }}>없음</span>;
@@ -284,11 +290,22 @@ export default function InventoryStatusPage() {
 
   return (
     <div>
-      <PageHeader title={isStore ? '내 매장 재고현황' : '재고현황'} />
+      <PageHeader title={effectiveStore ? '내 매장 재고현황' : '재고현황'} extra={
+        isStore ? (
+          <Segmented
+            value={viewScope}
+            onChange={(v) => setViewScope(v as 'my_store' | 'all')}
+            options={[
+              { label: '내 매장', value: 'my_store' },
+              { label: '전체', value: 'all' },
+            ]}
+          />
+        ) : undefined
+      } />
 
       {/* ── 통계 카드 ── */}
       <Row gutter={[16, 16]}>
-        {!isStore && (
+        {!effectiveStore && (
           <>
             <Col xs={24} sm={12} lg={5}>
               <StatCard title="총 재고수량" value={Number(overall.total_qty || 0)}
@@ -302,15 +319,15 @@ export default function InventoryStatusPage() {
             </Col>
           </>
         )}
-        <Col xs={24} sm={8} lg={isStore ? 8 : 5}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 5}>
           <StatCard title="리오더 긴급" value={reorderLoading ? '...' : reorderData.urgent.length}
             icon={<ThunderboltOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff" />
         </Col>
-        <Col xs={24} sm={8} lg={isStore ? 8 : 5}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 5}>
           <StatCard title="리오더 추천" value={reorderLoading ? '...' : reorderData.recommend.length}
             icon={<AlertOutlined />} bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e" />
         </Col>
-        <Col xs={24} sm={8} lg={isStore ? 8 : 4}>
+        <Col xs={24} sm={8} lg={effectiveStore ? 8 : 4}>
           <StatCard title="품절" value={Number(overall.zero_stock_count || 0)}
             icon={<StopOutlined />} bg="linear-gradient(135deg, #fa709a 0%, #fee140 100%)" color="#fff"
             sub="재고 0개" />
@@ -408,7 +425,7 @@ export default function InventoryStatusPage() {
       </Card>
 
       {/* ── 카테고리별 / 시즌별 (본사만) ── */}
-      {!isStore && (
+      {!effectiveStore && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} md={12}>
             <Card title={<span><TagsOutlined style={{ marginRight: 8 }} />카테고리별 물량</span>}
@@ -439,7 +456,7 @@ export default function InventoryStatusPage() {
       )}
 
       {/* ── 핏별 / 기장별 (본사만) ── */}
-      {!isStore && (
+      {!effectiveStore && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24} md={12}>
             <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 재고현황</span>}

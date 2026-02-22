@@ -48,7 +48,10 @@ class InventoryController extends BaseController<Inventory> {
     const { inventoryRepository } = await import('./inventory.repository');
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
-    const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+    const scope = req.query.scope as string;
+    // scope=all이면 매장유저도 전체 데이터 조회 가능
+    const partnerCode = scope === 'all' ? undefined
+      : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
     const [overall, byCategory, bySeason, byFit, byLength] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),
       inventoryRepository.summaryByCategory(partnerCode),
@@ -64,7 +67,9 @@ class InventoryController extends BaseController<Inventory> {
     const pool = getPool();
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
-    const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+    const scope = req.query.scope as string;
+    const partnerCode = scope === 'all' ? undefined
+      : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
 
     const defaultUrgent = partnerCode ? 1 : 5;
     const defaultRecommend = partnerCode ? 3 : 10;

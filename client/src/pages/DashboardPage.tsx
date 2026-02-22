@@ -1,5 +1,5 @@
-import { useEffect, useState, CSSProperties } from 'react';
-import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, message } from 'antd';
+import { useEffect, useState, useRef, CSSProperties } from 'react';
+import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, Alert, message } from 'antd';
 import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, WarningOutlined, TruckOutlined,
@@ -203,6 +203,53 @@ export default function DashboardPage() {
     }
   };
 
+  // 수령확인 모달 (대시보드 내 인라인 처리)
+  const [receiveModalOpen, setReceiveModalOpen] = useState(false);
+  const [receiveTarget, setReceiveTarget] = useState<any>(null);
+  const [receivedQtys, setReceivedQtys] = useState<Record<number, number>>({});
+  const [receiveLoading, setReceiveLoading] = useState(false);
+  const todoDetailRef = useRef<HTMLDivElement>(null);
+
+  const handleOpenReceiveModal = async (record: any) => {
+    try {
+      const res = await apiFetch(`/api/shipments/${record.request_id}`);
+      const data = await res.json();
+      if (!data.success) { message.error(data.error); return; }
+      const detail = data.data;
+      setReceiveTarget(detail);
+      const qtys: Record<number, number> = {};
+      (detail.items || []).forEach((item: any) => { qtys[item.variant_id] = item.shipped_qty; });
+      setReceivedQtys(qtys);
+      setReceiveModalOpen(true);
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleConfirmReceive = async () => {
+    if (!receiveTarget) return;
+    setReceiveLoading(true);
+    try {
+      const rItems = (receiveTarget.items || []).map((item: any) => ({
+        variant_id: item.variant_id,
+        received_qty: receivedQtys[item.variant_id] || 0,
+      }));
+      const res = await apiFetch(`/api/shipments/${receiveTarget.request_id}/receive`, {
+        method: 'PUT', body: JSON.stringify({ items: rItems }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        message.success('수령 확인이 완료되었습니다.');
+        setReceiveModalOpen(false);
+        setReceiveTarget(null);
+        loadStats();
+      } else { message.error(data.error); }
+    } catch (e: any) { message.error(e.message); }
+    finally { setReceiveLoading(false); }
+  };
+
+  const scrollToDetail = () => {
+    todoDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const handleRestockApprove = async (requestId: number) => {
     try {
       const res = await apiFetch(`/api/restocks/${requestId}`, {
@@ -297,18 +344,444 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          {user?.userName}님, 좋은 하루 보내세요
-        </Typography.Title>
-        <Typography.Text type="secondary">
-          {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
-          {isStore && stats?.partnerCode && (
-            <Tag color="blue" style={{ marginLeft: 8 }}>{stats.partnerCode}</Tag>
-          )}
-        </Typography.Text>
-      </div>
+      {/* ── 해야 할 일 (최상단 히어로 배너 + 인사말 통합) ── */}
+      {totalPendingActions > 0 ? (
+        <div style={{ marginBottom: 24 }}>
+          {/* 히어로 배너 */}
+          <div style={{
+            background: 'linear-gradient(135deg, #e8350e 0%, #ff6b35 40%, #f7931e 70%, #ffad33 100%)',
+            borderRadius: 18,
+            padding: '28px 32px 24px',
+            marginBottom: 14,
+            boxShadow: '0 8px 32px rgba(232, 53, 14, 0.35)',
+            position: 'relative' as const,
+            overflow: 'hidden',
+          }}>
+            {/* 배경 장식 원 */}
+            <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
+            <div style={{ position: 'absolute', bottom: -40, right: 80, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
+
+            {/* 인사말 + 할일 헤더 */}
+            <div style={{ position: 'relative', zIndex: 1 }}>
+              <div style={{ marginBottom: 6 }}>
+                <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>
+                  {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
+                  {isStore && stats?.partnerCode ? ` &middot; ${stats.partnerCode}` : ''}
+                </span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
+                <div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1.3, letterSpacing: -0.5 }}>
+                    {user?.userName}님, 처리할 일이 <span style={{
+                      background: '#fff',
+                      color: '#e8350e',
+                      borderRadius: 8,
+                      padding: '2px 12px',
+                      fontSize: 24,
+                      fontWeight: 900,
+                    }}>{totalPendingActions}건</span> 있습니다
+                  </div>
+                </div>
+              </div>
+
+              {/* 매장 매니저: 할일 요약 카드들 (더 크게) */}
+              {isStore && (
+                <Row gutter={[14, 14]}>
+                  {(pa.shipmentsToProcess || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <TruckOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고 처리 대기</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#f97316', lineHeight: 1.1 }}>{(pa.shipmentsToProcess || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#f97316', fontWeight: 600, textAlign: 'right' }}>처리하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                  {(pa.shipmentsToReceive || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <InboxOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수령확인 대기</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>{(pa.shipmentsToReceive || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                  {(pa.restockPending || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <ReloadOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>재입고 진행</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#8b5cf6', lineHeight: 1.1 }}>{(pa.restockPending || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#8b5cf6', fontWeight: 600, textAlign: 'right' }}>전체보기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                </Row>
+              )}
+
+              {/* Admin/HQ: 할일 요약 카드들 (더 크게) */}
+              {isAdmin && (
+                <Row gutter={[14, 14]}>
+                  {(stats?.pendingApprovals || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <TruckOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고 대기</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#f97316', lineHeight: 1.1 }}>{(stats?.pendingApprovals || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#f97316', fontWeight: 600, textAlign: 'right' }}>처리하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                  {(pa.pendingRestocks || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <ReloadOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>재입고 승인</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#8b5cf6', lineHeight: 1.1 }}>{(pa.pendingRestocks || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#8b5cf6', fontWeight: 600, textAlign: 'right' }}>승인하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                  {(pa.shippedAwaitingReceipt || []).length > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={scrollToDetail}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <SwapOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수령확인 대기</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>{(pa.shippedAwaitingReceipt || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                </Row>
+              )}
+            </div>
+          </div>
+
+          {/* 상세 테이블 */}
+          <div ref={todoDetailRef} />
+          <Card size="small" style={{ borderRadius: 14, border: '2px solid #ff6b35' }} loading={loading}>
+            {/* ── Admin/HQ: 출고 대기 ── */}
+            {isAdmin && (stats?.pendingApprovals || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <TruckOutlined style={{ color: '#f59e0b' }} />
+                  <Typography.Text strong>출고 대기</Typography.Text>
+                  <Badge count={(stats?.pendingApprovals || []).length} style={{ backgroundColor: '#f59e0b' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                    { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                    { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 60, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    { title: '요청자', dataIndex: 'requested_by_name', key: 'by', width: 90 },
+                    {
+                      title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                      render: (_: any, record: any) => (
+                        <span style={{ display: 'flex', gap: 6 }}>
+                          <Popconfirm title="출고 처리하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="출고" cancelText="취소">
+                            <Button type="primary" size="small" icon={<CheckOutlined />}>출고</Button>
+                          </Popconfirm>
+                          <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
+                            <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
+                          </Popconfirm>
+                        </span>
+                      ),
+                    },
+                  ]}
+                  dataSource={stats?.pendingApprovals || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 800 }}
+                />
+              </>
+            )}
+
+            {/* ── Admin/HQ: 재입고 승인 대기 ── */}
+            {isAdmin && (pa.pendingRestocks || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (stats?.pendingApprovals || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
+                  <ReloadOutlined style={{ color: '#722ed1' }} />
+                  <Typography.Text strong>재입고 승인 대기</Typography.Text>
+                  <Badge count={(pa.pendingRestocks || []).length} style={{ backgroundColor: '#722ed1' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '거래처', dataIndex: 'partner_name', key: 'partner', ellipsis: true },
+                    { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    {
+                      title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                      render: (_: any, record: any) => (
+                        <span style={{ display: 'flex', gap: 6 }}>
+                          <Popconfirm title="승인하시겠습니까?" onConfirm={() => handleRestockApprove(record.request_id)} okText="승인" cancelText="취소">
+                            <Button type="primary" size="small" icon={<CheckOutlined />}>승인</Button>
+                          </Popconfirm>
+                          <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleRestockReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
+                            <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
+                          </Popconfirm>
+                        </span>
+                      ),
+                    },
+                  ]}
+                  dataSource={pa.pendingRestocks || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 600 }}
+                />
+              </>
+            )}
+
+            {/* ── Admin/HQ: 수령확인 대기 (출고완료) ── */}
+            {isAdmin && (pa.shippedAwaitingReceipt || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 8 }}>
+                  <SwapOutlined style={{ color: '#10b981' }} />
+                  <Typography.Text strong>수령확인 대기</Typography.Text>
+                  <Badge count={(pa.shippedAwaitingReceipt || []).length} style={{ backgroundColor: '#10b981' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                    { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    {
+                      title: '처리', key: 'action', width: 100, fixed: 'right' as const,
+                      render: (_: any, record: any) => (
+                        <Button size="small" type="primary" style={{ background: '#13c2c2' }}
+                          icon={<InboxOutlined />} onClick={() => handleOpenReceiveModal(record)}>
+                          수령확인
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  dataSource={pa.shippedAwaitingReceipt || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 700 }}
+                />
+              </>
+            )}
+
+            {/* ── Store: 출고 처리 대기 ── */}
+            {isStore && (pa.shipmentsToProcess || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <TruckOutlined style={{ color: '#f59e0b' }} />
+                  <Typography.Text strong>출고 처리 대기</Typography.Text>
+                  <Badge count={(pa.shipmentsToProcess || []).length} style={{ backgroundColor: '#f59e0b' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '도착지', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                    { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    {
+                      title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                      render: (_: any, record: any) => (
+                        <span style={{ display: 'flex', gap: 6 }}>
+                          <Popconfirm title="출고 처리하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="출고" cancelText="취소">
+                            <Button type="primary" size="small" icon={<CheckOutlined />}>출고</Button>
+                          </Popconfirm>
+                          <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
+                            <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
+                          </Popconfirm>
+                        </span>
+                      ),
+                    },
+                  ]}
+                  dataSource={pa.shipmentsToProcess || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 700 }}
+                />
+              </>
+            )}
+
+            {/* ── Store: 수령확인 대기 ── */}
+            {isStore && (pa.shipmentsToReceive || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (pa.shipmentsToProcess || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
+                  <InboxOutlined style={{ color: '#10b981' }} />
+                  <Typography.Text strong>수령확인 대기</Typography.Text>
+                  <Badge count={(pa.shipmentsToReceive || []).length} style={{ backgroundColor: '#10b981' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '출발지', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                    { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    {
+                      title: '처리', key: 'action', width: 100, fixed: 'right' as const,
+                      render: (_: any, record: any) => (
+                        <Button size="small" type="primary" style={{ background: '#13c2c2' }}
+                          icon={<InboxOutlined />} onClick={() => handleOpenReceiveModal(record)}>
+                          수령확인
+                        </Button>
+                      ),
+                    },
+                  ]}
+                  dataSource={pa.shipmentsToReceive || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 700 }}
+                />
+              </>
+            )}
+
+            {/* ── Store: 재입고 진행현황 ── */}
+            {isStore && (pa.restockPending || []).length > 0 && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: ((pa.shipmentsToProcess || []).length > 0 || (pa.shipmentsToReceive || []).length > 0) ? 20 : 0, marginBottom: 8 }}>
+                  <ReloadOutlined style={{ color: '#722ed1' }} />
+                  <Typography.Text strong>재입고 진행</Typography.Text>
+                  <Badge count={(pa.restockPending || []).length} style={{ backgroundColor: '#722ed1' }} />
+                </div>
+                <Table
+                  columns={[
+                    { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                    { title: '상태', dataIndex: 'status', key: 'status', width: 80,
+                      render: (v: string) => <Tag color={RESTOCK_STATUS_COLORS[v]}>{RESTOCK_STATUS_LABELS[v] || v}</Tag> },
+                    { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                    { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    { title: '입고예정', dataIndex: 'expected_date', key: 'expect', width: 95,
+                      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                  ]}
+                  dataSource={pa.restockPending || []}
+                  rowKey="request_id"
+                  pagination={false}
+                  size="small"
+                  scroll={{ x: 500 }}
+                />
+              </>
+            )}
+          </Card>
+        </div>
+      ) : (
+        /* 할일 없을 때 기본 인사말 */
+        <div style={{ marginBottom: 28 }}>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {user?.userName}님, 좋은 하루 보내세요
+          </Typography.Title>
+          <Typography.Text type="secondary">
+            {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
+            {isStore && stats?.partnerCode && (
+              <Tag color="blue" style={{ marginLeft: 8 }}>{stats.partnerCode}</Tag>
+            )}
+          </Typography.Text>
+        </div>
+      )}
 
       {/* Main Stats */}
       <Row gutter={[16, 16]}>
@@ -467,223 +940,7 @@ export default function DashboardPage() {
         </Row>
       )}
 
-      {/* ── 할일 / 대기 항목 ── */}
-      {totalPendingActions > 0 && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col span={24}>
-            <Card
-              title={
-                <span>
-                  <ClockCircleOutlined style={{ color: '#f59e0b', marginRight: 8 }} />
-                  할일 <Badge count={totalPendingActions} style={{ backgroundColor: '#f59e0b', marginLeft: 8 }} />
-                </span>
-              }
-              size="small"
-              style={{ borderRadius: 10, borderLeft: '4px solid #f59e0b' }}
-              loading={loading}
-            >
-              {/* ── Admin/HQ: 출고 대기 ── */}
-              {isAdmin && (stats?.pendingApprovals || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <TruckOutlined style={{ color: '#f59e0b' }} />
-                    <Typography.Text strong>출고 대기</Typography.Text>
-                    <Badge count={(stats?.pendingApprovals || []).length} style={{ backgroundColor: '#f59e0b' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>전체보기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                      { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
-                      { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
-                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 60, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                      { title: '요청자', dataIndex: 'requested_by_name', key: 'by', width: 90 },
-                      {
-                        title: '처리', key: 'action', width: 140, fixed: 'right' as const,
-                        render: (_: any, record: any) => (
-                          <span style={{ display: 'flex', gap: 6 }}>
-                            <Popconfirm title="출고 처리하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="출고" cancelText="취소">
-                              <Button type="primary" size="small" icon={<CheckOutlined />}>출고</Button>
-                            </Popconfirm>
-                            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
-                              <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
-                            </Popconfirm>
-                          </span>
-                        ),
-                      },
-                    ]}
-                    dataSource={stats?.pendingApprovals || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 800 }}
-                  />
-                </>
-              )}
-
-              {/* ── Admin/HQ: 재입고 승인 대기 ── */}
-              {isAdmin && (pa.pendingRestocks || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (stats?.pendingApprovals || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
-                    <ReloadOutlined style={{ color: '#722ed1' }} />
-                    <Typography.Text strong>재입고 승인 대기</Typography.Text>
-                    <Badge count={(pa.pendingRestocks || []).length} style={{ backgroundColor: '#722ed1' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/restock/progress')}>전체보기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '거래처', dataIndex: 'partner_name', key: 'partner', ellipsis: true },
-                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                      {
-                        title: '처리', key: 'action', width: 140, fixed: 'right' as const,
-                        render: (_: any, record: any) => (
-                          <span style={{ display: 'flex', gap: 6 }}>
-                            <Popconfirm title="승인하시겠습니까?" onConfirm={() => handleRestockApprove(record.request_id)} okText="승인" cancelText="취소">
-                              <Button type="primary" size="small" icon={<CheckOutlined />}>승인</Button>
-                            </Popconfirm>
-                            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleRestockReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
-                              <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
-                            </Popconfirm>
-                          </span>
-                        ),
-                      },
-                    ]}
-                    dataSource={pa.pendingRestocks || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 600 }}
-                  />
-                </>
-              )}
-
-              {/* ── Admin/HQ: 수령확인 대기 (출고완료) ── */}
-              {isAdmin && (pa.shippedAwaitingReceipt || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 8 }}>
-                    <SwapOutlined style={{ color: '#10b981' }} />
-                    <Typography.Text strong>수령확인 대기</Typography.Text>
-                    <Badge count={(pa.shippedAwaitingReceipt || []).length} style={{ backgroundColor: '#10b981' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>전체보기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                      { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
-                      { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                    ]}
-                    dataSource={pa.shippedAwaitingReceipt || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 600 }}
-                  />
-                </>
-              )}
-
-              {/* ── Store: 출고 처리 대기 ── */}
-              {isStore && (pa.shipmentsToProcess || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <TruckOutlined style={{ color: '#f59e0b' }} />
-                    <Typography.Text strong>출고 처리 대기</Typography.Text>
-                    <Badge count={(pa.shipmentsToProcess || []).length} style={{ backgroundColor: '#f59e0b' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/store')}>처리하기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                      { title: '도착지', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
-                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                      {
-                        title: '', key: 'action', width: 80,
-                        render: () => <Button type="primary" size="small" onClick={() => navigate('/shipment/store')}>처리</Button>,
-                      },
-                    ]}
-                    dataSource={pa.shipmentsToProcess || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 600 }}
-                  />
-                </>
-              )}
-
-              {/* ── Store: 수령확인 대기 ── */}
-              {isStore && (pa.shipmentsToReceive || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (pa.shipmentsToProcess || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
-                    <InboxOutlined style={{ color: '#10b981' }} />
-                    <Typography.Text strong>수령확인 대기</Typography.Text>
-                    <Badge count={(pa.shipmentsToReceive || []).length} style={{ backgroundColor: '#10b981' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/store')}>확인하기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                      { title: '출발지', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
-                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                      {
-                        title: '', key: 'action', width: 80,
-                        render: () => <Button size="small" type="primary" onClick={() => navigate('/shipment/store')}>수령</Button>,
-                      },
-                    ]}
-                    dataSource={pa.shipmentsToReceive || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 600 }}
-                  />
-                </>
-              )}
-
-              {/* ── Store: 재입고 진행현황 ── */}
-              {isStore && (pa.restockPending || []).length > 0 && (
-                <>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: ((pa.shipmentsToProcess || []).length > 0 || (pa.shipmentsToReceive || []).length > 0) ? 20 : 0, marginBottom: 8 }}>
-                    <ReloadOutlined style={{ color: '#722ed1' }} />
-                    <Typography.Text strong>재입고 진행</Typography.Text>
-                    <Badge count={(pa.restockPending || []).length} style={{ backgroundColor: '#722ed1' }} />
-                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/restock/progress')}>전체보기</a>
-                  </div>
-                  <Table
-                    columns={[
-                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                      { title: '상태', dataIndex: 'status', key: 'status', width: 80,
-                        render: (v: string) => <Tag color={RESTOCK_STATUS_COLORS[v]}>{RESTOCK_STATUS_LABELS[v] || v}</Tag> },
-                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
-                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                      { title: '입고예정', dataIndex: 'expected_date', key: 'expect', width: 95,
-                        render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                    ]}
-                    dataSource={pa.restockPending || []}
-                    rowKey="request_id"
-                    pagination={false}
-                    size="small"
-                    scroll={{ x: 500 }}
-                  />
-                </>
-              )}
-            </Card>
-          </Col>
-        </Row>
-      )}
+      {/* 할일 섹션은 위로 이동됨 */}
 
       {/* Tables */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
@@ -755,6 +1012,59 @@ export default function DashboardPage() {
             <div style={{ marginTop: 12, color: '#888', fontSize: 12 }}>
               수평이동 의뢰가 생성되며, 출고확인 후 재고가 이동됩니다.
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 수령확인 모달 */}
+      <Modal
+        title="수령 확인"
+        open={receiveModalOpen}
+        onCancel={() => { setReceiveModalOpen(false); setReceiveTarget(null); }}
+        onOk={handleConfirmReceive}
+        confirmLoading={receiveLoading}
+        okText="수령 확인"
+        cancelText="취소"
+        width={600}
+      >
+        {receiveTarget && (
+          <div>
+            <Alert
+              type="info"
+              message="수령한 실제 수량을 입력하세요. 확인 시 재고가 증가합니다."
+              style={{ marginBottom: 16 }}
+            />
+            <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 8, marginBottom: 16 }}>
+              <div><strong>의뢰번호:</strong> {receiveTarget.request_no}</div>
+              <div><strong>출발:</strong> {receiveTarget.from_partner_name || '-'} <strong style={{ marginLeft: 12 }}>도착:</strong> {receiveTarget.to_partner_name || '-'}</div>
+            </div>
+            <Table
+              columns={[
+                { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 130, ellipsis: true },
+                { title: '상품', key: 'name', ellipsis: true,
+                  render: (_: any, r: any) => <span>{r.product_name} <span style={{ color: '#888', fontSize: 12 }}>({r.color}/{r.size})</span></span>,
+                },
+                { title: '출고수량', dataIndex: 'shipped_qty', key: 'shipped', width: 80,
+                  render: (v: number) => `${v}개`,
+                },
+                { title: '수령수량', key: 'received', width: 110,
+                  render: (_: any, r: any) => (
+                    <InputNumber
+                      min={0}
+                      max={r.shipped_qty}
+                      value={receivedQtys[r.variant_id] || 0}
+                      onChange={(v) => setReceivedQtys(prev => ({ ...prev, [r.variant_id]: v || 0 }))}
+                      size="small"
+                      style={{ width: 80 }}
+                    />
+                  ),
+                },
+              ]}
+              dataSource={receiveTarget.items || []}
+              rowKey="variant_id"
+              pagination={false}
+              size="small"
+            />
           </div>
         )}
       </Modal>

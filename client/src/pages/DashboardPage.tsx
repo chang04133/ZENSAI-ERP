@@ -1,5 +1,5 @@
 import { useEffect, useState, CSSProperties } from 'react';
-import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, message } from 'antd';
+import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, message } from 'antd';
 import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, WarningOutlined, TruckOutlined,
@@ -105,6 +105,35 @@ export default function DashboardPage() {
       await apiFetch(`/api/notifications/${id}/read`, { method: 'PUT' });
       setNotifications((prev) => prev.filter((n) => n.notification_id !== id));
     } catch (e: any) { message.error('읽음 처리 실패: ' + e.message); }
+  };
+
+  // 재고 요청 처리 모달
+  const [processTarget, setProcessTarget] = useState<any>(null);
+  const [processQty, setProcessQty] = useState(1);
+  const [processLoading, setProcessLoading] = useState(false);
+
+  const openProcessModal = (record: any) => {
+    setProcessTarget(record);
+    setProcessQty(1);
+  };
+
+  const handleProcess = async () => {
+    if (!processTarget) return;
+    setProcessLoading(true);
+    try {
+      const res = await apiFetch(`/api/notifications/${processTarget.notification_id}/process`, {
+        method: 'PUT',
+        body: JSON.stringify({ qty: processQty }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setNotifications((prev) => prev.filter((n) => n.notification_id !== processTarget.notification_id));
+        message.success(`수평이동 의뢰 ${data.data.requestNo} 생성 완료`);
+        setProcessTarget(null);
+        loadStats();
+      } else { message.error(data.error); }
+    } catch (e: any) { message.error('처리 실패: ' + e.message); }
+    finally { setProcessLoading(false); }
   };
 
   const handleResolve = async (id: number) => {
@@ -418,11 +447,11 @@ export default function DashboardPage() {
                   { title: '요청일', dataIndex: 'created_at', key: 'date', width: 100,
                     render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-',
                   },
-                  { title: '처리', key: 'action', width: 150, fixed: 'right' as const,
+                  { title: '처리', key: 'action', width: 180, fixed: 'right' as const,
                     render: (_: any, r: any) => (
                       <span style={{ display: 'flex', gap: 6 }}>
-                        <Button type="primary" size="small" icon={<CheckOutlined />} onClick={() => handleResolve(r.notification_id)}>처리</Button>
-                        <Button size="small" onClick={() => handleMarkRead(r.notification_id)}>확인</Button>
+                        <Button type="primary" size="small" icon={<SendOutlined />} onClick={() => openProcessModal(r)}>보내기</Button>
+                        <Button size="small" icon={<CheckOutlined />} onClick={() => handleResolve(r.notification_id)}>무시</Button>
                       </span>
                     ),
                   },
@@ -689,6 +718,46 @@ export default function DashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* 재고 요청 처리 모달 */}
+      <Modal
+        title="재고 요청 처리 — 수평이동 생성"
+        open={!!processTarget}
+        onCancel={() => setProcessTarget(null)}
+        onOk={handleProcess}
+        confirmLoading={processLoading}
+        okText="수평이동 생성"
+        cancelText="취소"
+      >
+        {processTarget && (
+          <div>
+            <div style={{ padding: 12, background: '#f5f5f5', borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ marginBottom: 8 }}>
+                <strong>요청 매장:</strong> {processTarget.from_partner_name}
+                <Tag color="red" style={{ marginLeft: 8 }}>재고 {processTarget.from_qty}개</Tag>
+              </div>
+              <div style={{ marginBottom: 8 }}>
+                <strong>상품:</strong> {processTarget.product_name}
+                <span style={{ color: '#888', marginLeft: 8 }}>({processTarget.color}/{processTarget.size})</span>
+              </div>
+              <div><strong>SKU:</strong> {processTarget.sku}</div>
+            </div>
+            <div style={{ marginBottom: 8 }}>
+              <strong>보낼 수량:</strong>
+            </div>
+            <InputNumber
+              min={1}
+              value={processQty}
+              onChange={(v) => setProcessQty(v || 1)}
+              style={{ width: 120 }}
+              size="large"
+            />
+            <div style={{ marginTop: 12, color: '#888', fontSize: 12 }}>
+              수평이동 의뢰가 생성되며, 출고확인 후 재고가 이동됩니다.
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

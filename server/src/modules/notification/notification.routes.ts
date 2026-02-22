@@ -132,6 +132,82 @@ router.put('/:id/resolve', authMiddleware, asyncHandler(async (req, res) => {
   }
 }));
 
+// PUT /api/notifications/:id/process — 재고 요청 처리: 수평이동 생성 + 알림 RESOLVED
+router.put('/:id/process', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    // 알림 조회
+    const notif = await client.query(
+      `SELECT * FROM stock_notifications WHERE notification_id = $1 AND status IN ('PENDING', 'READ')`,
+      [req.params.id],
+    );
+    if (notif.rows.length === 0) {
+      await client.query('ROLLBACK');
+      res.status(404).json({ success: false, error: '처리 가능한 알림을 찾을 수 없습니다.' });
+      return;
+    }
+
+    const n = notif.rows[0];
+    const qty = parseInt(req.body.qty, 10) || 1;
+
+    // 의뢰번호 생성
+    const noResult = await client.query('SELECT generate_shipment_no() as no');
+    const requestNo = noResult.rows[0].no;
+
+    // 수평이동 의뢰 생성 (from: 알림 받은 매장(to_partner), to: 요청한 매장(from_partner))
+    const shipment = await client.query(
+      `INSERT INTO shipment_requests
+       (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by)
+       VALUES ($1, CURRENT_DATE, $2, $3, '수평이동', 'PENDING', $4, $5)
+       RETURNING *`,
+      [requestNo, n.to_partner_code, n.from_partner_code,
+       `재고부족 요청 처리 (알림 #${n.notification_id})`, req.user!.userId],
+    );
+    const requestId = shipment.rows[0].request_id;
+
+    // 의뢰 품목 추가
+    await client.query(
+      `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
+       VALUES ($1, $2, $3, 0, 0)`,
+      [requestId, n.variant_id, qty],
+    );
+
+    // 알림 RESOLVED 처리
+    await client.query(
+      `UPDATE stock_notifications SET status = 'RESOLVED', read_at = COALESCE(read_at, NOW()) WHERE notification_id = $1`,
+      [req.params.id],
+    );
+
+    // 같은 요청의 다른 PENDING 알림 자동 취소
+    await client.query(
+      `UPDATE stock_notifications SET status = 'CANCELLED', read_at = NOW()
+       WHERE from_partner_code = $1 AND variant_id = $2 AND notification_id != $3
+         AND status IN ('PENDING', 'READ')`,
+      [n.from_partner_code, n.variant_id, req.params.id],
+    );
+
+    await client.query('COMMIT');
+
+    // 생성된 의뢰 상세 반환
+    const detail = await pool.query(
+      `SELECT sr.*, fp.partner_name as from_partner_name, tp.partner_name as to_partner_name
+       FROM shipment_requests sr
+       LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+       WHERE sr.request_id = $1`, [requestId]);
+
+    res.json({ success: true, data: { shipment: detail.rows[0], requestNo } });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+}));
+
 // GET /api/notifications/count — 미읽음 알림 수
 router.get('/count', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();

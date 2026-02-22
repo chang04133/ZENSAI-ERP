@@ -9,9 +9,9 @@ class PartnerController extends BaseController<Partner> {
     super(partnerService);
   }
 
-  /** Override list - STORE_MANAGER는 자기 거래처만 */
+  /** Override list - STORE_MANAGER는 자기 거래처만 (단, scope=transfer면 전체) */
   list = asyncHandler(async (req: Request, res: Response) => {
-    if (req.user!.role === 'STORE_MANAGER' && req.user!.partnerCode) {
+    if (req.user!.role === 'STORE_MANAGER' && req.user!.partnerCode && req.query.scope !== 'transfer') {
       const partner = await partnerService.getById(req.user!.partnerCode);
       res.json({
         success: true,

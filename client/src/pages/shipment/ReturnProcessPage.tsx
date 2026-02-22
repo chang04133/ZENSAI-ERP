@@ -53,11 +53,14 @@ export default function ReturnProcessPage() {
 
   useEffect(() => { load(); }, [page, statusFilter]);
   useEffect(() => {
-    (async () => { try { const r = await partnerApi.list({ limit: '1000' }); setPartners(r.data); } catch (e: any) { message.error('거래처 목록 로드 실패'); } })();
+    (async () => {
+      try { const r = await partnerApi.list({ limit: '1000', scope: 'transfer' }); setPartners(r.data); } catch (e: any) { message.error('거래처 목록 로드 실패'); }
+      try { setVariantOptions(await productApi.searchVariants('')); } catch (e: any) { console.error('품목 전체 로드 실패:', e); }
+    })();
   }, []);
 
   const handleVariantSearch = async (value: string) => {
-    if (value.length >= 2) { try { setVariantOptions(await productApi.searchVariants(value)); } catch (e: any) { message.error('품목 검색 실패'); } }
+    try { setVariantOptions(await productApi.searchVariants(value)); } catch (e: any) { message.error('품목 검색 실패'); }
   };
 
   const handleAddItem = (variantId: number) => {

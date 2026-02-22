@@ -11,8 +11,9 @@ class ProductController extends BaseController<Product> {
   }
 
   searchVariants = asyncHandler(async (req: Request, res: Response) => {
-    const { search } = req.query;
+    const search = ((req.query.search as string) || '').trim();
     const pool = getPool();
+    const lim = search ? 50 : 500;
     const result = await pool.query(
       `SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.price,
               p.product_code, p.product_name, p.category,
@@ -20,10 +21,10 @@ class ProductController extends BaseController<Product> {
        FROM product_variants pv
        JOIN products p ON pv.product_code = p.product_code
        WHERE pv.is_active = TRUE AND p.is_active = TRUE
-         AND (pv.sku ILIKE $1 OR p.product_name ILIKE $1 OR p.product_code ILIKE $1)
+         ${search ? 'AND (pv.sku ILIKE $1 OR p.product_name ILIKE $1 OR p.product_code ILIKE $1)' : ''}
        ORDER BY p.product_code, pv.color, pv.size
-       LIMIT 50`,
-      [`%${search || ''}%`],
+       LIMIT ${lim}`,
+      search ? [`%${search}%`] : [],
     );
     res.json({ success: true, data: result.rows });
   });

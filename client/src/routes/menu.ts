@@ -22,6 +22,7 @@ export const menuItems: MenuItem[] = [
   { key: '/codes', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ },
   { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
   { key: '/products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ },
+  { key: '/products/events', label: '행사 상품', icon: 'FireOutlined', roles: ADMIN_HQ_STORE },
   {
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [

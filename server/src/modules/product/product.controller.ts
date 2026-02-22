@@ -78,6 +78,31 @@ class ProductController extends BaseController<Product> {
     await productService.removeVariant(parseInt(req.params.id as string, 10));
     res.json({ success: true });
   });
+
+  listEventProducts = asyncHandler(async (req: Request, res: Response) => {
+    const result = await productService.listEventProducts(req.query);
+    res.json({ success: true, data: result });
+  });
+
+  updateEventPrice = asyncHandler(async (req: Request, res: Response) => {
+    const { event_price } = req.body;
+    const product = await productService.updateEventPrice(req.params.code as string, event_price ?? null);
+    if (!product) {
+      res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
+      return;
+    }
+    res.json({ success: true, data: product });
+  });
+
+  bulkUpdateEventPrices = asyncHandler(async (req: Request, res: Response) => {
+    const { updates } = req.body;
+    if (!Array.isArray(updates) || updates.length === 0) {
+      res.status(400).json({ success: false, error: '업데이트 항목이 필요합니다.' });
+      return;
+    }
+    const result = await productService.bulkUpdateEventPrices(updates);
+    res.json({ success: true, data: result });
+  });
 }
 
 export const productController = new ProductController();

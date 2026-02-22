@@ -85,10 +85,15 @@ router.put('/variants/:id/barcode', authMiddleware, asyncHandler(async (req, res
   res.json({ success: true, data: result.rows[0] });
 }));
 
+// 행사 상품
+router.get('/events', authMiddleware, productController.listEventProducts);
+router.put('/events/bulk', ...write, productController.bulkUpdateEventPrices);
+
 router.get('/',      authMiddleware, productController.list);
 router.get('/variants/search', authMiddleware, productController.searchVariants);
 router.get('/:code', authMiddleware, productController.getById);
 router.post('/',     ...write, validateRequired(['product_code', 'product_name']), productController.create);
+router.put('/:code/event-price', ...write, productController.updateEventPrice);
 router.put('/:code', ...write, productController.update);
 router.delete('/:code', ...write, productController.remove);
 

@@ -26,6 +26,18 @@ class ProductService extends BaseService<Product> {
   async removeVariant(id: number) {
     return productRepository.removeVariant(id);
   }
+
+  async listEventProducts(options: any) {
+    return productRepository.listEventProducts(options);
+  }
+
+  async updateEventPrice(code: string, eventPrice: number | null) {
+    return productRepository.updateEventPrice(code, eventPrice);
+  }
+
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>) {
+    return productRepository.bulkUpdateEventPrices(updates);
+  }
 }
 
 export const productService = new ProductService();

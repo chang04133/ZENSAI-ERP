@@ -14,6 +14,7 @@ const PartnerFormPage = lazy(() => import('../pages/partners/PartnerFormPage'));
 const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
+const EventProductsPage = lazy(() => import('../pages/products/EventProductsPage'));
 
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
@@ -88,6 +89,7 @@ export const appRoutes: AppRoute[] = [
 
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
+  { path: '/products/events', element: <EventProductsPage />, roles: ADMIN_HQ_STORE },
   { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
   { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },

@@ -31,6 +31,33 @@ export const productApi = {
     if (!data.success) throw new Error(data.error);
   },
 
+  // 행사 상품
+  listEventProducts: async (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/products/events${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { data: Product[]; total: number; page: number; limit: number };
+  },
+
+  updateEventPrice: async (productCode: string, eventPrice: number | null) => {
+    const res = await apiFetch(`/api/products/${productCode}/event-price`, {
+      method: 'PUT', body: JSON.stringify({ event_price: eventPrice }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Product;
+  },
+
+  bulkUpdateEventPrices: async (updates: Array<{ product_code: string; event_price: number | null }>) => {
+    const res = await apiFetch('/api/products/events/bulk', {
+      method: 'PUT', body: JSON.stringify({ updates }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
   // 바코드 대시보드
   barcodeDashboard: async () => {
     const res = await apiFetch('/api/products/barcode-dashboard');

@@ -127,6 +127,72 @@ export class ProductRepository extends BaseRepository<Product> {
     const pool = getPool();
     await pool.query('DELETE FROM product_variants WHERE variant_id = $1', [id]);
   }
+
+  async listEventProducts(options: any = {}) {
+    const { page = 1, limit = 50, search } = options;
+    const offset = (page - 1) * limit;
+    const params: any[] = [];
+    let nextIdx = 1;
+    let searchFilter = '';
+
+    if (search) {
+      params.push(`%${search}%`);
+      searchFilter = `AND (p.product_code ILIKE $${nextIdx} OR p.product_name ILIKE $${nextIdx})`;
+      nextIdx++;
+    }
+
+    const whereClause = `WHERE p.event_price IS NOT NULL AND p.is_active = TRUE ${searchFilter}`;
+
+    const countSql = `SELECT COUNT(*) FROM products p ${whereClause}`;
+    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT p.*,
+        COALESCE(inv.total_inv_qty, 0)::int AS total_inv_qty
+      FROM products p
+      LEFT JOIN (
+        SELECT pv.product_code, SUM(i.qty) AS total_inv_qty
+        FROM inventory i
+        JOIN product_variants pv ON i.variant_id = pv.variant_id
+        GROUP BY pv.product_code
+      ) inv ON p.product_code = inv.product_code
+      ${whereClause}
+      ORDER BY p.product_name
+      LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+    const data = (await this.pool.query(dataSql, [...params, limit, offset])).rows;
+    return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async updateEventPrice(code: string, eventPrice: number | null) {
+    const result = await this.pool.query(
+      `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
+      [eventPrice, code],
+    );
+    return result.rows[0] || null;
+  }
+
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const results = [];
+      for (const { product_code, event_price } of updates) {
+        const result = await client.query(
+          `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
+          [event_price, product_code],
+        );
+        if (result.rows[0]) results.push(result.rows[0]);
+      }
+      await client.query('COMMIT');
+      return { updated: results.length, products: results };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 export const productRepository = new ProductRepository();

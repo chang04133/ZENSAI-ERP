@@ -6,31 +6,50 @@ import bcrypt from 'bcryptjs';
  * 거래처, 사용자, 상품, 상품변형, 출고의뢰, 재고, 판매(4개년) 데이터를 삽입
  */
 export async function seedDummyData(pool: Pool): Promise<void> {
-  // 이미 충분한 판매 데이터가 있으면 스킵
+  // 이미 충분한 판매 데이터가 있으면 스킵 (FORCE_RESEED 환경변수로 강제 리셋 가능)
   const check = await pool.query("SELECT COUNT(*) FROM sales");
-  if (parseInt(check.rows[0].count, 10) >= 500) {
-    console.log('더미 데이터 이미 존재 - 스킵');
+  if (parseInt(check.rows[0].count, 10) >= 500 && !process.env.FORCE_RESEED) {
+    console.log('더미 데이터 이미 존재 - 스킵 (강제 리셋: FORCE_RESEED=1)');
     return;
   }
 
   console.log('더미 데이터 삽입 시작 (기존 데이터 초기화)...');
 
+  // 단일 클라이언트 사용 (search_path 보장)
+  const client = await pool.connect();
+  await client.query('SET search_path TO zensai, public');
+  try {
+    await _seedDummyImpl(client);
+  } finally {
+    client.release();
+  }
+}
+
+async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> }): Promise<void> {
+
   // 기존 데이터 정리 (역순 - FK 제약 고려)
-  await pool.query('DELETE FROM audit_logs');
-  await pool.query('DELETE FROM inventory_transactions');
-  await pool.query('DELETE FROM sales');
-  await pool.query('DELETE FROM shipment_request_items');
-  await pool.query('DELETE FROM shipment_requests');
-  await pool.query('DELETE FROM inventory');
-  await pool.query('DELETE FROM product_variants');
-  await pool.query('DELETE FROM products WHERE product_code != \'ZS-DEL01\'');
-  await pool.query('DELETE FROM refresh_tokens');
-  await pool.query('DELETE FROM users WHERE user_id NOT IN (\'admin\')');
-  await pool.query('DELETE FROM partners WHERE partner_code NOT IN (SELECT DISTINCT partner_code FROM users WHERE partner_code IS NOT NULL)');
+  await client.query('DELETE FROM audit_logs');
+  await client.query('DELETE FROM fund_plans');
+  await client.query('DELETE FROM production_material_usage');
+  await client.query('DELETE FROM production_plan_items');
+  await client.query('DELETE FROM production_plans');
+  await client.query('DELETE FROM stock_notifications');
+  await client.query('DELETE FROM restock_request_items');
+  await client.query('DELETE FROM restock_requests');
+  await client.query('DELETE FROM inventory_transactions');
+  await client.query('DELETE FROM sales');
+  await client.query('DELETE FROM shipment_request_items');
+  await client.query('DELETE FROM shipment_requests');
+  await client.query('DELETE FROM inventory');
+  await client.query('DELETE FROM product_variants');
+  await client.query('DELETE FROM products WHERE product_code != \'ZS-DEL01\'');
+  await client.query('DELETE FROM refresh_tokens');
+  await client.query('DELETE FROM users WHERE user_id NOT IN (\'admin\')');
+  await client.query('DELETE FROM partners WHERE partner_code NOT IN (SELECT DISTINCT partner_code FROM users WHERE partner_code IS NOT NULL)');
   console.log('  기존 더미 데이터 정리 완료');
 
   // ──────────────── 1. 거래처 (10개) ────────────────
-  await pool.query(`
+  await client.query(`
     INSERT INTO partners (partner_code, partner_name, business_number, representative, address, contact, partner_type) VALUES
       ('P001', '젠사이 본사', '110-81-00001', '김대표', '서울시 강남구 테헤란로 123', '02-1234-5678', '직영'),
       ('P002', '강남 직영점', '110-81-00002', '이점장', '서울시 강남구 압구정로 45', '02-2345-6789', '직영'),
@@ -48,7 +67,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
 
   // ──────────────── 2. 사용자 (6개) ────────────────
   const hash = await bcrypt.hash('test1234!', 12);
-  const roles = await pool.query('SELECT group_id, group_name FROM role_groups');
+  const roles = await client.query('SELECT group_id, group_name FROM role_groups');
   const roleMap: Record<string, number> = {};
   roles.rows.forEach((r: any) => { roleMap[r.group_name] = r.group_id; });
 
@@ -61,7 +80,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     ['online', '온라인담당', 'P008', 'HQ_MANAGER'],
   ];
   for (const [uid, uname, pcode, roleName] of users) {
-    await pool.query(
+    await client.query(
       `INSERT INTO users (user_id, user_name, partner_code, role_group, password_hash)
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (user_id) DO NOTHING`,
       [uid, uname, pcode, roleMap[roleName], hash],
@@ -70,7 +89,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   console.log('  사용자 6개 삽입 (비밀번호: test1234!)');
 
   // ──────────────── 3. 상품 (25개 + 가격/세부카테고리 포함) ────────────────
-  await pool.query(`
+  await client.query(`
     INSERT INTO products (product_code, product_name, category, sub_category, brand, season, base_price, discount_price, event_price, cost_price, fit, length) VALUES
       ('ZS26SS-T001', '오버핏 코튼 티셔츠', 'TOP', 'SHORT_SLEEVE', 'ZENSAI', '2026SA', 49000, 39000, 29000, 18000, '오버핏', '레귤러'),
       ('ZS26SS-T002', '슬림핏 스트라이프 셔츠', 'TOP', 'LONG_SLEEVE', 'ZENSAI', '2026SA', 69000, 55000, 45000, 25000, '슬림핏', '레귤러'),
@@ -259,7 +278,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   ];
 
   for (const [product_code, color, size, sku, price] of variants) {
-    await pool.query(
+    await client.query(
       `INSERT INTO product_variants (product_code, color, size, sku, price)
        VALUES ($1, $2, $3, $4, $5) ON CONFLICT (sku) DO NOTHING`,
       [product_code, color, size, sku, price],
@@ -268,7 +287,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   console.log(`  상품변형(SKU) ${variants.length}개 삽입`);
 
   // variant_id 조회용 맵 생성
-  const variantRows = await pool.query('SELECT variant_id, sku, product_code FROM product_variants');
+  const variantRows = await client.query('SELECT variant_id, sku, product_code FROM product_variants');
   const skuMap: Record<string, number> = {};
   variantRows.rows.forEach((r: any) => { skuMap[r.sku] = r.variant_id; });
 
@@ -331,7 +350,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   for (const [partner_code, sku, qty] of inventoryData) {
     const vid = skuMap[sku];
     if (vid) {
-      await pool.query(
+      await client.query(
         `INSERT INTO inventory (partner_code, variant_id, qty)
          VALUES ($1, $2, $3) ON CONFLICT (partner_code, variant_id) DO NOTHING`,
         [partner_code, vid, qty],
@@ -364,7 +383,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     const mn = no.substring(4, 6);
     const dy = no.substring(6, 8);
     const date = `${yr}-${mn}-${dy}`;
-    await pool.query(
+    await client.query(
       `INSERT INTO shipment_requests (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'admin')
        ON CONFLICT (request_no) DO NOTHING`,
@@ -374,7 +393,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   console.log(`  출고의뢰 ${shipments.length}건 삽입`);
 
   // 출고의뢰 아이템
-  const reqRows = await pool.query('SELECT request_id, request_no FROM shipment_requests');
+  const reqRows = await client.query('SELECT request_id, request_no FROM shipment_requests');
   const reqMap: Record<string, number> = {};
   reqRows.rows.forEach((r: any) => { reqMap[r.request_no] = r.request_id; });
 
@@ -402,7 +421,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
     const rid = reqMap[rno];
     const vid = skuMap[sku];
     if (rid && vid) {
-      await pool.query(
+      await client.query(
         `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
          VALUES ($1, $2, $3, $4, $5)`,
         [rid, vid, rq, sq, rcv],
@@ -543,7 +562,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   // 배치 INSERT (100건씩)
   for (let i = 0; i < salesBatch.length; i += 100) {
     const batch = salesBatch.slice(i, i + 100);
-    await pool.query(
+    await client.query(
       `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type) VALUES ${batch.join(',\n')}`,
     );
   }
@@ -564,7 +583,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   for (const [txType, partner, sku, change, after] of txSamples) {
     const vid = skuMap[sku];
     if (vid) {
-      await pool.query(
+      await client.query(
         `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by)
          VALUES ($1, $2, $3, $4, $5, 'admin')`,
         [txType, partner, vid, change, after],
@@ -574,7 +593,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   console.log(`  재고 트랜잭션 ${txSamples.length}건 삽입`);
 
   // ──────────────── 9. 감사 로그 ────────────────
-  await pool.query(`
+  await client.query(`
     INSERT INTO audit_logs (table_name, record_id, action, old_data, new_data, changed_by) VALUES
       ('partners', 'P002', 'INSERT', NULL, '{"partner_name":"강남 직영점"}'::jsonb, 'admin'),
       ('partners', 'P003', 'INSERT', NULL, '{"partner_name":"홍대 직영점"}'::jsonb, 'admin'),
@@ -591,12 +610,12 @@ export async function seedDummyData(pool: Pool): Promise<void> {
   console.log('  감사 로그 10건 삽입');
 
   // ──────────────── 10. 소프트 삭제 테스트 데이터 ────────────────
-  await pool.query(`
+  await client.query(`
     INSERT INTO partners (partner_code, partner_name, business_number, representative, address, contact, partner_type, is_active)
     VALUES ('P099', '폐점 테스트매장', '999-99-99999', '테스트', '서울시 테스트구', '000-0000', '가맹', FALSE)
     ON CONFLICT (partner_code) DO NOTHING;
   `);
-  await pool.query(`
+  await client.query(`
     INSERT INTO products (product_code, product_name, category, brand, season, base_price, is_active)
     VALUES ('ZS-DEL01', '삭제 테스트 상품', 'TOP', 'ZENSAI', '2025FW', 39000, FALSE)
     ON CONFLICT (product_code) DO NOTHING;

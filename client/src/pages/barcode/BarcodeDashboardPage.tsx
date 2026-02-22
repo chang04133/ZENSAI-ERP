@@ -6,10 +6,11 @@ import {
 import {
   BarcodeOutlined, SearchOutlined, CheckCircleOutlined,
   WarningOutlined, EditOutlined, ShoppingCartOutlined,
-  TagOutlined, SkinOutlined, InboxOutlined,
+  TagOutlined, SkinOutlined, InboxOutlined, CameraOutlined, StopOutlined,
 } from '@ant-design/icons';
 import { productApi } from '../../modules/product/product.api';
 import { salesApi } from '../../modules/sales/sales.api';
+import BarcodeScanner from '../../components/BarcodeScanner';
 
 const fmt = (v: number) => Number(v).toLocaleString();
 const CAT_COLORS: Record<string, string> = {
@@ -58,6 +59,7 @@ export default function BarcodeDashboardPage() {
   const [editBarcode, setEditBarcode] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'with' | 'without'>('all');
+  const [cameraMode, setCameraMode] = useState(false);
   const scanRef = useRef<any>(null);
 
   const load = async () => {
@@ -72,13 +74,12 @@ export default function BarcodeDashboardPage() {
 
   useEffect(() => { load(); }, []);
 
-  // 바코드 스캔
-  const handleScan = async () => {
-    const code = scanCode.trim();
-    if (!code) return;
+  // 바코드 스캔 (공통 로직)
+  const doScan = async (code: string) => {
+    if (!code.trim()) return;
     setScanLoading(true);
     try {
-      const result = await salesApi.scanProduct(code);
+      const result = await salesApi.scanProduct(code.trim());
       setScanResult(result);
       setScanHistory(prev => {
         const filtered = prev.filter(h => h.variant_id !== result.variant_id);
@@ -95,6 +96,9 @@ export default function BarcodeDashboardPage() {
       setTimeout(() => scanRef.current?.focus(), 100);
     }
   };
+
+  const handleScan = () => doScan(scanCode);
+  const handleScanDirect = (code: string) => doScan(code);
 
   // 바코드 등록/수정
   const handleEditBarcode = async () => {
@@ -145,7 +149,24 @@ export default function BarcodeDashboardPage() {
               loading={scanLoading}
               style={{ height: 52, width: 52, background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff' }} />
           </Col>
+          <Col>
+            <Button size="large" icon={cameraMode ? <StopOutlined /> : <CameraOutlined />}
+              onClick={() => setCameraMode(prev => !prev)}
+              style={{ height: 52, width: 52, background: cameraMode ? 'rgba(255,77,79,0.4)' : 'rgba(255,255,255,0.2)', border: 'none', color: '#fff' }} />
+          </Col>
         </Row>
+        {cameraMode && (
+          <div style={{ marginTop: 12 }}>
+            <BarcodeScanner
+              active={cameraMode}
+              onScan={(code) => {
+                setScanCode(code);
+                handleScanDirect(code);
+              }}
+              height={240}
+            />
+          </div>
+        )}
       </Card>
 
       {/* 스캔 결과 */}

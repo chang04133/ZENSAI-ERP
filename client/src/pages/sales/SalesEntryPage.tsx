@@ -1,7 +1,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input, Switch } from 'antd';
 import type { InputRef } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined, CameraOutlined } from '@ant-design/icons';
+import BarcodeScanner from '../../components/BarcodeScanner';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -17,7 +18,6 @@ const SALE_TYPE_OPTIONS = [
   { label: '행사', value: '행사' },
 ];
 
-const SALE_TYPE_COLORS: Record<string, string> = { '정상': 'blue', '할인': 'red', '행사': 'orange', '반품': 'purple' };
 
 interface SaleItem {
   key: number;
@@ -63,7 +63,7 @@ export default function SalesEntryPage() {
   const [taxFree, setTaxFree] = useState(false);
 
   // 바코드 스캔 모드
-  const [entryMode, setEntryMode] = useState<'manual' | 'barcode'>('manual');
+  const [entryMode, setEntryMode] = useState<'manual' | 'barcode' | 'camera'>('manual');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scanning, setScanning] = useState(false);
   const barcodeInputRef = useRef<InputRef>(null);
@@ -87,7 +87,7 @@ export default function SalesEntryPage() {
     const currentPage = p ?? page;
     setLoading(true);
     try {
-      const result = await salesApi.list({ page: String(currentPage), limit: '20' });
+      const result = await salesApi.list({ page: String(currentPage), limit: '50' });
       setData(result.data);
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
@@ -337,11 +337,11 @@ export default function SalesEntryPage() {
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '색상', dataIndex: 'color', key: 'color', width: 70 },
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 70 },
-    { title: '유형', dataIndex: 'sale_type', key: 'sale_type', width: 70,
-      render: (v: string) => <Tag color={SALE_TYPE_COLORS[v] || 'default'}>{v || '정상'}</Tag>,
+    { title: '유형', dataIndex: 'sale_type', key: 'sale_type', width: 60,
+      render: (v: string) => <span style={{ color: { '정상': '#1677ff', '할인': '#cf1322', '행사': '#d46b08', '반품': '#722ed1' }[v] || '#666' }}>{v || '정상'}</span>,
     },
-    { title: '면세', dataIndex: 'tax_free', key: 'tax_free', width: 60,
-      render: (v: boolean) => v ? <Tag color="green">TF</Tag> : null,
+    { title: '면세', dataIndex: 'tax_free', key: 'tax_free', width: 50,
+      render: (v: boolean) => v ? <span style={{ color: '#389e0d', fontSize: 12 }}>면세</span> : null,
     },
     { title: '수량', dataIndex: 'qty', key: 'qty', width: 70, render: (v: number) => Number(v).toLocaleString() },
     { title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 100, render: (v: number) => Number(v).toLocaleString() },
@@ -482,8 +482,9 @@ export default function SalesEntryPage() {
           <Button type="primary" icon={<PlusOutlined />} onClick={openModal}>매출 등록</Button>
         </Space>
       } />
-      <Table columns={columns} dataSource={data} rowKey="sale_id" loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
+      <Table columns={columns} dataSource={data} rowKey="sale_id" loading={loading} size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
 
       <Modal
         title="매출 등록" open={modalOpen} onCancel={() => setModalOpen(false)}
@@ -511,12 +512,13 @@ export default function SalesEntryPage() {
           <Segmented
             value={entryMode}
             onChange={(v) => {
-              setEntryMode(v as 'manual' | 'barcode');
+              setEntryMode(v as 'manual' | 'barcode' | 'camera');
               if (v === 'barcode') setTimeout(() => barcodeInputRef.current?.focus(), 100);
             }}
             options={[
               { label: '수동 입력', value: 'manual' },
               { label: '바코드 스캔', value: 'barcode', icon: <BarcodeOutlined /> },
+              { label: '카메라 스캔', value: 'camera', icon: <CameraOutlined /> },
             ]}
           />
         </div>
@@ -537,9 +539,17 @@ export default function SalesEntryPage() {
           />
         )}
 
+        {entryMode === 'camera' && (
+          <BarcodeScanner
+            active={entryMode === 'camera' && modalOpen}
+            onScan={(code) => handleBarcodeScan(code)}
+            height={220}
+          />
+        )}
+
         <Table
-          columns={entryMode === 'barcode' ? barcodeItemColumns : itemColumns}
-          dataSource={items.filter(i => entryMode === 'barcode' ? i.variant_id : true)}
+          columns={entryMode === 'barcode' || entryMode === 'camera' ? barcodeItemColumns : itemColumns}
+          dataSource={items.filter(i => entryMode === 'barcode' || entryMode === 'camera' ? i.variant_id : true)}
           rowKey="key" size="small"
           pagination={false} scroll={{ y: 300 }}
         />

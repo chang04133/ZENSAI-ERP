@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Modal, Form, InputNumber, Upload, Alert, message } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons';
+import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { productApi } from '../../modules/product/product.api';
@@ -121,6 +121,28 @@ export default function StoreShipmentPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  // 엑셀 양식 다운로드
+  const handleDownloadTemplate = () => {
+    const wb = XLSX.utils.book_new();
+    const templateData = [
+      { 'SKU': 'ZS26SS-T001-BK-M', '수량': 5 },
+      { 'SKU': 'ZS26SS-T001-BK-L', '수량': 3 },
+    ];
+    const ws = XLSX.utils.json_to_sheet(templateData);
+    ws['!cols'] = [{ wch: 24 }, { wch: 8 }];
+    XLSX.utils.book_append_sheet(wb, ws, '출고품목');
+
+    const guideData = [
+      { '항목': 'SKU', '설명': '상품 변형 SKU 코드 (필수)', '예시': 'ZS26SS-T001-BK-M' },
+      { '항목': '수량', '설명': '출고 수량 (선택, 기본 1)', '예시': '5' },
+    ];
+    const guideWs = XLSX.utils.json_to_sheet(guideData);
+    guideWs['!cols'] = [{ wch: 10 }, { wch: 35 }, { wch: 25 }];
+    XLSX.utils.book_append_sheet(wb, guideWs, '작성가이드');
+
+    XLSX.writeFile(wb, 'store_shipment_template.xlsx');
+  };
+
   // 엑셀 업로드
   const handleExcelUpload = async (file: File) => {
     setExcelLoading(true);
@@ -198,6 +220,7 @@ export default function StoreShipmentPage() {
     <div>
       <PageHeader title="출고관리" extra={
         <Space>
+          <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate}>엑셀양식</Button>
           <Upload accept=".xlsx,.xls" showUploadList={false} beforeUpload={handleExcelUpload as any}>
             <Button icon={<UploadOutlined />} loading={excelLoading}>엑셀 업로드</Button>
           </Upload>

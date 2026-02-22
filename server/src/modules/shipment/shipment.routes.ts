@@ -6,7 +6,7 @@ import { requireRole } from '../../middleware/role-guard';
 const router = Router();
 
 // 커스텀 라우트 (CRUD보다 먼저 등록)
-router.put('/:id/shipped-qty', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), shipmentController.updateShippedQty);
+router.put('/:id/shipped-qty', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.updateShippedQty);
 router.put('/:id/receive', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.receive);
 
 // 기본 CRUD

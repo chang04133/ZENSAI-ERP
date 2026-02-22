@@ -171,7 +171,7 @@ router.post('/batch',
       res.status(400).json({ success: false, error: 'partner_code 필수' });
       return;
     }
-    const isTaxFree = !!tax_free;
+    const globalTaxFree = !!tax_free;
     const pool = getPool();
     const client = await pool.connect();
     try {
@@ -181,10 +181,11 @@ router.post('/batch',
         const { variant_id, qty, unit_price, sale_type } = item;
         if (!variant_id || !qty || !unit_price) continue;
         const total_price = qty * unit_price;
+        const itemTaxFree = item.tax_free !== undefined ? !!item.tax_free : globalTaxFree;
         const sale = await client.query(
           `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', isTaxFree],
+          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree],
         );
         await inventoryRepository.applyChange(
           pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,

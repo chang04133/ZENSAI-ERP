@@ -30,10 +30,11 @@ interface SaleItem {
   discount_price?: number;
   event_price?: number;
   current_stock?: number;
+  tax_free: boolean;
 }
 
 let itemKey = 0;
-const newItem = (): SaleItem => ({ key: ++itemKey, sale_type: '정상', qty: 1, unit_price: 0 });
+const newItem = (): SaleItem => ({ key: ++itemKey, sale_type: '정상', qty: 1, unit_price: 0, tax_free: false });
 
 export default function SalesEntryPage() {
   const user = useAuthStore((s) => s.user);
@@ -59,8 +60,11 @@ export default function SalesEntryPage() {
   const [partnerCode, setPartnerCode] = useState<string | undefined>();
   const [items, setItems] = useState<SaleItem[]>([newItem()]);
 
-  // 택스프리
-  const [taxFree, setTaxFree] = useState(false);
+  // 택스프리 (전체 토글용)
+  const allTaxFree = items.length > 0 && items.every(i => i.tax_free);
+  const handleToggleAllTaxFree = (checked: boolean) => {
+    setItems(prev => prev.map(i => ({ ...i, tax_free: checked })));
+  };
 
   // 바코드 스캔 모드
   const [entryMode, setEntryMode] = useState<'manual' | 'barcode' | 'camera'>('manual');
@@ -168,6 +172,7 @@ export default function SalesEntryPage() {
           discount_price: product.discount_price,
           event_price: product.event_price,
           current_stock: product.current_stock,
+          tax_free: allTaxFree,
         };
         setItems(prev => {
           // 첫 번째 빈 항목 교체 또는 추가
@@ -202,12 +207,12 @@ export default function SalesEntryPage() {
       await salesApi.createBatch({
         sale_date: saleDate.format('YYYY-MM-DD'),
         partner_code: isStore ? undefined : partnerCode,
-        tax_free: taxFree,
         items: validItems.map(i => ({
           variant_id: i.variant_id,
           qty: i.qty,
           unit_price: i.unit_price,
           sale_type: i.sale_type,
+          tax_free: i.tax_free,
         })),
       });
       message.success(`${validItems.length}건 매출이 등록되었습니다.`);
@@ -225,7 +230,6 @@ export default function SalesEntryPage() {
     setVariantSearchMap({});
     setEntryMode('manual');
     setBarcodeInput('');
-    setTaxFree(false);
     setModalOpen(true);
   };
 
@@ -405,6 +409,13 @@ export default function SalesEntryPage() {
       ),
     },
     {
+      title: '면세', key: 'tax_free', width: 60,
+      render: (_: any, record: SaleItem) => (
+        <Switch size="small" checked={record.tax_free}
+          onChange={(v) => updateItem(record.key, 'tax_free', v)} />
+      ),
+    },
+    {
       title: '소계', key: 'subtotal', width: 110,
       render: (_: any, record: SaleItem) => (
         <span style={{ fontWeight: 600 }}>{((record.qty || 0) * (record.unit_price || 0)).toLocaleString()}</span>
@@ -461,6 +472,13 @@ export default function SalesEntryPage() {
       ),
     },
     {
+      title: '면세', key: 'tax_free', width: 60,
+      render: (_: any, record: SaleItem) => (
+        <Switch size="small" checked={record.tax_free}
+          onChange={(v) => updateItem(record.key, 'tax_free', v)} />
+      ),
+    },
+    {
       title: '소계', key: 'subtotal', width: 110,
       render: (_: any, record: SaleItem) => (
         <span style={{ fontWeight: 600 }}>{((record.qty || 0) * (record.unit_price || 0)).toLocaleString()}</span>
@@ -503,8 +521,8 @@ export default function SalesEntryPage() {
             </div>
           )}
           <div>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free</div>
-            <Switch checked={taxFree} onChange={setTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
+            <Switch checked={allTaxFree} onChange={handleToggleAllTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
           </div>
         </Space>
 

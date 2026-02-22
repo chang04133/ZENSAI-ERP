@@ -82,9 +82,9 @@ export default function InventoryStatusPage() {
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  // 리오더 임계값
-  const [urgentThreshold, setUrgentThreshold] = useState(5);
-  const [recommendThreshold, setRecommendThreshold] = useState(10);
+  // 리오더 임계값 (매장: 긴급 1이하, 추천 3이하 / 본사: 긴급 5이하, 추천 10이하)
+  const [urgentThreshold, setUrgentThreshold] = useState(isStore ? 1 : 5);
+  const [recommendThreshold, setRecommendThreshold] = useState(isStore ? 3 : 10);
 
   // 리오더 데이터
   const [reorderData, setReorderData] = useState<{ urgent: any[]; recommend: any[] }>({ urgent: [], recommend: [] });
@@ -354,10 +354,13 @@ export default function InventoryStatusPage() {
           <div>
             <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f8f9fb', borderRadius: 8 }}>
               <span style={{ fontSize: 16, fontWeight: 700 }}>{searchResult.product.product_name}</span>
-              <span style={{ marginLeft: 12, color: '#888', fontSize: 13 }}>{searchResult.product.product_code}</span>
+              <span style={{ marginLeft: 12, color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{searchResult.product.product_code}</span>
               {searchResult.product.category && <Tag color="blue" style={{ marginLeft: 8 }}>{searchResult.product.category}</Tag>}
               {searchResult.product.fit && <Tag style={{ marginLeft: 4 }}>{searchResult.product.fit}</Tag>}
               {searchResult.product.season && <Tag style={{ marginLeft: 4 }}>{searchResult.product.season}</Tag>}
+              <span style={{ marginLeft: 12, color: '#888', fontSize: 12 }}>
+                {searchResult.variants?.length || 0}개 옵션
+              </span>
             </div>
             <Table
               dataSource={searchResult.variants}
@@ -368,6 +371,10 @@ export default function InventoryStatusPage() {
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
                 { title: '컬러', dataIndex: 'color', key: 'color', width: 70 },
                 { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
+                ...(isStore ? [{
+                  title: '내 매장', dataIndex: 'my_store_qty', key: 'my_store_qty', width: 80,
+                  render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#10b981', fontSize: 14 }}>{v}개</span>,
+                }] : []),
                 { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 80,
                   render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#111' }}>{v}개</span>,
                 },

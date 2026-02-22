@@ -66,8 +66,10 @@ class InventoryController extends BaseController<Inventory> {
     const pc = req.user?.partnerCode;
     const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
 
-    const urgentThreshold = parseInt(req.query.urgent as string) || 5;
-    const recommendThreshold = parseInt(req.query.recommend as string) || 10;
+    const defaultUrgent = partnerCode ? 1 : 5;
+    const defaultRecommend = partnerCode ? 3 : 10;
+    const urgentThreshold = parseInt(req.query.urgent as string) || defaultUrgent;
+    const recommendThreshold = parseInt(req.query.recommend as string) || defaultRecommend;
 
     const params: any[] = [];
     let paramIdx = 1;
@@ -151,7 +153,7 @@ class InventoryController extends BaseController<Inventory> {
     res.json({ success: true, data: { urgent, recommend, isStore: !!partnerCode } });
   });
 
-  /** 재고찾기: 상품명/SKU 검색 → 해당 variant의 매장별 재고 */
+  /** 재고찾기: 상품명/SKU/품번 검색 → 해당 variant의 매장별 재고 */
   searchItem = asyncHandler(async (req: Request, res: Response) => {
     const q = (req.query.q as string || '').trim();
     if (!q || q.length < 1) {
@@ -159,17 +161,19 @@ class InventoryController extends BaseController<Inventory> {
       return;
     }
     const pool = getPool();
-    // 1) 상품 1건 찾기 (product_code 정확 매치 or product_name/SKU ILIKE)
+    const pc = getStorePartnerCode(req);
+
+    // 1) 상품 1건 찾기 (product_code 정확/부분 매치 or product_name/SKU ILIKE)
     const productSql = `
-      SELECT DISTINCT p.product_code, p.product_name, p.category, p.fit, p.length, p.season
+      SELECT p.product_code, p.product_name, p.category, p.fit, p.length, p.season
       FROM products p
-      LEFT JOIN product_variants pv ON p.product_code = pv.product_code
       WHERE p.is_active = TRUE AND (
         p.product_code = $1
+        OR p.product_code ILIKE $2
         OR p.product_name ILIKE $2
-        OR pv.sku ILIKE $2
+        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_code = p.product_code AND pv.is_active = TRUE AND (pv.sku ILIKE $2 OR pv.barcode = $1))
       )
-      ORDER BY CASE WHEN p.product_code = $1 THEN 0 ELSE 1 END, p.product_name
+      ORDER BY CASE WHEN p.product_code = $1 THEN 0 WHEN p.product_code ILIKE $2 THEN 1 ELSE 2 END, p.product_name
       LIMIT 1`;
     const productResult = await pool.query(productSql, [q, `%${q}%`]);
     if (productResult.rows.length === 0) {
@@ -177,7 +181,9 @@ class InventoryController extends BaseController<Inventory> {
       return;
     }
     const product = productResult.rows[0];
-    // 2) 해당 상품의 모든 variant + 매장별 재고
+
+    // 2) 해당 상품의 모든 variant + 매장별 재고 (매장유저: 내 매장 우선 표시)
+    const variantParams: any[] = [product.product_code];
     const variantsSql = `
       SELECT pv.variant_id, pv.sku, pv.color, pv.size,
              COALESCE(json_agg(
@@ -189,17 +195,19 @@ class InventoryController extends BaseController<Inventory> {
                ) ORDER BY pt.partner_type DESC, i.qty DESC
              ) FILTER (WHERE i.partner_code IS NOT NULL), '[]'::json) AS locations,
              COALESCE(SUM(i.qty), 0)::int AS total_qty
+             ${pc ? `, COALESCE((SELECT qty FROM inventory WHERE variant_id = pv.variant_id AND partner_code = $2), 0)::int AS my_store_qty` : ''}
       FROM product_variants pv
       LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.qty > 0
       LEFT JOIN partners pt ON i.partner_code = pt.partner_code
       WHERE pv.product_code = $1 AND pv.is_active = TRUE
       GROUP BY pv.variant_id, pv.sku, pv.color, pv.size
       ORDER BY pv.color, pv.size`;
-    const variants = await pool.query(variantsSql, [product.product_code]);
-    res.json({ success: true, data: { product, variants: variants.rows } });
+    if (pc) variantParams.push(pc);
+    const variants = await pool.query(variantsSql, variantParams);
+    res.json({ success: true, data: { product, variants: variants.rows, partnerCode: pc || null } });
   });
 
-  /** 재고찾기 자동완성: 상품명/SKU 후보 목록 */
+  /** 재고찾기 자동완성: 상품명/SKU/품번 후보 목록 */
   searchSuggest = asyncHandler(async (req: Request, res: Response) => {
     const q = (req.query.q as string || '').trim();
     if (!q || q.length < 1) {
@@ -208,13 +216,12 @@ class InventoryController extends BaseController<Inventory> {
     }
     const pool = getPool();
     const sql = `
-      SELECT DISTINCT p.product_code, p.product_name, p.category
+      SELECT p.product_code, p.product_name, p.category
       FROM products p
-      LEFT JOIN product_variants pv ON p.product_code = pv.product_code
       WHERE p.is_active = TRUE AND (
         p.product_code ILIKE $1
         OR p.product_name ILIKE $1
-        OR pv.sku ILIKE $1
+        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_code = p.product_code AND pv.sku ILIKE $1)
       )
       ORDER BY p.product_name
       LIMIT 10`;

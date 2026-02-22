@@ -3,9 +3,9 @@ import { Table, Button, Input, Select, Space, Tag, Modal, Form, InputNumber, Upl
 import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, UploadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
-import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
+import { apiFetch } from '../../core/api.client';
 import * as XLSX from 'xlsx';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -57,7 +57,14 @@ export default function StoreShipmentPage() {
 
   useEffect(() => { load(); }, [page, statusFilter]);
   useEffect(() => {
-    (async () => { try { const r = await partnerApi.list({ limit: '1000' }); setPartners(r.data); } catch (e: any) { message.error('거래처 목록 로드 실패'); } })();
+    (async () => {
+      try {
+        const res = await apiFetch('/api/partners?limit=1000&scope=transfer');
+        const json = await res.json();
+        if (json.success && json.data?.data) setPartners(json.data.data);
+      } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
+      try { setVariantOptions(await productApi.searchVariants('')); } catch (e: any) { console.error('품목 전체 로드 실패:', e); }
+    })();
   }, []);
 
   const handleVariantSearch = async (value: string) => {

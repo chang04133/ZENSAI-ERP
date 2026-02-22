@@ -3,11 +3,10 @@ import { Table, Button, Input, Select, Space, Tag, Modal, Form, Popconfirm, Inpu
 import { PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
-import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
-import { getToken } from '../../core/api.client';
+import { apiFetch, getToken } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -66,20 +65,19 @@ export default function ShipmentRequestPage() {
     finally { setLoading(false); }
   };
 
-  const loadPartners = async () => {
-    try {
-      const result = await partnerApi.list({ limit: '1000' });
-      setPartners(result.data);
-    } catch (e: any) { message.error('거래처 목록 로드 실패'); }
-  };
-
   useEffect(() => { load(); }, [page]);
   useEffect(() => {
-    loadPartners();
+    (async () => {
+      try {
+        const res = await apiFetch('/api/partners?limit=1000&scope=transfer');
+        const json = await res.json();
+        if (json.success && json.data?.data) setPartners(json.data.data);
+      } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
+      try { setVariantOptions(await productApi.searchVariants('')); } catch (e: any) { console.error('품목 전체 로드 실패:', e); }
+    })();
     codeApi.getByType('SHIPMENT_TYPE').then((data: any[]) => {
       setShipmentTypes(data.filter((c: any) => c.is_active));
     }).catch(() => {
-      // fallback if master codes not loaded
       setShipmentTypes([
         { code_value: '출고', code_label: '출고' },
         { code_value: '반품', code_label: '반품' },

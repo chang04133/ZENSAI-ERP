@@ -36,6 +36,7 @@ export default function ProductListPage() {
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   useEffect(() => {
     codeApi.getByType('CATEGORY').then((data: any[]) => {
@@ -159,9 +160,9 @@ export default function ProductListPage() {
     { title: '기본가', dataIndex: 'base_price', key: 'base_price',
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
     },
-    { title: '매입가', dataIndex: 'cost_price', key: 'cost_price',
+    ...(!isStore ? [{ title: '매입가', dataIndex: 'cost_price', key: 'cost_price',
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
-    },
+    }] : []),
     { title: '할인가', dataIndex: 'discount_price', key: 'discount_price',
       render: (v: number) => v ? <span style={{ color: '#f5222d' }}>{Number(v).toLocaleString()}원</span> : '-',
     },

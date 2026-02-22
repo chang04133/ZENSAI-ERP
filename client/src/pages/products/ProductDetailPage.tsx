@@ -26,6 +26,7 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   // 추가 모달
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -167,7 +168,7 @@ export default function ProductDetailPage() {
             <Tag color={totalStock > 0 ? 'blue' : 'red'} style={{ fontSize: 14 }}>{totalStock}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="기본가 (판매가)">{fmtPrice(product.base_price)}</Descriptions.Item>
-          <Descriptions.Item label="매입가 (원가)">{fmtPrice(product.cost_price)}</Descriptions.Item>
+          {!isStore && <Descriptions.Item label="매입가 (원가)">{fmtPrice(product.cost_price)}</Descriptions.Item>}
           <Descriptions.Item label="할인가">{fmtPrice(product.discount_price)}</Descriptions.Item>
           <Descriptions.Item label="행사가격">{fmtPrice(product.event_price)}</Descriptions.Item>
           <Descriptions.Item label="재고부족 알림">

@@ -34,6 +34,7 @@ const StoreShipmentPage = lazy(() => import('../pages/shipment/StoreShipmentPage
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
 const StoreInventoryPage = lazy(() => import('../pages/inventory/StoreInventoryPage'));
 const InventoryAdjustPage = lazy(() => import('../pages/inventory/InventoryAdjustPage'));
+const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
 
 // Restock
 const RestockManagePage = lazy(() => import('../pages/restock/RestockManagePage'));
@@ -111,6 +112,7 @@ export const appRoutes: AppRoute[] = [
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
   { path: '/inventory/adjust', element: <InventoryAdjustPage />, roles: ADMIN_HQ },
   { path: '/inventory/restock', element: <RestockManagePage />, roles: ADMIN_HQ },

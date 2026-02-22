@@ -603,6 +603,144 @@ export class SalesRepository {
     return { dateFrom, dateTo, summary, details, totals, dailyTrend };
   }
 
+  /** 스타일별 판매현황 (기간별) */
+  async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string) {
+    const params: any[] = [dateFrom, dateTo];
+    let pcFilter = '';
+    let pcFilterSimple = '';
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilter = `AND s.partner_code = $3`;
+      pcFilterSimple = `AND partner_code = $3`;
+    }
+
+    // 총합
+    const totalSql = `
+      SELECT COUNT(*)::int AS sale_count,
+             COALESCE(SUM(qty), 0)::int AS total_qty,
+             COALESCE(SUM(total_price), 0)::bigint AS total_amount,
+             COUNT(DISTINCT variant_id)::int AS variant_count
+      FROM sales
+      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}`;
+    const totals = (await this.pool.query(totalSql, params)).rows[0];
+
+    // 카테고리별
+    const catSql = `
+      SELECT COALESCE(p.category, '미분류') AS category,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(DISTINCT p.product_code)::int AS product_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY COALESCE(p.category, '미분류')
+      ORDER BY total_amount DESC`;
+    const byCategory = (await this.pool.query(catSql, params)).rows;
+
+    // 세부카테고리별
+    const subCatSql = `
+      SELECT COALESCE(p.category, '미분류') AS category,
+             COALESCE(p.sub_category, '미분류') AS sub_category,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(DISTINCT p.product_code)::int AS product_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY COALESCE(p.category, '미분류'), COALESCE(p.sub_category, '미분류')
+      ORDER BY total_amount DESC`;
+    const bySubCategory = (await this.pool.query(subCatSql, params)).rows;
+
+    // 핏별
+    const fitSql = `
+      SELECT COALESCE(p.fit, '미지정') AS fit,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(DISTINCT p.product_code)::int AS product_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY COALESCE(p.fit, '미지정')
+      ORDER BY total_amount DESC`;
+    const byFit = (await this.pool.query(fitSql, params)).rows;
+
+    // 기장별
+    const lenSql = `
+      SELECT COALESCE(p.length, '미지정') AS length,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(DISTINCT p.product_code)::int AS product_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY COALESCE(p.length, '미지정')
+      ORDER BY total_amount DESC`;
+    const byLength = (await this.pool.query(lenSql, params)).rows;
+
+    // 사이즈별
+    const sizeSql = `
+      SELECT pv.size,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY pv.size
+      ORDER BY total_qty DESC`;
+    const bySize = (await this.pool.query(sizeSql, params)).rows;
+
+    // 컬러별
+    const colorSql = `
+      SELECT pv.color,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY pv.color
+      ORDER BY total_qty DESC LIMIT 20`;
+    const byColor = (await this.pool.query(colorSql, params)).rows;
+
+    // 인기상품 TOP 15
+    const topSql = `
+      SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(*)::int AS sale_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
+      ORDER BY total_amount DESC LIMIT 15`;
+    const topProducts = (await this.pool.query(topSql, params)).rows;
+
+    // 시즌별
+    const seasonSql = `
+      SELECT
+        CASE
+          WHEN p.season LIKE '%SA' THEN '봄/가을'
+          WHEN p.season LIKE '%SM' THEN '여름'
+          WHEN p.season LIKE '%WN' THEN '겨울'
+          ELSE '기타'
+        END AS season_type,
+        SUM(s.qty)::int AS total_qty,
+        SUM(s.total_price)::bigint AS total_amount
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      GROUP BY season_type
+      ORDER BY total_amount DESC`;
+    const bySeason = (await this.pool.query(seasonSql, params)).rows;
+
+    return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason };
+  }
+
   async weeklyStyleSales(options: { weeks?: number; category?: string } = {}) {
     const weeks = options.weeks || 4;
     const qb = new QueryBuilder();

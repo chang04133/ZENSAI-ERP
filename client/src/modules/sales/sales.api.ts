@@ -16,7 +16,7 @@ export const salesApi = {
   create: async (body: any) => {
     return parse(await apiFetch('/api/sales', { method: 'POST', body: JSON.stringify(body) }));
   },
-  createBatch: async (body: { sale_date: string; partner_code?: string; items: any[] }) => {
+  createBatch: async (body: { sale_date: string; partner_code?: string; items: any[]; tax_free?: boolean }) => {
     return parse(await apiFetch('/api/sales/batch', { method: 'POST', body: JSON.stringify(body) }));
   },
 
@@ -55,10 +55,28 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/products-by-range?date_from=${dateFrom}&date_to=${dateTo}`));
   },
 
+  // 스타일별 판매현황 (기간별)
+  styleByRange: async (dateFrom: string, dateTo: string) => {
+    return parse(await apiFetch(`/api/sales/style-by-range?date_from=${dateFrom}&date_to=${dateTo}`));
+  },
+
   // 종합 매출조회
   comprehensive: async (dateFrom: string, dateTo: string) => {
     const q = `?date_from=${dateFrom}&date_to=${dateTo}`;
     return parse(await apiFetch(`/api/sales/comprehensive${q}`));
+  },
+
+  // 매출 수정
+  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string }) => {
+    return parse(await apiFetch(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(body) }));
+  },
+  // 매출 삭제
+  remove: async (id: number) => {
+    return parse(await apiFetch(`/api/sales/${id}`, { method: 'DELETE' }));
+  },
+  // 반품 등록
+  createReturn: async (id: number, body: { qty: number; reason?: string }) => {
+    return parse(await apiFetch(`/api/sales/${id}/return`, { method: 'POST', body: JSON.stringify(body) }));
   },
 
   // 바코드/SKU 스캔 조회

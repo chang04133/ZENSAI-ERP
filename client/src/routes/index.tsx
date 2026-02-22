@@ -45,6 +45,7 @@ const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
 const WeeklyStyleSalesPage = lazy(() => import('../pages/sales/WeeklyStyleSalesPage'));
 const DailySalesPage = lazy(() => import('../pages/sales/DailySalesPage'));
+const StyleSalesPage = lazy(() => import('../pages/sales/StyleSalesPage'));
 
 // Production
 const ProductionDashboardPage = lazy(() => import('../pages/production/ProductionDashboardPage'));
@@ -54,6 +55,9 @@ const MaterialManagePage = lazy(() => import('../pages/production/MaterialManage
 
 // Fund
 const FundPlanPage = lazy(() => import('../pages/fund/FundPlanPage'));
+
+// Barcode
+const BarcodeDashboardPage = lazy(() => import('../pages/barcode/BarcodeDashboardPage'));
 
 // System
 const DataUploadPage = lazy(() => import('../pages/system/DataUploadPage'));
@@ -111,18 +115,22 @@ export const appRoutes: AppRoute[] = [
   { path: '/inventory/restock-progress', element: <RestockProgressPage />, roles: ADMIN_HQ },
 
   // Sales — 매출등록은 STORE_STAFF도 가능
-  { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ_STORE },
+  { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
-  { path: '/sales/monthly-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ_STORE },
-  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ_STORE },
-  { path: '/sales/weekly-style', element: <WeeklyStyleSalesPage />, roles: ADMIN_HQ_STORE },
+  { path: '/sales/monthly-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
+  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ },
+  { path: '/sales/weekly-style', element: <WeeklyStyleSalesPage />, roles: ADMIN_HQ },
   { path: '/sales/daily', element: <DailySalesPage />, roles: ALL },
+  { path: '/sales/style-status', element: <StyleSalesPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },
   { path: '/production/plans', element: <ProductionPlanPage />, roles: ADMIN_HQ },
   { path: '/production/progress', element: <ProductionProgressPage />, roles: ADMIN_HQ },
   { path: '/production/materials', element: <MaterialManagePage />, roles: ADMIN_HQ },
+
+  // Barcode (매장매니저 이하)
+  { path: '/barcode', element: <BarcodeDashboardPage />, roles: ALL },
 
   // Fund (마스터 전용)
   { path: '/fund', element: <FundPlanPage />, roles: ADMIN_ONLY },

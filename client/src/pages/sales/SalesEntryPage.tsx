@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input } from 'antd';
+import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input, Switch } from 'antd';
 import type { InputRef } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -17,7 +17,7 @@ const SALE_TYPE_OPTIONS = [
   { label: '행사', value: '행사' },
 ];
 
-const SALE_TYPE_COLORS: Record<string, string> = { '정상': 'blue', '할인': 'red', '행사': 'orange' };
+const SALE_TYPE_COLORS: Record<string, string> = { '정상': 'blue', '할인': 'red', '행사': 'orange', '반품': 'purple' };
 
 interface SaleItem {
   key: number;
@@ -38,6 +38,7 @@ const newItem = (): SaleItem => ({ key: ++itemKey, sale_type: '정상', qty: 1, 
 export default function SalesEntryPage() {
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  const isManager = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER || user?.role === ROLES.STORE_MANAGER;
 
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -58,11 +59,29 @@ export default function SalesEntryPage() {
   const [partnerCode, setPartnerCode] = useState<string | undefined>();
   const [items, setItems] = useState<SaleItem[]>([newItem()]);
 
+  // 택스프리
+  const [taxFree, setTaxFree] = useState(false);
+
   // 바코드 스캔 모드
   const [entryMode, setEntryMode] = useState<'manual' | 'barcode'>('manual');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scanning, setScanning] = useState(false);
   const barcodeInputRef = useRef<InputRef>(null);
+
+  // 수정 모달 상태
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editRecord, setEditRecord] = useState<any>(null);
+  const [editQty, setEditQty] = useState(1);
+  const [editUnitPrice, setEditUnitPrice] = useState(0);
+  const [editSaleType, setEditSaleType] = useState('정상');
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // 반품 모달 상태
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [returnRecord, setReturnRecord] = useState<any>(null);
+  const [returnQty, setReturnQty] = useState(1);
+  const [returnReason, setReturnReason] = useState('');
+  const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   const load = async (p?: number) => {
     const currentPage = p ?? page;
@@ -183,6 +202,7 @@ export default function SalesEntryPage() {
       await salesApi.createBatch({
         sale_date: saleDate.format('YYYY-MM-DD'),
         partner_code: isStore ? undefined : partnerCode,
+        tax_free: taxFree,
         items: validItems.map(i => ({
           variant_id: i.variant_id,
           qty: i.qty,
@@ -205,7 +225,70 @@ export default function SalesEntryPage() {
     setVariantSearchMap({});
     setEntryMode('manual');
     setBarcodeInput('');
+    setTaxFree(false);
     setModalOpen(true);
+  };
+
+  // 수정 모달 열기
+  const openEditModal = (record: any) => {
+    setEditRecord(record);
+    setEditQty(Number(record.qty));
+    setEditUnitPrice(Number(record.unit_price));
+    setEditSaleType(record.sale_type || '정상');
+    setEditModalOpen(true);
+  };
+
+  // 수정 저장
+  const handleEditSubmit = async () => {
+    if (!editRecord) return;
+    setEditSubmitting(true);
+    try {
+      await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType });
+      message.success('매출이 수정되었습니다.');
+      setEditModalOpen(false);
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setEditSubmitting(false); }
+  };
+
+  // 삭제
+  const handleDelete = (record: any) => {
+    Modal.confirm({
+      title: '매출 삭제',
+      icon: <ExclamationCircleOutlined />,
+      content: `${record.product_name} (${record.sku}) ${Number(record.qty)}개 매출을 삭제하시겠습니까? 재고가 복원됩니다.`,
+      okText: '삭제',
+      okType: 'danger',
+      cancelText: '취소',
+      onOk: async () => {
+        try {
+          await salesApi.remove(record.sale_id);
+          message.success('매출이 삭제되었습니다.');
+          load();
+        } catch (e: any) { message.error(e.message); }
+      },
+    });
+  };
+
+  // 반품 모달 열기
+  const openReturnModal = (record: any) => {
+    setReturnRecord(record);
+    setReturnQty(Number(record.qty));
+    setReturnReason('');
+    setReturnModalOpen(true);
+  };
+
+  // 반품 저장
+  const handleReturnSubmit = async () => {
+    if (!returnRecord) return;
+    setReturnSubmitting(true);
+    try {
+      await salesApi.createReturn(returnRecord.sale_id, { qty: returnQty, reason: returnReason });
+      message.success(`${returnQty}개 반품이 등록되었습니다.`);
+      setReturnModalOpen(false);
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setReturnSubmitting(false); }
   };
 
   const handleExcelUpload = async (file: File) => {
@@ -257,11 +340,26 @@ export default function SalesEntryPage() {
     { title: '유형', dataIndex: 'sale_type', key: 'sale_type', width: 70,
       render: (v: string) => <Tag color={SALE_TYPE_COLORS[v] || 'default'}>{v || '정상'}</Tag>,
     },
+    { title: '면세', dataIndex: 'tax_free', key: 'tax_free', width: 60,
+      render: (v: boolean) => v ? <Tag color="green">TF</Tag> : null,
+    },
     { title: '수량', dataIndex: 'qty', key: 'qty', width: 70, render: (v: number) => Number(v).toLocaleString() },
     { title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 100, render: (v: number) => Number(v).toLocaleString() },
     { title: '합계', dataIndex: 'total_price', key: 'total_price', width: 120,
-      render: (v: number) => <span style={{ fontWeight: 600 }}>{Number(v).toLocaleString()}</span>,
+      render: (v: number) => <span style={{ fontWeight: 600, color: Number(v) < 0 ? '#cf1322' : undefined }}>{Number(v).toLocaleString()}</span>,
     },
+    ...(isManager ? [{
+      title: '관리', key: 'actions', width: 130, fixed: 'right' as const,
+      render: (_: any, record: any) => record.sale_type === '반품' ? (
+        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>삭제</Button>
+      ) : (
+        <Space size={4}>
+          <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
+          <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: '#722ed1' }} />
+          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+        </Space>
+      ),
+    }] : []),
   ];
 
   // 바코드 모드 아이템 컬럼
@@ -403,6 +501,10 @@ export default function SalesEntryPage() {
                 value={partnerCode} onChange={setPartnerCode} style={{ width: 250 }} />
             </div>
           )}
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free</div>
+            <Switch checked={taxFree} onChange={setTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
+          </div>
         </Space>
 
         <div style={{ marginBottom: 12 }}>
@@ -458,6 +560,75 @@ export default function SalesEntryPage() {
             등록
           </Button>
         </div>
+      </Modal>
+
+      {/* 수정 모달 */}
+      <Modal
+        title="매출 수정" open={editModalOpen} onCancel={() => setEditModalOpen(false)}
+        onOk={handleEditSubmit} confirmLoading={editSubmitting}
+        okText="저장" cancelText="취소" width={480}
+      >
+        {editRecord && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+              <div style={{ fontWeight: 600 }}>{editRecord.product_name}</div>
+              <div style={{ fontSize: 12, color: '#666' }}>{editRecord.sku} ({editRecord.color}/{editRecord.size})</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>판매유형</div>
+              <Select value={editSaleType} options={SALE_TYPE_OPTIONS} style={{ width: '100%' }}
+                onChange={setEditSaleType} />
+            </div>
+            <div style={{ display: 'flex', gap: 16 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>수량</div>
+                <InputNumber min={1} value={editQty} style={{ width: '100%' }} onChange={(v) => setEditQty(v || 1)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가</div>
+                <InputNumber min={0} value={editUnitPrice} style={{ width: '100%' }}
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  onChange={(v) => setEditUnitPrice(v || 0)} />
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600 }}>
+              합계: {(editQty * editUnitPrice).toLocaleString()}원
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* 반품 모달 */}
+      <Modal
+        title="반품 등록" open={returnModalOpen} onCancel={() => setReturnModalOpen(false)}
+        onOk={handleReturnSubmit} confirmLoading={returnSubmitting}
+        okText="반품 등록" cancelText="취소" width={480}
+        okButtonProps={{ danger: true }}
+      >
+        {returnRecord && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+              <div style={{ fontWeight: 600 }}>{returnRecord.product_name}</div>
+              <div style={{ fontSize: 12, color: '#666' }}>{returnRecord.sku} ({returnRecord.color}/{returnRecord.size})</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                원본: {Number(returnRecord.qty)}개 x {Number(returnRecord.unit_price).toLocaleString()}원 = {Number(returnRecord.total_price).toLocaleString()}원
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 수량 (최대 {Number(returnRecord.qty)}개)</div>
+              <InputNumber min={1} max={Number(returnRecord.qty)} value={returnQty} style={{ width: '100%' }}
+                onChange={(v) => setReturnQty(v || 1)} />
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유</div>
+              <Input.TextArea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)}
+                placeholder="불량, 사이즈 교환, 고객 변심 등" />
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600, color: '#cf1322' }}>
+              반품 금액: -{(returnQty * Number(returnRecord.unit_price)).toLocaleString()}원
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* 엑셀 업로드 모달 */}

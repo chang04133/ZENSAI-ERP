@@ -30,4 +30,22 @@ export const productApi = {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
   },
+
+  // 바코드 대시보드
+  barcodeDashboard: async () => {
+    const res = await apiFetch('/api/products/barcode-dashboard');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
+  // 바코드 등록/수정
+  updateBarcode: async (variantId: number, barcode: string | null) => {
+    const res = await apiFetch(`/api/products/variants/${variantId}/barcode`, {
+      method: 'PUT', body: JSON.stringify({ barcode }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
 };

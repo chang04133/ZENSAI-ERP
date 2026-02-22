@@ -14,9 +14,11 @@ const ADMIN_SYS = [ROLES.ADMIN, ROLES.SYS_ADMIN];
 const ADMIN_HQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER];
 const ADMIN_HQ_STORE = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER];
 const STORE_ALL = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER, ROLES.STORE_STAFF];
+const STORE_ONLY = [ROLES.STORE_MANAGER, ROLES.STORE_STAFF];
 
 export const menuItems: MenuItem[] = [
   { key: '/', label: '대시보드', icon: 'DashboardOutlined', roles: ALL },
+  { key: '/barcode', label: '바코드 관리', icon: 'BarcodeOutlined', roles: STORE_ONLY },
   { key: '/codes', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ },
   { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
   { key: '/products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ },
@@ -43,11 +45,12 @@ export const menuItems: MenuItem[] = [
   {
     key: '/sales', label: '판매관리', icon: 'LineChartOutlined', roles: STORE_ALL,
     children: [
-      { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: STORE_ALL },
+      { key: '/sales/style-status', label: '스타일별 판매현황', icon: 'SkinOutlined', roles: STORE_ALL },
+      { key: '/sales/daily', label: '판매리스트', icon: 'UnorderedListOutlined', roles: STORE_ALL },
       { key: '/sales/monthly-sales', label: '종합매출조회', icon: 'CalendarOutlined', roles: ADMIN_HQ },
       { key: '/sales/analytics', label: '스타일판매분석', icon: 'BarChartOutlined', roles: ADMIN_HQ },
-      { key: '/sales/daily', label: '판매리스트', icon: 'UnorderedListOutlined', roles: STORE_ALL },
       { key: '/sales/weekly-style', label: '주간스타일판매', icon: 'SkinOutlined', roles: ADMIN_HQ },
     ],
   },

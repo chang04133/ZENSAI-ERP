@@ -14,6 +14,7 @@ import productRoutes from './modules/product/product.routes';
 import productExcelRoutes from './modules/product/product-excel.routes';
 import userRoutes from './modules/user/user.routes';
 import codeRoutes from './modules/code/code.routes';
+import shipmentExcelRoutes from './modules/shipment/shipment-excel.routes';
 import shipmentRoutes from './modules/shipment/shipment.routes';
 import inventoryRoutes from './modules/inventory/inventory.routes';
 import salesExcelRoutes from './modules/sales/sales-excel.routes';
@@ -57,6 +58,7 @@ app.use('/api/products', productExcelRoutes);   // Excel routes first (specific 
 app.use('/api/products', productRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/codes', codeRoutes);
+app.use('/api/shipments', shipmentExcelRoutes);  // Excel routes first
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/sales', salesExcelRoutes);   // Excel routes first (specific paths)

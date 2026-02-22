@@ -26,4 +26,20 @@ export const shipmentApi = {
     if (!data.success) throw new Error(data.error);
     return data.data;
   },
+
+  /** 엑셀 업로드 */
+  uploadExcel: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiFetch('/api/shipments/excel/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { total: number; createdRequests: number; createdItems: number; skipped: number; errors?: string[] };
+  },
+
+  /** 엑셀 템플릿 URL */
+  templateUrl: '/api/shipments/excel/template',
 };

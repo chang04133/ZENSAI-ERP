@@ -53,7 +53,14 @@ router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) =
     LIMIT 500`;
   const variants = (await pool.query(variantSql, variantParams)).rows;
 
-  res.json({ success: true, data: { stats, variants } });
+  // 매장 역할이면 cost_price 제거 (안전장치)
+  const userRole = req.user?.role;
+  const isStoreUser = userRole === 'STORE_MANAGER' || userRole === 'STORE_STAFF';
+  const safeVariants = isStoreUser
+    ? variants.map(({ cost_price, ...rest }: any) => rest)
+    : variants;
+
+  res.json({ success: true, data: { stats, variants: safeVariants } });
 }));
 
 // 바코드 등록/수정 (매장 매니저도 가능)

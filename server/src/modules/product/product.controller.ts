@@ -5,10 +5,43 @@ import { productService } from './product.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
 
+/** 매장 역할이면 cost_price 제거 */
+function isStoreRole(req: Request): boolean {
+  const role = req.user?.role;
+  return role === 'STORE_MANAGER' || role === 'STORE_STAFF';
+}
+
+function stripCost(obj: any): any {
+  if (!obj) return obj;
+  const { cost_price, ...rest } = obj;
+  return rest;
+}
+
+function stripCostFromResult(data: any, req: Request): any {
+  if (!isStoreRole(req)) return data;
+  if (Array.isArray(data)) return data.map(stripCost);
+  if (data?.data && Array.isArray(data.data)) return { ...data, data: data.data.map(stripCost) };
+  return stripCost(data);
+}
+
 class ProductController extends BaseController<Product> {
   constructor() {
     super(productService);
   }
+
+  /** 목록 조회 - 매장 역할은 cost_price 제외 */
+  list = asyncHandler(async (req: Request, res: Response) => {
+    const { page, limit, search, orderBy, orderDir, ...filters } = req.query;
+    const result = await productService.list({
+      page: page ? parseInt(page as string, 10) : undefined,
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      search: search as string,
+      orderBy: orderBy as string,
+      orderDir: orderDir as 'ASC' | 'DESC',
+      ...filters,
+    });
+    res.json({ success: true, data: stripCostFromResult(result, req) });
+  });
 
   searchVariants = asyncHandler(async (req: Request, res: Response) => {
     const search = ((req.query.search as string) || '').trim();
@@ -35,7 +68,7 @@ class ProductController extends BaseController<Product> {
       res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
       return;
     }
-    res.json({ success: true, data: product });
+    res.json({ success: true, data: stripCostFromResult(product, req) });
   });
 
   create = asyncHandler(async (req: Request, res: Response) => {
@@ -81,7 +114,7 @@ class ProductController extends BaseController<Product> {
 
   listEventProducts = asyncHandler(async (req: Request, res: Response) => {
     const result = await productService.listEventProducts(req.query);
-    res.json({ success: true, data: result });
+    res.json({ success: true, data: stripCostFromResult(result, req) });
   });
 
   updateEventPrice = asyncHandler(async (req: Request, res: Response) => {
@@ -91,7 +124,7 @@ class ProductController extends BaseController<Product> {
       res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
       return;
     }
-    res.json({ success: true, data: product });
+    res.json({ success: true, data: stripCostFromResult(product, req) });
   });
 
   bulkUpdateEventPrices = asyncHandler(async (req: Request, res: Response) => {
@@ -101,6 +134,9 @@ class ProductController extends BaseController<Product> {
       return;
     }
     const result = await productService.bulkUpdateEventPrices(updates);
+    if (isStoreRole(req) && result?.products) {
+      result.products = result.products.map(stripCost);
+    }
     res.json({ success: true, data: result });
   });
 }

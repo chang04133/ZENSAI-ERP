@@ -48,7 +48,7 @@ export default function ProductListPage() {
   }, []);
 
   const load = () => {
-    const params: Record<string, string> = { page: String(page), limit: '20' };
+    const params: Record<string, string> = { page: String(page), limit: '50' };
     if (search) params.search = search;
     if (categoryFilter) params.category = categoryFilter;
     if (subCategoryFilter) params.sub_category = subCategoryFilter;
@@ -244,7 +244,9 @@ export default function ProductListPage() {
         dataSource={products}
         rowKey="product_code"
         loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: setPage }}
+        size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
       />
 
       {/* Excel Upload Modal */}

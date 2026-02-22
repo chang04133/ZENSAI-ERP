@@ -40,7 +40,7 @@ export default function ReturnProcessPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '20', request_type: '반품' };
+      const params: Record<string, string> = { page: String(page), limit: '50', request_type: '반품' };
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
       if (isStore && user?.partnerCode) params.partner = user.partnerCode;
@@ -110,7 +110,9 @@ export default function ReturnProcessPage() {
         <Select placeholder="상태" allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }} options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
         <Button onClick={load}>조회</Button>
       </Space>
-      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading} pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
+      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
 
       <Modal title="반품의뢰 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>

@@ -27,7 +27,7 @@ export default function MaterialManagePage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '20' };
+      const params: Record<string, string> = { page: String(page), limit: '50' };
       if (typeFilter) params.material_type = typeFilter;
       if (search) params.search = search;
       const result = await materialApi.list(params);
@@ -120,7 +120,7 @@ export default function MaterialManagePage() {
   ];
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <Tabs defaultActiveKey="list" items={[
         { key: 'list', label: '자재 목록', children: (
           <Card extra={
@@ -133,8 +133,8 @@ export default function MaterialManagePage() {
             </Space>
           }>
             <Table columns={columns} dataSource={materials} rowKey="material_id" loading={loading}
-              pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
-              size="small" scroll={{ x: 900 }} />
+              size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+              pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
           </Card>
         )},
         { key: 'lowstock', label: (

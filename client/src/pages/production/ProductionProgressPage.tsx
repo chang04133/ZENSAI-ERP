@@ -26,7 +26,7 @@ export default function ProductionProgressPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '20' };
+      const params: Record<string, string> = { page: String(page), limit: '50' };
       if (statusFilter) params.status = statusFilter;
       const result = await productionApi.list(params);
       setPlans(result.data); setTotal(result.total);
@@ -96,7 +96,7 @@ export default function ProductionProgressPage() {
   };
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <Card title="생산진행 현황" extra={
         <Space>
           <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 140 }} allowClear placeholder="상태">
@@ -105,8 +105,8 @@ export default function ProductionProgressPage() {
         </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
-          pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
-          size="small" scroll={{ x: 1000 }} />
+          size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+          pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
       </Card>
 
       {/* 생산수량 입력 모달 */}

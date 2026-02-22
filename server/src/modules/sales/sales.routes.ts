@@ -21,31 +21,49 @@ router.get('/dashboard-stats', authMiddleware, asyncHandler(async (req, res) => 
 
 // 분석 라우트 (CRUD보다 먼저 등록 - 경로 충돌 방지)
 router.get('/monthly-sales', authMiddleware, asyncHandler(async (req, res) => {
-  const data = await salesRepository.monthlySales(req.query);
+  const query: any = { ...req.query };
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
+  const data = await salesRepository.monthlySales(query);
   res.json({ success: true, data });
 }));
 
 router.get('/monthly-revenue', authMiddleware, asyncHandler(async (req, res) => {
-  const data = await salesRepository.monthlyRevenue(req.query);
+  const query: any = { ...req.query };
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
+  const data = await salesRepository.monthlyRevenue(query);
   res.json({ success: true, data });
 }));
 
 router.get('/weekly-style', authMiddleware, asyncHandler(async (req, res) => {
-  const data = await salesRepository.weeklyStyleSales(req.query);
+  const query: any = { ...req.query };
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
+  const data = await salesRepository.weeklyStyleSales(query);
   res.json({ success: true, data });
 }));
 
 // 스타일 판매 분석 (전년대비 종합)
 router.get('/style-analytics', authMiddleware, asyncHandler(async (req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
-  const data = await salesRepository.styleAnalytics(year);
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.styleAnalytics(year, partnerCode);
   res.json({ success: true, data });
 }));
 
 // 연단위 비교
 router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
-  const data = await salesRepository.yearComparison(year);
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.yearComparison(year, partnerCode);
   res.json({ success: true, data });
 }));
 
@@ -117,7 +135,10 @@ router.get('/comprehensive', authMiddleware, asyncHandler(async (req, res) => {
     res.status(400).json({ success: false, error: 'date_from, date_to 필수' });
     return;
   }
-  const data = await salesRepository.comprehensiveSales(date_from, date_to);
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.comprehensiveSales(date_from, date_to, partnerCode);
   res.json({ success: true, data });
 }));
 

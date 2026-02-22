@@ -64,7 +64,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   /** 카테고리별 재고 요약 */
-  async summaryByCategory() {
+  async summaryByCategory(partnerCode?: string) {
+    const params: any[] = [];
+    let pcJoin = '';
+    if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
       SELECT COALESCE(p.category, '미분류') AS category,
              COUNT(DISTINCT p.product_code) AS product_count,
@@ -72,15 +75,18 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY total_qty DESC`;
-    return (await this.pool.query(sql)).rows;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 핏별 재고 요약 */
-  async summaryByFit() {
+  async summaryByFit(partnerCode?: string) {
+    const params: any[] = [];
+    let pcJoin = '';
+    if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
       SELECT COALESCE(p.fit, '미지정') AS fit,
              COUNT(DISTINCT p.product_code) AS product_count,
@@ -88,15 +94,18 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY total_qty DESC`;
-    return (await this.pool.query(sql)).rows;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 기장별 재고 요약 */
-  async summaryByLength() {
+  async summaryByLength(partnerCode?: string) {
+    const params: any[] = [];
+    let pcJoin = '';
+    if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
       SELECT COALESCE(p.length, '미지정') AS length,
              COUNT(DISTINCT p.product_code) AS product_count,
@@ -104,11 +113,11 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY total_qty DESC`;
-    return (await this.pool.query(sql)).rows;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 전역 재고부족 임계값 조회 */
@@ -263,7 +272,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   /** 시즌별 재고 요약 */
-  async summaryBySeason() {
+  async summaryBySeason(partnerCode?: string) {
+    const params: any[] = [];
+    let pcJoin = '';
+    if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
       SELECT p.season,
              COUNT(DISTINCT p.product_code) AS product_count,
@@ -272,11 +284,11 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COUNT(DISTINCT i.partner_code) AS partner_count
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY p.season
       ORDER BY p.season DESC`;
-    return (await this.pool.query(sql)).rows;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 특정 시즌의 아이템별 재고 */

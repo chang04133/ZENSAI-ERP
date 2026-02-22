@@ -4,12 +4,22 @@ import { ShipmentRequest } from '../../../../shared/types/shipment';
 import { shipmentService } from './shipment.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
+import { getStorePartnerCode } from '../../core/store-filter';
 
 
 class ShipmentController extends BaseController<ShipmentRequest> {
   constructor() {
     super(shipmentService);
   }
+
+  /** 목록 조회 — 매장 사용자는 자기 매장 관련만 */
+  list = asyncHandler(async (req: Request, res: Response) => {
+    const query: any = { ...req.query };
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner = pc;
+    const result = await shipmentService.list(query);
+    res.json({ success: true, data: result });
+  });
 
   /** 매장 사용자 권한 검증 (자기 매장 관련 출고만 접근 가능) */
   private async checkStoreAccess(req: Request, res: Response, requestId: number): Promise<boolean> {

@@ -354,7 +354,7 @@ export default function SalesAnalyticsPage() {
                     ]}
                     dataSource={data?.productGrowth || []}
                     rowKey="product_code"
-                    pagination={{ pageSize: 20, size: 'small', showTotal: (t: number) => `총 ${t}개 제품` }}
+                    pagination={{ pageSize: 50, size: 'small', showTotal: (t: number) => `총 ${t}개 제품` }}
                     size="small"
                     scroll={{ x: 1000 }}
                   />

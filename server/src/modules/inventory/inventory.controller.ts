@@ -4,6 +4,7 @@ import { Inventory } from '../../../../shared/types/inventory';
 import { inventoryService } from './inventory.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
+import { getStorePartnerCode } from '../../core/store-filter';
 
 class InventoryController extends BaseController<Inventory> {
   constructor() {
@@ -11,23 +12,33 @@ class InventoryController extends BaseController<Inventory> {
   }
 
   list = asyncHandler(async (req: Request, res: Response) => {
-    const result = await inventoryService.listWithDetails(req.query);
+    const query: any = { ...req.query };
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner_code = pc;
+    const result = await inventoryService.listWithDetails(query);
     res.json({ success: true, data: result });
   });
 
   /** 상품코드 기준 매장별 재고 조회 */
   byProduct = asyncHandler(async (req: Request, res: Response) => {
     const productCode = req.params.code;
+    const pc = getStorePartnerCode(req);
     const pool = getPool();
+    const params: any[] = [productCode];
+    let pcFilter = '';
+    if (pc) {
+      params.push(pc);
+      pcFilter = `AND i.partner_code = $2`;
+    }
     const result = await pool.query(
       `SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
               pt.partner_name, pv.sku, pv.color, pv.size
        FROM inventory i
        JOIN product_variants pv ON i.variant_id = pv.variant_id
        JOIN partners pt ON i.partner_code = pt.partner_code
-       WHERE pv.product_code = $1
+       WHERE pv.product_code = $1 ${pcFilter}
        ORDER BY pt.partner_name, pv.color, pv.size`,
-      [productCode],
+      params,
     );
     res.json({ success: true, data: result.rows });
   });
@@ -40,10 +51,10 @@ class InventoryController extends BaseController<Inventory> {
     const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
     const [overall, byCategory, bySeason, byFit, byLength] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),
-      inventoryRepository.summaryByCategory(),
-      inventoryRepository.summaryBySeason(),
-      inventoryRepository.summaryByFit(),
-      inventoryRepository.summaryByLength(),
+      inventoryRepository.summaryByCategory(partnerCode),
+      inventoryRepository.summaryBySeason(partnerCode),
+      inventoryRepository.summaryByFit(partnerCode),
+      inventoryRepository.summaryByLength(partnerCode),
     ]);
     res.json({ success: true, data: { overall, byCategory, bySeason, byFit, byLength, isStore: !!partnerCode } });
   });
@@ -212,16 +223,20 @@ class InventoryController extends BaseController<Inventory> {
   });
 
   /** 시즌별 요약 */
-  summaryBySeason = asyncHandler(async (_req: Request, res: Response) => {
+  summaryBySeason = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
-    const data = await inventoryRepository.summaryBySeason();
+    const pc = getStorePartnerCode(req);
+    const data = await inventoryRepository.summaryBySeason(pc);
     res.json({ success: true, data });
   });
 
   /** 시즌별 아이템 목록 */
   listBySeason = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
-    const data = await inventoryRepository.listBySeason(req.params.season as string, req.query);
+    const pc = getStorePartnerCode(req);
+    const query: any = { ...req.query };
+    if (pc) query.partner_code = pc;
+    const data = await inventoryRepository.listBySeason(req.params.season as string, query);
     res.json({ success: true, data });
   });
 
@@ -242,7 +257,10 @@ class InventoryController extends BaseController<Inventory> {
   /** 재고 거래이력 조회 */
   transactions = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
-    const result = await inventoryRepository.listTransactions(req.query);
+    const query: any = { ...req.query };
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner_code = pc;
+    const result = await inventoryRepository.listTransactions(query);
     res.json({ success: true, data: result });
   });
 }

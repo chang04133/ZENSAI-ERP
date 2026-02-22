@@ -3,6 +3,7 @@ import { BaseController } from '../../core/base.controller';
 import { RestockRequest } from '../../../../shared/types/restock';
 import { restockService } from './restock.service';
 import { asyncHandler } from '../../core/async-handler';
+import { getStorePartnerCode } from '../../core/store-filter';
 
 class RestockController extends BaseController<RestockRequest> {
   constructor() {
@@ -10,7 +11,10 @@ class RestockController extends BaseController<RestockRequest> {
   }
 
   list = asyncHandler(async (req: Request, res: Response) => {
-    const result = await restockService.list(req.query);
+    const query: any = { ...req.query };
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner_code = pc;
+    const result = await restockService.list(query);
     res.json({ success: true, data: result });
   });
 
@@ -52,17 +56,20 @@ class RestockController extends BaseController<RestockRequest> {
   });
 
   getSellingVelocity = asyncHandler(async (req: Request, res: Response) => {
-    const data = await restockService.getSellingVelocity(req.query.partner_code as string | undefined);
+    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
+    const data = await restockService.getSellingVelocity(pc);
     res.json({ success: true, data });
   });
 
   getRestockSuggestions = asyncHandler(async (req: Request, res: Response) => {
-    const data = await restockService.getRestockSuggestions(req.query.partner_code as string | undefined);
+    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
+    const data = await restockService.getRestockSuggestions(pc);
     res.json({ success: true, data });
   });
 
   getProgressStats = asyncHandler(async (req: Request, res: Response) => {
-    const data = await restockService.getProgressStats(req.query.partner_code as string | undefined);
+    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
+    const data = await restockService.getProgressStats(pc);
     res.json({ success: true, data });
   });
 

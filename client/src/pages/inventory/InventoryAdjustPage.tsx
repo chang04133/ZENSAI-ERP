@@ -46,7 +46,7 @@ export default function InventoryAdjustPage() {
     const currentPage = p ?? page;
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '20' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       const result = await inventoryApi.list(params);
@@ -60,7 +60,7 @@ export default function InventoryAdjustPage() {
     const currentPage = p ?? txPage;
     setTxLoading(true);
     try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '20' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (txSearch) params.search = txSearch;
       if (txTypeFilter) params.tx_type = txTypeFilter;
       if (txPartnerFilter) params.partner_code = txPartnerFilter;
@@ -192,7 +192,8 @@ export default function InventoryAdjustPage() {
                 <Button onClick={() => { setPage(1); load(1); }}>조회</Button>
               </Space>
               <Table columns={columns} dataSource={data} rowKey="inventory_id" loading={loading}
-                pagination={{ current: page, total, pageSize: 20, onChange: (p) => setPage(p) }} size="small" />
+                size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+                pagination={{ current: page, total, pageSize: 50, onChange: (p) => setPage(p), showTotal: (t) => `총 ${t}건` }} />
             </>
           ),
         },
@@ -213,7 +214,8 @@ export default function InventoryAdjustPage() {
                 <Button onClick={() => { setTxPage(1); loadTx(1); }}>조회</Button>
               </Space>
               <Table columns={txColumns} dataSource={txData} rowKey="tx_id" loading={txLoading}
-                pagination={{ current: txPage, total: txTotal, pageSize: 20, onChange: (p) => setTxPage(p) }} size="small" />
+                size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+                pagination={{ current: txPage, total: txTotal, pageSize: 50, onChange: (p) => setTxPage(p), showTotal: (t) => `총 ${t}건` }} />
             </>
           ),
         },

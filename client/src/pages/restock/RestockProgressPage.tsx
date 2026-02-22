@@ -64,7 +64,7 @@ export default function RestockProgressPage() {
   };
 
   const loadList = () => {
-    const params: Record<string, string> = { page: String(page), limit: '20' };
+    const params: Record<string, string> = { page: String(page), limit: '50' };
     if (statusFilter) params.status = statusFilter;
     if (partnerFilter) params.partner_code = partnerFilter;
     fetchList(params);
@@ -172,7 +172,7 @@ export default function RestockProgressPage() {
   const received = getStat('RECEIVED');
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div>
       <PageHeader title="재입고 진행" extra={
         <Space>
           <Select placeholder="거래처" allowClear value={partnerFilter}
@@ -217,7 +217,8 @@ export default function RestockProgressPage() {
         rowKey="request_id"
         loading={loading}
         size="small"
-        pagination={{ current: page, total, pageSize: 20, onChange: setPage }}
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
       />
 
       {/* 상세 모달 */}

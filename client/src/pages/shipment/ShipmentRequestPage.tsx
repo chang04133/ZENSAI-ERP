@@ -50,7 +50,7 @@ export default function ShipmentRequestPage() {
     const currentPage = p ?? page;
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '20' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
       if (typeFilter) params.request_type = typeFilter;
       if (statusFilter) params.status = statusFilter;
@@ -191,7 +191,9 @@ export default function ShipmentRequestPage() {
         <Select placeholder="상태" allowClear value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }} options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
         <Button onClick={() => load()}>조회</Button>
       </Space>
-      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading} pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
+      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
 
       {/* 등록 모달 */}
       <Modal title="의뢰 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>

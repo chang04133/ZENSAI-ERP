@@ -36,7 +36,7 @@ export default function ShipmentProcessPage() {
     const currentPage = p ?? page;
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '20' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (statusFilter) params.status = statusFilter;
       const result = await shipmentApi.list(params);
       setData(result.data);
@@ -162,7 +162,9 @@ export default function ShipmentProcessPage() {
           ]} />
         <Button icon={<SearchOutlined />} onClick={() => load()}>조회</Button>
       </Space>
-      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading} pagination={{ current: page, total, pageSize: 20, onChange: setPage }} />
+      <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
 
       {/* 상세 모달 */}
       <Modal title={`의뢰 상세 - ${detail?.request_no || ''}`} open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={700}>

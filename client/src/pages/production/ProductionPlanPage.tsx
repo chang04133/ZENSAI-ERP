@@ -71,7 +71,7 @@ export default function ProductionPlanPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '20' };
+      const params: Record<string, string> = { page: String(page), limit: '50' };
       if (statusFilter) params.status = statusFilter;
       if (search) params.search = search;
       const result = await productionApi.list(params);
@@ -259,7 +259,7 @@ export default function ProductionPlanPage() {
   const usedCategories = new Set(catGroups.map(g => g.category).filter(Boolean));
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <Card title="생산계획 관리" extra={
         <Space>
           <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }} allowClear placeholder="상태">
@@ -270,8 +270,8 @@ export default function ProductionPlanPage() {
         </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
-          pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
-          size="small" scroll={{ x: 1200 }} />
+          size="small" scroll={{ x: 1200, y: 'calc(100vh - 240px)' }}
+          pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
       </Card>
 
       {/* 등록 모달 */}

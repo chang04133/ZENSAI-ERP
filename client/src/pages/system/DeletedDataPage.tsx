@@ -88,7 +88,9 @@ export default function DeletedDataPage() {
     <div>
       <PageHeader title="삭제데이터 조회" />
       <Tabs activeKey={activeTab} onChange={setActiveTab} items={tabItems} />
-      <Table columns={columnsWithAction} dataSource={data} rowKey={config.pkColumn} loading={loading} pagination={{ pageSize: 20 }} />
+      <Table columns={columnsWithAction} dataSource={data} rowKey={config.pkColumn} loading={loading}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }} />
     </div>
   );
 }

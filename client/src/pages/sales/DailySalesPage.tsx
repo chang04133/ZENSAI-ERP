@@ -101,7 +101,7 @@ export default function DailySalesPage() {
   const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <Card
         title={
           <Space>
@@ -196,7 +196,7 @@ export default function DailySalesPage() {
               ]}
               dataSource={summary}
               rowKey="product_code"
-              pagination={summary.length > 20 ? { pageSize: 20, size: 'small', showTotal: (t: number) => `총 ${t}개 상품` } : false}
+              pagination={summary.length > 50 ? { pageSize: 50, size: 'small', showTotal: (t: number) => `총 ${t}개 상품` } : false}
               size="small"
               loading={loading}
               scroll={{ x: 900 }}

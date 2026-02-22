@@ -67,7 +67,7 @@ export default function RestockManagePage() {
   };
 
   const loadRequests = () => {
-    const params: Record<string, string> = { page: String(reqPage), limit: '20' };
+    const params: Record<string, string> = { page: String(reqPage), limit: '50' };
     if (statusFilter) params.status = statusFilter;
     if (partnerFilter) params.partner_code = partnerFilter;
     fetchList(params);
@@ -198,7 +198,7 @@ export default function RestockManagePage() {
   ];
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div>
       <PageHeader
         title="재입고 관리"
         extra={
@@ -277,7 +277,8 @@ export default function RestockManagePage() {
                 rowKey="request_id"
                 loading={reqLoading}
                 size="small"
-                pagination={{ current: reqPage, total, pageSize: 20, onChange: setReqPage }}
+                scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+                pagination={{ current: reqPage, total, pageSize: 50, onChange: setReqPage, showTotal: (t) => `총 ${t}건` }}
               />
             </>
           ),

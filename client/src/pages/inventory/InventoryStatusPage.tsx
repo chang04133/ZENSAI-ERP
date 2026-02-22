@@ -280,7 +280,7 @@ export default function InventoryStatusPage() {
   const allColumns = [...reorderBaseColumns, ...storeExtraColumns];
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <PageHeader title={isStore ? '내 매장 재고현황' : '재고현황'} />
 
       {/* ── 통계 카드 ── */}

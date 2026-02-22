@@ -49,8 +49,9 @@ export class SalesRepository {
     return (await this.pool.query(sql, params)).rows;
   }
 
-  async monthlyRevenue(options: { year?: string } = {}) {
+  async monthlyRevenue(options: { year?: string; partner_code?: string } = {}) {
     const qb = new QueryBuilder();
+    if (options.partner_code) qb.eq('s.partner_code', options.partner_code);
     if (options.year) qb.raw("TO_CHAR(s.sale_date, 'YYYY') = ?", options.year);
     const { whereClause, params } = qb.build();
 
@@ -299,7 +300,10 @@ export class SalesRepository {
   }
 
   /** 종합 매출조회 (스크린샷 스타일) */
-  async comprehensiveSales(dateFrom: string, dateTo: string) {
+  async comprehensiveSales(dateFrom: string, dateTo: string, partnerCode?: string) {
+    const params: any[] = [dateFrom, dateTo];
+    let pcFilter = '';
+    if (partnerCode) { params.push(partnerCode); pcFilter = `AND s.partner_code = $3`; }
     const sql = `
       WITH params AS (
         SELECT $1::date AS df, $2::date AS dt
@@ -333,15 +337,18 @@ export class SalesRepository {
       FROM sales s
       JOIN partners pt ON s.partner_code = pt.partner_code
       CROSS JOIN params p
-      WHERE s.sale_date BETWEEN LEAST((p.df - INTERVAL '1 year')::date, (p.df - INTERVAL '1 month')::date) AND p.dt
+      WHERE s.sale_date BETWEEN LEAST((p.df - INTERVAL '1 year')::date, (p.df - INTERVAL '1 month')::date) AND p.dt ${pcFilter}
       GROUP BY s.partner_code, pt.partner_name
       ORDER BY cur_amount DESC`;
-    return (await this.pool.query(sql, [dateFrom, dateTo])).rows;
+    return (await this.pool.query(sql, params)).rows;
   }
 
   /** 연단위 월별 비교 (선택연도 vs 전년) */
-  async yearComparison(year: number) {
+  async yearComparison(year: number, partnerCode?: string) {
     const prevYear = year - 1;
+    const params: any[] = [year, prevYear];
+    let pcFilter = '';
+    if (partnerCode) { params.push(partnerCode); pcFilter = `AND partner_code = $3`; }
     const sql = `
       SELECT TO_CHAR(sale_date, 'MM') AS m,
              COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $1 THEN total_price END), 0)::bigint AS cur_amount,
@@ -349,9 +356,9 @@ export class SalesRepository {
              COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $2 THEN total_price END), 0)::bigint AS prev_amount,
              COALESCE(SUM(CASE WHEN EXTRACT(YEAR FROM sale_date) = $2 THEN qty END), 0)::int AS prev_qty
       FROM sales
-      WHERE EXTRACT(YEAR FROM sale_date) IN ($1, $2)
+      WHERE EXTRACT(YEAR FROM sale_date) IN ($1, $2) ${pcFilter}
       GROUP BY m ORDER BY m`;
-    const rows = (await this.pool.query(sql, [year, prevYear])).rows;
+    const rows = (await this.pool.query(sql, params)).rows;
 
     const totalSql = `
       SELECT EXTRACT(YEAR FROM sale_date)::int AS y,
@@ -359,15 +366,15 @@ export class SalesRepository {
              SUM(qty)::int AS total_qty,
              COUNT(*)::int AS sale_count
       FROM sales
-      WHERE EXTRACT(YEAR FROM sale_date) IN ($1, $2)
+      WHERE EXTRACT(YEAR FROM sale_date) IN ($1, $2) ${pcFilter}
       GROUP BY y ORDER BY y`;
-    const totals = (await this.pool.query(totalSql, [year, prevYear])).rows;
+    const totals = (await this.pool.query(totalSql, params)).rows;
 
     return { monthly: rows, totals };
   }
 
   /** 스타일 판매 분석 (전년대비 종합) — 동일기간 비교 */
-  async styleAnalytics(year: number) {
+  async styleAnalytics(year: number, partnerCode?: string) {
     const prevYear = year - 1;
     const now = new Date();
     const currentYear = now.getFullYear();
@@ -386,10 +393,17 @@ export class SalesRepository {
       prevEnd = `${prevYear}-12-31`;
     }
 
-    // params: $1=curStart, $2=curEnd, $3=prevStart, $4=prevEnd
-    const dateParams = [curStart, curEnd, prevStart, prevEnd];
-    // curOnly: $1=curStart, $2=curEnd
-    const curOnlyParams = [curStart, curEnd];
+    // params: $1=curStart, $2=curEnd, $3=prevStart, $4=prevEnd [, $5=partnerCode]
+    const dateParams: any[] = [curStart, curEnd, prevStart, prevEnd];
+    const curOnlyParams: any[] = [curStart, curEnd];
+    let pcFilter = '';
+    let pcFilterNoAlias = '';
+    if (partnerCode) {
+      dateParams.push(partnerCode);
+      pcFilter = `AND s.partner_code = $5`;
+      curOnlyParams.push(partnerCode);
+      pcFilterNoAlias = `AND partner_code = $3`;
+    }
 
     // 1. 카테고리별 전년대비
     const byCategorySql = `
@@ -401,7 +415,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY cur_amount DESC`;
     const byCategory = (await this.pool.query(byCategorySql, dateParams)).rows;
@@ -416,7 +430,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY cur_amount DESC`;
     const byFit = (await this.pool.query(byFitSql, dateParams)).rows;
@@ -431,7 +445,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY cur_amount DESC`;
     const byLength = (await this.pool.query(byLengthSql, dateParams)).rows;
@@ -447,7 +461,7 @@ export class SalesRepository {
         FROM sales s
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
-        WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+        WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
         GROUP BY p.product_code, p.product_name, p.category, p.fit, p.length
       )
       SELECT *,
@@ -465,7 +479,7 @@ export class SalesRepository {
         SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${partnerCode ? 'AND s.partner_code = $3' : ''}
       GROUP BY pv.size
       ORDER BY total_qty DESC`;
     const bySize = (await this.pool.query(bySizeSql, curOnlyParams)).rows;
@@ -477,7 +491,7 @@ export class SalesRepository {
         SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${partnerCode ? 'AND s.partner_code = $3' : ''}
       GROUP BY pv.color
       ORDER BY total_qty DESC LIMIT 15`;
     const byColor = (await this.pool.query(byColorSql, curOnlyParams)).rows;
@@ -490,7 +504,7 @@ export class SalesRepository {
         COALESCE(SUM(CASE WHEN sale_date >= $3::date AND sale_date <= $4::date THEN total_price END), 0)::bigint AS prev_amount,
         COALESCE(SUM(CASE WHEN sale_date >= $3::date AND sale_date <= $4::date THEN qty END), 0)::int AS prev_qty
       FROM sales
-      WHERE sale_date >= $3::date AND sale_date <= $2::date
+      WHERE sale_date >= $3::date AND sale_date <= $2::date ${partnerCode ? 'AND partner_code = $5' : ''}
       GROUP BY TO_CHAR(sale_date, 'MM')
       ORDER BY month`;
     const monthlyYoY = (await this.pool.query(monthlyYoYSql, dateParams)).rows;
@@ -511,7 +525,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY season_type
       ORDER BY cur_amount DESC`;
     const bySeason = (await this.pool.query(bySeasonSql, dateParams)).rows;
@@ -527,7 +541,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date
+      WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.category, '미분류'), COALESCE(p.sub_category, '미분류')
       ORDER BY cur_amount DESC`;
     const bySubCategory = (await this.pool.query(bySubCategorySql, dateParams)).rows;
@@ -741,11 +755,12 @@ export class SalesRepository {
     return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason };
   }
 
-  async weeklyStyleSales(options: { weeks?: number; category?: string } = {}) {
+  async weeklyStyleSales(options: { weeks?: number; category?: string; partner_code?: string } = {}) {
     const weeks = options.weeks || 4;
     const qb = new QueryBuilder();
     qb.raw(`s.sale_date >= CURRENT_DATE - (? || ' weeks')::interval`, weeks);
     if (options.category) qb.eq('p.category', options.category);
+    if (options.partner_code) qb.eq('s.partner_code', options.partner_code);
     const { whereClause, params } = qb.build();
 
     const sql = `

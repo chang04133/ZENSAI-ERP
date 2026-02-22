@@ -18,7 +18,7 @@ export default function InventoryListPage() {
     const currentPage = p ?? page;
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '20' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       const result = await inventoryApi.list(params);
@@ -76,8 +76,9 @@ export default function InventoryListPage() {
         dataSource={data}
         rowKey="inventory_id"
         loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
         size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
       />
     </div>
   );

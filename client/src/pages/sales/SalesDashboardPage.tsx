@@ -354,7 +354,7 @@ export default function SalesDashboardPage() {
     : null;
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <PageHeader title={isStore ? '내 매장 매출현황' : '매출현황'} extra={
         <Select value={period} onChange={handlePeriodChange} style={{ width: 110 }}
           options={PERIOD_OPTIONS} />

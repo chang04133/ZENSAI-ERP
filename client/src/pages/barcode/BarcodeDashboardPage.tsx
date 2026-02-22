@@ -127,7 +127,7 @@ export default function BarcodeDashboardPage() {
   const pctWithBarcode = stats ? Math.round((stats.with_barcode / Math.max(stats.total_variants, 1)) * 100) : 0;
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       {/* 스캔 입력 */}
       <Card style={{ marginBottom: 16, background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}>
         <Row gutter={16} align="middle">

@@ -133,7 +133,7 @@ export default function StyleSalesPage() {
   const grandSeasonAmt = bySeason.reduce((s: number, r: any) => s + Number(r.total_amount), 0);
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       <Card
         title={
           <Space>

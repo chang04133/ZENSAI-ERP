@@ -75,7 +75,7 @@ export default function ProductionDashboardPage() {
     s === 'CRITICAL' ? '긴급' : s === 'WARNING' ? '주의' : '양호';
 
   return (
-    <div style={{ maxWidth: 1400 }}>
+    <div>
       <Typography.Title level={4} style={{ marginBottom: 20 }}>
         <ExperimentOutlined style={{ marginRight: 8 }} />생산기획 대시보드
       </Typography.Title>

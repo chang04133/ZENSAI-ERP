@@ -230,7 +230,7 @@ export default function DashboardPage() {
   const dateStr = `${today.getFullYear()}년 ${today.getMonth() + 1}월 ${today.getDate()}일`;
 
   return (
-    <div style={{ maxWidth: 1200 }}>
+    <div>
       {/* Header */}
       <div style={{ marginBottom: 28 }}>
         <Typography.Title level={4} style={{ margin: 0 }}>

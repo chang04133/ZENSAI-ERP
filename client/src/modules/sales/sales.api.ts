@@ -50,9 +50,9 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/year-comparison?year=${year}`));
   },
 
-  // 일별 판매 상품 리스트
-  dailyProducts: async (date: string) => {
-    return parse(await apiFetch(`/api/sales/daily-products?date=${date}`));
+  // 판매 리스트 (기간별)
+  productsByRange: async (dateFrom: string, dateTo: string) => {
+    return parse(await apiFetch(`/api/sales/products-by-range?date_from=${dateFrom}&date_to=${dateTo}`));
   },
 
   // 종합 매출조회

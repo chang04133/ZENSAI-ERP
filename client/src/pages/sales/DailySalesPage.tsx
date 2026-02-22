@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Tag, DatePicker, Space, Spin, message, Typography, Row, Col, Collapse, Button } from 'antd';
+import { Card, Table, Tag, DatePicker, Space, Spin, message, Typography, Row, Col, Collapse, Button, Segmented } from 'antd';
 import {
   CalendarOutlined, ShoppingCartOutlined, DollarOutlined,
   ShopOutlined, TagOutlined, LeftOutlined, RightOutlined,
 } from '@ant-design/icons';
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
+import isoWeek from 'dayjs/plugin/isoWeek';
+dayjs.extend(isoWeek);
 
 const CAT_COLORS: Record<string, string> = {
   TOP: 'blue', BOTTOM: 'green', OUTER: 'orange', DRESS: 'magenta', ACC: 'purple',
@@ -16,35 +18,87 @@ const SALE_TYPE_COLORS: Record<string, string> = {
 
 const fmt = (v: number) => Number(v).toLocaleString();
 
+type ViewMode = 'daily' | 'weekly' | 'monthly';
+
+function getRange(mode: ViewMode, ref: Dayjs): { from: string; to: string; label: string } {
+  if (mode === 'daily') {
+    const d = ref.format('YYYY-MM-DD');
+    return { from: d, to: d, label: `${ref.format('YYYY.MM.DD')} (${ref.format('ddd')})` };
+  }
+  if (mode === 'weekly') {
+    const start = ref.startOf('isoWeek');
+    const end = ref.endOf('isoWeek');
+    const endCapped = end.isAfter(dayjs()) ? dayjs() : end;
+    return {
+      from: start.format('YYYY-MM-DD'),
+      to: endCapped.format('YYYY-MM-DD'),
+      label: `${start.format('MM.DD')} ~ ${endCapped.format('MM.DD')}`,
+    };
+  }
+  // monthly
+  const start = ref.startOf('month');
+  const end = ref.endOf('month');
+  const endCapped = end.isAfter(dayjs()) ? dayjs() : end;
+  return {
+    from: start.format('YYYY-MM-DD'),
+    to: endCapped.format('YYYY-MM-DD'),
+    label: `${ref.format('YYYY년 MM월')}`,
+  };
+}
+
+function moveRef(mode: ViewMode, ref: Dayjs, dir: number): Dayjs {
+  if (mode === 'daily') return ref.add(dir, 'day');
+  if (mode === 'weekly') return ref.add(dir, 'week');
+  return ref.add(dir, 'month');
+}
+
 export default function DailySalesPage() {
-  const [date, setDate] = useState<Dayjs>(dayjs());
+  const [mode, setMode] = useState<ViewMode>('daily');
+  const [refDate, setRefDate] = useState<Dayjs>(dayjs());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const load = async (d: Dayjs) => {
+  const range = getRange(mode, refDate);
+
+  const load = async (m: ViewMode, ref: Dayjs) => {
     setLoading(true);
     try {
-      const result = await salesApi.dailyProducts(d.format('YYYY-MM-DD'));
+      const r = getRange(m, ref);
+      const result = await salesApi.productsByRange(r.from, r.to);
       setData(result);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(date); }, []);
+  useEffect(() => { load(mode, refDate); }, []);
 
-  const handleDateChange = (d: Dayjs | null) => {
-    if (d) { setDate(d); load(d); }
+  const handleModeChange = (v: string) => {
+    const m = v as ViewMode;
+    setMode(m);
+    load(m, refDate);
   };
 
-  const moveDate = (days: number) => {
-    const next = date.add(days, 'day');
-    setDate(next);
-    load(next);
+  const handleMove = (dir: number) => {
+    const next = moveRef(mode, refDate, dir);
+    setRefDate(next);
+    load(mode, next);
+  };
+
+  const handleDatePick = (d: Dayjs | null) => {
+    if (d) { setRefDate(d); load(mode, d); }
+  };
+
+  const isForwardDisabled = () => {
+    const next = moveRef(mode, refDate, 1);
+    const nextRange = getRange(mode, next);
+    return nextRange.from > dayjs().format('YYYY-MM-DD');
   };
 
   const totals = data?.totals || {};
   const summary = data?.summary || [];
   const details = data?.details || [];
+
+  const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
 
   return (
     <div style={{ maxWidth: 1200 }}>
@@ -52,22 +106,34 @@ export default function DailySalesPage() {
         title={
           <Space>
             <CalendarOutlined />
-            <span>일별 판매 상품 리스트</span>
+            <span>판매 리스트</span>
           </Space>
         }
         extra={
-          <Space>
-            <Button size="small" icon={<LeftOutlined />} onClick={() => moveDate(-1)} />
-            <DatePicker
-              value={date}
-              onChange={handleDateChange}
-              allowClear={false}
-              style={{ width: 150 }}
+          <Space wrap>
+            <Segmented
+              value={mode}
+              onChange={handleModeChange}
+              options={[
+                { label: '일별', value: 'daily' },
+                { label: '주별', value: 'weekly' },
+                { label: '월별', value: 'monthly' },
+              ]}
+              size="small"
             />
-            <Button size="small" icon={<RightOutlined />} onClick={() => moveDate(1)}
-              disabled={date.format('YYYY-MM-DD') >= dayjs().format('YYYY-MM-DD')} />
-            <Tag color="blue" style={{ fontSize: 13, padding: '2px 8px' }}>
-              {date.format('dddd')}
+            <Button size="small" icon={<LeftOutlined />} onClick={() => handleMove(-1)} />
+            <DatePicker
+              value={refDate}
+              onChange={handleDatePick}
+              picker={pickerType}
+              allowClear={false}
+              style={{ width: mode === 'monthly' ? 130 : 150 }}
+              size="small"
+            />
+            <Button size="small" icon={<RightOutlined />} onClick={() => handleMove(1)}
+              disabled={isForwardDisabled()} />
+            <Tag color="blue" style={{ fontSize: 12, padding: '1px 8px', margin: 0 }}>
+              {range.label}
             </Tag>
           </Space>
         }
@@ -100,7 +166,7 @@ export default function DailySalesPage() {
 
             {/* 상품별 요약 테이블 */}
             <Typography.Text strong style={{ display: 'block', marginBottom: 8, fontSize: 14 }}>
-              상품별 요약 ({summary.length}개 상품)
+              상품별 판매 현황 ({summary.length}개 상품)
             </Typography.Text>
 
             <Table
@@ -108,7 +174,9 @@ export default function DailySalesPage() {
                 { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110 },
                 { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
                 { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
-                  render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag> },
+                  render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag>,
+                  filters: Object.entries(CAT_COLORS).map(([k]) => ({ text: k, value: k })),
+                  onFilter: (v: any, r: any) => r.category === v },
                 { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 80,
                   render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
                 { title: '핏', dataIndex: 'fit', key: 'fit', width: 80,
@@ -123,7 +191,7 @@ export default function DailySalesPage() {
                   sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
                   defaultSortOrder: 'descend' as const },
                 { title: '건수', dataIndex: 'sale_count', key: 'cnt', width: 60, align: 'center' as const },
-                { title: '거래처', dataIndex: 'partner_count', key: 'pc', width: 60, align: 'center' as const,
+                { title: '거래처', dataIndex: 'partner_count', key: 'pc', width: 65, align: 'center' as const,
                   render: (v: number) => v > 1 ? <Tag color="purple">{v}곳</Tag> : `${v}곳` },
               ]}
               dataSource={summary}
@@ -157,6 +225,9 @@ export default function DailySalesPage() {
                   children: (
                     <Table
                       columns={[
+                        ...(mode !== 'daily' ? [{ title: '날짜', dataIndex: 'sale_date', key: 'date', width: 100,
+                          render: (v: string) => v ? dayjs(v).format('MM.DD(ddd)') : '-',
+                          sorter: (a: any, b: any) => a.sale_date.localeCompare(b.sale_date) }] : []),
                         { title: '거래처', dataIndex: 'partner_name', key: 'partner', width: 100, ellipsis: true,
                           filters: [...new Set(details.map((d: any) => d.partner_name))].map((v: any) => ({ text: v, value: v })),
                           onFilter: (v: any, r: any) => r.partner_name === v },
@@ -193,7 +264,7 @@ export default function DailySalesPage() {
 
             {summary.length === 0 && !loading && (
               <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
-                {date.format('YYYY-MM-DD')} 판매 내역이 없습니다.
+                해당 기간에 판매 내역이 없습니다.
               </div>
             )}
           </>

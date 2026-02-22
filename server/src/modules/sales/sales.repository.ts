@@ -536,14 +536,15 @@ export class SalesRepository {
     return { period, byCategory, byFit, byLength, productGrowth, bySize, byColor, monthlyYoY, bySeason, bySubCategory };
   }
 
-  /** 일별 판매 상품 리스트 */
-  async dailySalesProducts(date: string, partnerCode?: string) {
-    const params: any[] = [date];
+  /** 기간별 판매 상품 리스트 (일별/주별/월별) */
+  async salesProductsByRange(dateFrom: string, dateTo: string, partnerCode?: string) {
+    const params: any[] = [dateFrom, dateTo];
     let pcFilter = '';
     if (partnerCode) {
       params.push(partnerCode);
-      pcFilter = `AND s.partner_code = $2`;
+      pcFilter = `AND s.partner_code = $3`;
     }
+    const pcFilterSimple = partnerCode ? `AND partner_code = $3` : '';
 
     // 상품별 집계
     const summarySql = `
@@ -555,7 +556,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date = $1::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
       ORDER BY total_amount DESC`;
     const summary = (await this.pool.query(summarySql, params)).rows;
@@ -572,11 +573,11 @@ export class SalesRepository {
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON s.partner_code = pt.partner_code
-      WHERE s.sale_date = $1::date ${pcFilter}
-      ORDER BY s.created_at DESC`;
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      ORDER BY s.sale_date DESC, s.created_at DESC`;
     const details = (await this.pool.query(detailSql, params)).rows;
 
-    // 일별 총합
+    // 총합
     const totalSql = `
       SELECT COUNT(*)::int AS sale_count,
              COALESCE(SUM(qty), 0)::int AS total_qty,
@@ -584,10 +585,22 @@ export class SalesRepository {
              COUNT(DISTINCT partner_code)::int AS partner_count,
              COUNT(DISTINCT variant_id)::int AS variant_count
       FROM sales
-      WHERE sale_date = $1::date ${partnerCode ? 'AND partner_code = $2' : ''}`;
+      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}`;
     const totals = (await this.pool.query(totalSql, params)).rows[0];
 
-    return { date, summary, details, totals };
+    // 일별 추이 (기간내)
+    const dailySql = `
+      SELECT sale_date::text AS date,
+             SUM(total_price)::bigint AS revenue,
+             SUM(qty)::int AS qty,
+             COUNT(*)::int AS cnt
+      FROM sales
+      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}
+      GROUP BY sale_date
+      ORDER BY sale_date`;
+    const dailyTrend = (await this.pool.query(dailySql, params)).rows;
+
+    return { dateFrom, dateTo, summary, details, totals, dailyTrend };
   }
 
   async weeklyStyleSales(options: { weeks?: number; category?: string } = {}) {

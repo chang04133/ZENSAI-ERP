@@ -49,17 +49,17 @@ router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => 
   res.json({ success: true, data });
 }));
 
-// 일별 판매 상품 리스트
-router.get('/daily-products', authMiddleware, asyncHandler(async (req, res) => {
-  const { date } = req.query as { date?: string };
-  if (!date) {
-    res.status(400).json({ success: false, error: 'date 파라미터가 필요합니다.' });
+// 판매 리스트 (기간별: 일별/주별/월별)
+router.get('/products-by-range', authMiddleware, asyncHandler(async (req, res) => {
+  const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+  if (!date_from || !date_to) {
+    res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
     return;
   }
   const role = req.user?.role;
   const pc = req.user?.partnerCode;
   const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.dailySalesProducts(date, partnerCode);
+  const data = await salesRepository.salesProductsByRange(date_from, date_to, partnerCode);
   res.json({ success: true, data });
 }));
 

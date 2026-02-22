@@ -116,7 +116,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/sales/monthly-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/weekly-style', element: <WeeklyStyleSalesPage />, roles: ADMIN_HQ_STORE },
-  { path: '/sales/daily', element: <DailySalesPage />, roles: ADMIN_HQ_STORE },
+  { path: '/sales/daily', element: <DailySalesPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },

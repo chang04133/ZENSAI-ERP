@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback, CSSProperties } from 'react';
-import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button, InputNumber, Segmented } from 'antd';
+import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button, InputNumber } from 'antd';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
@@ -79,9 +79,8 @@ export default function InventoryStatusPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  // 매장 매니저: 내 매장 / 전체 전환
-  const [viewScope, setViewScope] = useState<'my_store' | 'all'>('my_store');
-  const effectiveStore = isStore && viewScope === 'my_store';
+  // 매장 매니저는 항상 내 매장만 볼 수 있음
+  const effectiveStore = isStore;
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -160,28 +159,26 @@ export default function InventoryStatusPage() {
   }, []);
 
   const loadAll = useCallback(() => {
-    const scope = isStore && viewScope === 'all' ? 'all' as const : undefined;
     setStatsLoading(true);
-    inventoryApi.dashboardStats(scope)
+    inventoryApi.dashboardStats()
       .then(setStats)
       .catch((e: any) => message.error(e.message))
       .finally(() => setStatsLoading(false));
-    loadReorder(urgentThreshold, recommendThreshold, scope);
-  }, [viewScope, urgentThreshold, recommendThreshold, isStore, loadReorder]);
+    loadReorder(urgentThreshold, recommendThreshold);
+  }, [urgentThreshold, recommendThreshold, loadReorder]);
 
-  useEffect(() => { loadAll(); }, [viewScope]);
+  useEffect(() => { loadAll(); }, []);
 
   // 임계값 변경 시 재조회
-  const currentScope = isStore && viewScope === 'all' ? 'all' as const : undefined;
   const handleUrgentChange = (v: number | null) => {
     if (v === null || v < 0) return;
     setUrgentThreshold(v);
-    loadReorder(v, recommendThreshold, currentScope);
+    loadReorder(v, recommendThreshold);
   };
   const handleRecommendChange = (v: number | null) => {
     if (v === null || v < 0) return;
     setRecommendThreshold(v);
-    loadReorder(urgentThreshold, v, currentScope);
+    loadReorder(urgentThreshold, v);
   };
 
   // 재고 요청 보내기 (매장용)
@@ -290,18 +287,7 @@ export default function InventoryStatusPage() {
 
   return (
     <div>
-      <PageHeader title={effectiveStore ? '내 매장 재고현황' : '재고현황'} extra={
-        isStore ? (
-          <Segmented
-            value={viewScope}
-            onChange={(v) => setViewScope(v as 'my_store' | 'all')}
-            options={[
-              { label: '내 매장', value: 'my_store' },
-              { label: '전체', value: 'all' },
-            ]}
-          />
-        ) : undefined
-      } />
+      <PageHeader title={effectiveStore ? '내 매장 재고현황' : '재고현황'} />
 
       {/* ── 통계 카드 ── */}
       <Row gutter={[16, 16]}>
@@ -395,29 +381,31 @@ export default function InventoryStatusPage() {
                   title: '내 매장', dataIndex: 'my_store_qty', key: 'my_store_qty', width: 80,
                   render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#10b981', fontSize: 14 }}>{v}개</span>,
                 }] : []),
-                { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 80,
-                  render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#111' }}>{v}개</span>,
-                },
-                { title: '매장별 재고', dataIndex: 'locations', key: 'locations',
-                  render: (locs: any[]) => {
-                    if (!locs || locs.length === 0) return <span style={{ color: '#ccc', fontSize: 12 }}>재고 없음</span>;
-                    return (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
-                        {locs.map((loc: any) => (
-                          <span key={loc.partner_code} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                            <span style={{ color: loc.partner_type === '본사' ? '#6366f1' : '#333', fontWeight: loc.partner_type === '본사' ? 600 : 400 }}>
-                              {loc.partner_name}
-                            </span>
-                            {' '}
-                            <Tag color={loc.qty >= 10 ? 'green' : loc.qty >= 5 ? 'blue' : 'orange'} style={{ fontSize: 11, margin: 0 }}>
-                              {loc.qty}개
-                            </Tag>
-                          </span>
-                        ))}
-                      </div>
-                    );
+                ...(!isStore ? [
+                  { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 80,
+                    render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#111' }}>{v}개</span>,
                   },
-                },
+                  { title: '매장별 재고', dataIndex: 'locations', key: 'locations',
+                    render: (locs: any[]) => {
+                      if (!locs || locs.length === 0) return <span style={{ color: '#ccc', fontSize: 12 }}>재고 없음</span>;
+                      return (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 10px' }}>
+                          {locs.map((loc: any) => (
+                            <span key={loc.partner_code} style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
+                              <span style={{ color: loc.partner_type === '본사' ? '#6366f1' : '#333', fontWeight: loc.partner_type === '본사' ? 600 : 400 }}>
+                                {loc.partner_name}
+                              </span>
+                              {' '}
+                              <Tag color={loc.qty >= 10 ? 'green' : loc.qty >= 5 ? 'blue' : 'orange'} style={{ fontSize: 11, margin: 0 }}>
+                                {loc.qty}개
+                              </Tag>
+                            </span>
+                          ))}
+                        </div>
+                      );
+                    },
+                  },
+                ] : []),
               ]}
             />
           </div>

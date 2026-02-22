@@ -18,7 +18,7 @@ const SALE_TYPE_COLORS: Record<string, string> = {
 
 const fmt = (v: number) => Number(v).toLocaleString();
 
-type ViewMode = 'daily' | 'weekly' | 'monthly';
+type ViewMode = 'daily' | 'weekly' | 'monthly' | 'custom';
 
 function getRange(mode: ViewMode, ref: Dayjs): { from: string; to: string; label: string } {
   if (mode === 'daily') {
@@ -46,6 +46,8 @@ function getRange(mode: ViewMode, ref: Dayjs): { from: string; to: string; label
   };
 }
 
+const { RangePicker } = DatePicker;
+
 function moveRef(mode: ViewMode, ref: Dayjs, dir: number): Dayjs {
   if (mode === 'daily') return ref.add(dir, 'day');
   if (mode === 'weekly') return ref.add(dir, 'week');
@@ -55,16 +57,28 @@ function moveRef(mode: ViewMode, ref: Dayjs, dir: number): Dayjs {
 export default function DailySalesPage() {
   const [mode, setMode] = useState<ViewMode>('daily');
   const [refDate, setRefDate] = useState<Dayjs>(dayjs());
+  const [customRange, setCustomRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(7, 'day'), dayjs()]);
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
 
-  const range = getRange(mode, refDate);
+  const range = mode === 'custom'
+    ? { from: customRange[0].format('YYYY-MM-DD'), to: customRange[1].format('YYYY-MM-DD'), label: `${customRange[0].format('MM.DD')} ~ ${customRange[1].format('MM.DD')}` }
+    : getRange(mode, refDate);
 
-  const load = async (m: ViewMode, ref: Dayjs) => {
+  const load = async (m: ViewMode, ref: Dayjs, cr?: [Dayjs, Dayjs]) => {
     setLoading(true);
     try {
-      const r = getRange(m, ref);
-      const result = await salesApi.productsByRange(r.from, r.to);
+      let from: string, to: string;
+      if (m === 'custom') {
+        const r = cr || customRange;
+        from = r[0].format('YYYY-MM-DD');
+        to = r[1].format('YYYY-MM-DD');
+      } else {
+        const r = getRange(m, ref);
+        from = r.from;
+        to = r.to;
+      }
+      const result = await salesApi.productsByRange(from, to);
       setData(result);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -75,7 +89,11 @@ export default function DailySalesPage() {
   const handleModeChange = (v: string) => {
     const m = v as ViewMode;
     setMode(m);
-    load(m, refDate);
+    if (m === 'custom') {
+      load(m, refDate, customRange);
+    } else {
+      load(m, refDate);
+    }
   };
 
   const handleMove = (dir: number) => {
@@ -88,7 +106,16 @@ export default function DailySalesPage() {
     if (d) { setRefDate(d); load(mode, d); }
   };
 
+  const handleRangeChange = (dates: [Dayjs | null, Dayjs | null] | null) => {
+    if (dates && dates[0] && dates[1]) {
+      const r: [Dayjs, Dayjs] = [dates[0], dates[1]];
+      setCustomRange(r);
+      load('custom', refDate, r);
+    }
+  };
+
   const isForwardDisabled = () => {
+    if (mode === 'custom') return true;
     const next = moveRef(mode, refDate, 1);
     const nextRange = getRange(mode, next);
     return nextRange.from > dayjs().format('YYYY-MM-DD');
@@ -118,20 +145,33 @@ export default function DailySalesPage() {
                 { label: '일별', value: 'daily' },
                 { label: '주별', value: 'weekly' },
                 { label: '월별', value: 'monthly' },
+                { label: '기간', value: 'custom' },
               ]}
               size="small"
             />
-            <Button size="small" icon={<LeftOutlined />} onClick={() => handleMove(-1)} />
-            <DatePicker
-              value={refDate}
-              onChange={handleDatePick}
-              picker={pickerType}
-              allowClear={false}
-              style={{ width: mode === 'monthly' ? 130 : 150 }}
-              size="small"
-            />
-            <Button size="small" icon={<RightOutlined />} onClick={() => handleMove(1)}
-              disabled={isForwardDisabled()} />
+            {mode === 'custom' ? (
+              <RangePicker
+                value={customRange}
+                onChange={handleRangeChange as any}
+                allowClear={false}
+                size="small"
+                style={{ width: 240 }}
+              />
+            ) : (
+              <>
+                <Button size="small" icon={<LeftOutlined />} onClick={() => handleMove(-1)} />
+                <DatePicker
+                  value={refDate}
+                  onChange={handleDatePick}
+                  picker={pickerType}
+                  allowClear={false}
+                  style={{ width: mode === 'monthly' ? 130 : 150 }}
+                  size="small"
+                />
+                <Button size="small" icon={<RightOutlined />} onClick={() => handleMove(1)}
+                  disabled={isForwardDisabled()} />
+              </>
+            )}
             <Tag color="blue" style={{ fontSize: 12, padding: '1px 8px', margin: 0 }}>
               {range.label}
             </Tag>

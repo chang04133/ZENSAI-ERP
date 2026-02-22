@@ -536,6 +536,60 @@ export class SalesRepository {
     return { period, byCategory, byFit, byLength, productGrowth, bySize, byColor, monthlyYoY, bySeason, bySubCategory };
   }
 
+  /** 일별 판매 상품 리스트 */
+  async dailySalesProducts(date: string, partnerCode?: string) {
+    const params: any[] = [date];
+    let pcFilter = '';
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilter = `AND s.partner_code = $2`;
+    }
+
+    // 상품별 집계
+    const summarySql = `
+      SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(*)::int AS sale_count,
+             COUNT(DISTINCT s.partner_code)::int AS partner_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date = $1::date ${pcFilter}
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
+      ORDER BY total_amount DESC`;
+    const summary = (await this.pool.query(summarySql, params)).rows;
+
+    // 개별 판매 내역
+    const detailSql = `
+      SELECT s.sale_id, s.sale_date::text, s.partner_code, pt.partner_name,
+             s.variant_id, pv.sku, pv.color, pv.size,
+             p.product_code, p.product_name, p.category,
+             s.qty, s.unit_price, s.total_price,
+             COALESCE(s.sale_type, '정상') AS sale_type,
+             s.created_at
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON s.partner_code = pt.partner_code
+      WHERE s.sale_date = $1::date ${pcFilter}
+      ORDER BY s.created_at DESC`;
+    const details = (await this.pool.query(detailSql, params)).rows;
+
+    // 일별 총합
+    const totalSql = `
+      SELECT COUNT(*)::int AS sale_count,
+             COALESCE(SUM(qty), 0)::int AS total_qty,
+             COALESCE(SUM(total_price), 0)::bigint AS total_amount,
+             COUNT(DISTINCT partner_code)::int AS partner_count,
+             COUNT(DISTINCT variant_id)::int AS variant_count
+      FROM sales
+      WHERE sale_date = $1::date ${partnerCode ? 'AND partner_code = $2' : ''}`;
+    const totals = (await this.pool.query(totalSql, params)).rows[0];
+
+    return { date, summary, details, totals };
+  }
+
   async weeklyStyleSales(options: { weeks?: number; category?: string } = {}) {
     const weeks = options.weeks || 4;
     const qb = new QueryBuilder();

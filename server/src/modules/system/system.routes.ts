@@ -82,15 +82,15 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   const updates = req.body as Record<string, string>;
   const allowed = [
     'LOW_STOCK_THRESHOLD', 'MEDIUM_STOCK_THRESHOLD',
-    'SEASON_PENALTY_SA_SA', 'SEASON_PENALTY_SA_SM', 'SEASON_PENALTY_SA_WN',
-    'SEASON_PENALTY_SM_SA', 'SEASON_PENALTY_SM_SM', 'SEASON_PENALTY_SM_WN',
-    'SEASON_PENALTY_WN_SA', 'SEASON_PENALTY_WN_SM', 'SEASON_PENALTY_WN_WN',
+    'SEASON_WEIGHT_SA_SA', 'SEASON_WEIGHT_SA_SM', 'SEASON_WEIGHT_SA_WN',
+    'SEASON_WEIGHT_SM_SA', 'SEASON_WEIGHT_SM_SM', 'SEASON_WEIGHT_SM_WN',
+    'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
   ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;
 
     let saveVal: string;
-    if (key.startsWith('SEASON_PENALTY_')) {
+    if (key.startsWith('SEASON_WEIGHT_')) {
       const fv = parseFloat(value);
       if (isNaN(fv) || fv < 0 || fv > 1) continue;
       saveVal = fv.toFixed(2);

@@ -78,9 +78,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
       for (const item of items) {
         await client.query(
-          `INSERT INTO production_plan_items (plan_id, category, fit, length, plan_qty, unit_cost, memo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-          [plan.plan_id, item.category, item.fit || null, item.length || null,
+          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [plan.plan_id, item.category, item.sub_category || null, item.fit || null, item.length || null,
            item.plan_qty, item.unit_cost || null, item.memo || null],
         );
       }
@@ -162,7 +162,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         GROUP BY pp.season ORDER BY pp.season DESC
       `),
       pool.query(`
-        SELECT pi.item_id, pi.plan_id, pi.category, pi.fit, pi.length,
+        SELECT pi.item_id, pi.plan_id, pi.category, pi.sub_category, pi.fit, pi.length,
                pi.plan_qty, pi.produced_qty, pi.unit_cost,
                pp.plan_no, pp.plan_name, pp.status as plan_status
         FROM production_plan_items pi
@@ -202,9 +202,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           ELSE 'WN'
         END AS season_code
       ),
-      season_penalties AS (
-        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS penalty
-        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_PENALTY_%'
+      season_weights AS (
+        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS weight
+        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_WEIGHT_%'
       ),
       sales_velocity AS (
         SELECT
@@ -251,26 +251,26 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         sv.total_sold_90d,
         sv.avg_daily_sales,
         sv.predicted_30d AS raw_predicted_30d,
-        COALESCE(sp.penalty, 1.0) AS season_penalty,
-        ROUND(sv.predicted_30d * COALESCE(sp.penalty, 1.0))::int AS predicted_30d_demand,
+        COALESCE(sw.weight, 1.0) AS season_weight,
+        ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int AS predicted_30d_demand,
         COALESCE(cs.total_stock, 0) AS current_stock,
         COALESCE(ip.pending_qty, 0) AS in_production_qty,
         (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) AS total_available,
-        GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sp.penalty, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) AS shortage_qty,
-        CEIL(GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sp.penalty, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) * 1.2)::int AS recommended_qty,
+        GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) AS shortage_qty,
+        CEIL(GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) * 1.2)::int AS recommended_qty,
         CASE
-          WHEN (sv.avg_daily_sales * COALESCE(sp.penalty, 1.0)) > 0
-            THEN ROUND((COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0))::numeric / (sv.avg_daily_sales * COALESCE(sp.penalty, 1.0)))::int
+          WHEN (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)) > 0
+            THEN ROUND((COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0))::numeric / (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)))::int
           ELSE 9999
         END AS days_of_stock,
         cs2.season_code AS current_season_code
       FROM sales_velocity sv
       CROSS JOIN current_season cs2
-      LEFT JOIN season_penalties sp ON sp.code_value = 'SEASON_PENALTY_' || sv.product_season || '_' || cs2.season_code
+      LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' || sv.product_season || '_' || cs2.season_code
       LEFT JOIN current_stock cs ON sv.product_code = cs.product_code
       LEFT JOIN in_production ip ON sv.product_code = ip.product_code
       WHERE sv.avg_daily_sales > 0
-        AND (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) < ROUND(sv.predicted_30d * COALESCE(sp.penalty, 1.0))::int
+        AND (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) < ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
       ORDER BY days_of_stock ASC, shortage_qty DESC
       LIMIT $${idx}`;
 
@@ -288,16 +288,16 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           ELSE 'WN'
         END AS season_code
       ),
-      season_penalties AS (
-        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS penalty
-        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_PENALTY_%'
+      season_weights AS (
+        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS weight
+        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_WEIGHT_%'
       ),
-      product_penalty AS (
+      product_weight AS (
         SELECT p.product_code, p.category,
-          COALESCE(sp.penalty, 1.0) AS penalty
+          COALESCE(sw.weight, 1.0) AS weight
         FROM products p
         CROSS JOIN current_season cs2
-        LEFT JOIN season_penalties sp ON sp.code_value = 'SEASON_PENALTY_' ||
+        LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' ||
           CASE
             WHEN p.season LIKE '%SS' THEN 'SA'
             WHEN p.season LIKE '%FW' THEN 'WN'
@@ -320,11 +320,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         WHERE s.sale_date >= CURRENT_DATE - INTERVAL '90 days' AND p.is_active = TRUE
         GROUP BY COALESCE(p.category, '미분류')
       ),
-      category_avg_penalty AS (
-        SELECT COALESCE(pp2.category, '미분류') AS category,
-               ROUND(AVG(pp2.penalty), 2) AS avg_penalty
-        FROM product_penalty pp2
-        GROUP BY COALESCE(pp2.category, '미분류')
+      category_avg_weight AS (
+        SELECT COALESCE(pw2.category, '미분류') AS category,
+               ROUND(AVG(pw2.weight), 2) AS avg_weight
+        FROM product_weight pw2
+        GROUP BY COALESCE(pw2.category, '미분류')
       ),
       category_stock AS (
         SELECT
@@ -351,28 +351,109 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         COALESCE(cst.product_count, 0) AS product_count,
         cs.total_sold_90d,
         cs.avg_daily_sales,
-        ROUND(cs.raw_predicted_30d * COALESCE(cap.avg_penalty, 1.0))::int AS predicted_30d_demand,
+        ROUND(cs.raw_predicted_30d * COALESCE(caw.avg_weight, 1.0))::int AS predicted_30d_demand,
         COALESCE(cst.total_stock, 0) AS current_stock,
         COALESCE(cp.pending_qty, 0) AS in_production_qty,
         (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0)) AS total_available,
         CASE
-          WHEN (cs.avg_daily_sales * COALESCE(cap.avg_penalty, 1.0)) > 0
-            THEN ROUND((COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(cap.avg_penalty, 1.0)))::int
+          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) > 0
+            THEN ROUND((COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int
           ELSE 9999
         END AS stock_coverage_days,
         CASE
-          WHEN (cs.avg_daily_sales * COALESCE(cap.avg_penalty, 1.0)) = 0 THEN 'HEALTHY'
-          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(cap.avg_penalty, 1.0)) >= 30 THEN 'HEALTHY'
-          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(cap.avg_penalty, 1.0)) >= 15 THEN 'WARNING'
+          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) = 0 THEN 'HEALTHY'
+          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 30 THEN 'HEALTHY'
+          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 15 THEN 'WARNING'
           ELSE 'CRITICAL'
         END AS stock_status
       FROM category_sales cs
-      LEFT JOIN category_avg_penalty cap ON cs.category = cap.category
+      LEFT JOIN category_avg_weight caw ON cs.category = caw.category
       LEFT JOIN category_stock cst ON cs.category = cst.category
       LEFT JOIN category_production cp ON cs.category = cp.category
       ORDER BY stock_coverage_days ASC, cs.category`;
 
     const result = await pool.query(sql);
+    return result.rows;
+  }
+
+  async categorySubStats(category: string): Promise<any[]> {
+    const pool = getPool();
+    const sql = `
+      WITH sub_codes AS (
+        SELECT mc.code_value, mc.code_label
+        FROM master_codes mc
+        JOIN master_codes parent ON mc.parent_code = parent.code_id
+        WHERE parent.code_type = 'CATEGORY' AND parent.code_value = $1 AND mc.is_active = TRUE
+      ),
+      sub_sales AS (
+        SELECT
+          COALESCE(p.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold_90d,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90 * 30)::int AS predicted_30d_demand
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
+          AND p.is_active = TRUE AND p.category = $1
+        GROUP BY COALESCE(p.sub_category, '미분류')
+      ),
+      sub_stock AS (
+        SELECT
+          COALESCE(p.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(i.qty), 0)::int AS total_stock,
+          COUNT(DISTINCT p.product_code)::int AS product_count
+        FROM products p
+        LEFT JOIN product_variants pv ON p.product_code = pv.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE p.is_active = TRUE AND p.category = $1
+        GROUP BY COALESCE(p.sub_category, '미분류')
+      ),
+      sub_production AS (
+        SELECT
+          COALESCE(pi.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category = $1
+        GROUP BY COALESCE(pi.sub_category, '미분류')
+      ),
+      all_subs AS (
+        SELECT code_value AS sub_category, code_label FROM sub_codes
+        UNION
+        SELECT sub_category, NULL FROM sub_sales WHERE sub_category NOT IN (SELECT code_value FROM sub_codes)
+        UNION
+        SELECT sub_category, NULL FROM sub_stock WHERE sub_category NOT IN (SELECT code_value FROM sub_codes)
+      )
+      SELECT
+        a.sub_category,
+        COALESCE(a.code_label, a.sub_category) AS sub_category_label,
+        COALESCE(ss.product_count, 0) AS product_count,
+        COALESCE(sl.total_sold_90d, 0) AS total_sold_90d,
+        COALESCE(sl.avg_daily_sales, 0) AS avg_daily_sales,
+        COALESCE(sl.predicted_30d_demand, 0) AS predicted_30d_demand,
+        COALESCE(ss.total_stock, 0) AS current_stock,
+        COALESCE(sp.pending_qty, 0) AS in_production_qty,
+        (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0)) AS total_available,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) > 0
+            THEN ROUND((COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales)::int
+          ELSE 9999
+        END AS stock_coverage_days,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) = 0 THEN 'HEALTHY'
+          WHEN (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales >= 30 THEN 'HEALTHY'
+          WHEN (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales >= 15 THEN 'WARNING'
+          ELSE 'CRITICAL'
+        END AS stock_status
+      FROM all_subs a
+      LEFT JOIN sub_sales sl ON a.sub_category = sl.sub_category
+      LEFT JOIN sub_stock ss ON a.sub_category = ss.sub_category
+      LEFT JOIN sub_production sp ON a.sub_category = sp.sub_category
+      WHERE COALESCE(ss.product_count, 0) > 0 OR COALESCE(sl.total_sold_90d, 0) > 0 OR COALESCE(sp.pending_qty, 0) > 0
+      ORDER BY stock_coverage_days ASC, a.sub_category`;
+
+    const result = await pool.query(sql, [category]);
     return result.rows;
   }
 

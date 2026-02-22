@@ -31,6 +31,7 @@ export interface ProductionPlanItem {
   item_id: number;
   plan_id: number;
   category: string;
+  sub_category: string | null;
   fit: string | null;
   length: string | null;
   product_code?: string | null;

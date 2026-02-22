@@ -17,15 +17,15 @@ const migration: Migration = {
     // 2) 시즌 가중치 기본값 (상품시즌 × 현재시즌 = 계수)
     await db.query(`
       INSERT INTO master_codes (code_type, code_value, code_label, sort_order) VALUES
-        ('SETTING', 'SEASON_PENALTY_SA_SA', '1.0', 10),
-        ('SETTING', 'SEASON_PENALTY_SA_SM', '0.7', 11),
-        ('SETTING', 'SEASON_PENALTY_SA_WN', '0.4', 12),
-        ('SETTING', 'SEASON_PENALTY_SM_SA', '0.6', 13),
-        ('SETTING', 'SEASON_PENALTY_SM_SM', '1.0', 14),
-        ('SETTING', 'SEASON_PENALTY_SM_WN', '0.2', 15),
-        ('SETTING', 'SEASON_PENALTY_WN_SA', '0.4', 16),
-        ('SETTING', 'SEASON_PENALTY_WN_SM', '0.2', 17),
-        ('SETTING', 'SEASON_PENALTY_WN_WN', '1.0', 18)
+        ('SETTING', 'SEASON_WEIGHT_SA_SA', '1.0', 10),
+        ('SETTING', 'SEASON_WEIGHT_SA_SM', '0.7', 11),
+        ('SETTING', 'SEASON_WEIGHT_SA_WN', '0.4', 12),
+        ('SETTING', 'SEASON_WEIGHT_SM_SA', '0.6', 13),
+        ('SETTING', 'SEASON_WEIGHT_SM_SM', '1.0', 14),
+        ('SETTING', 'SEASON_WEIGHT_SM_WN', '0.2', 15),
+        ('SETTING', 'SEASON_WEIGHT_WN_SA', '0.4', 16),
+        ('SETTING', 'SEASON_WEIGHT_WN_SM', '0.2', 17),
+        ('SETTING', 'SEASON_WEIGHT_WN_WN', '1.0', 18)
       ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = EXCLUDED.code_label
     `);
 

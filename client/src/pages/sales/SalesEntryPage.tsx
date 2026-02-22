@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input } from 'antd';
+import type { InputRef } from 'antd';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -28,6 +29,7 @@ interface SaleItem {
   base_price?: number;
   discount_price?: number;
   event_price?: number;
+  current_stock?: number;
 }
 
 let itemKey = 0;
@@ -55,6 +57,12 @@ export default function SalesEntryPage() {
   const [saleDate, setSaleDate] = useState(dayjs());
   const [partnerCode, setPartnerCode] = useState<string | undefined>();
   const [items, setItems] = useState<SaleItem[]>([newItem()]);
+
+  // 바코드 스캔 모드
+  const [entryMode, setEntryMode] = useState<'manual' | 'barcode'>('manual');
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [scanning, setScanning] = useState(false);
+  const barcodeInputRef = useRef<InputRef>(null);
 
   const load = async (p?: number) => {
     const currentPage = p ?? page;
@@ -115,6 +123,52 @@ export default function SalesEntryPage() {
     return price;
   };
 
+  const handleBarcodeScan = async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setScanning(true);
+    try {
+      const product = await salesApi.scanProduct(trimmed);
+      // 이미 카트에 있는 상품인지 확인
+      const existing = items.find(i => i.variant_id === product.variant_id);
+      if (existing) {
+        setItems(prev => prev.map(i =>
+          i.key === existing.key ? { ...i, qty: i.qty + 1 } : i,
+        ));
+        message.success(`${product.sku} 수량 +1 (총 ${existing.qty + 1}개)`);
+      } else {
+        const price = product.base_price || 0;
+        const item: SaleItem = {
+          key: ++itemKey,
+          variant_id: product.variant_id,
+          variantLabel: `${product.sku} - ${product.product_name} (${product.color}/${product.size})`,
+          sale_type: '정상',
+          qty: 1,
+          unit_price: price,
+          base_price: product.base_price,
+          discount_price: product.discount_price,
+          event_price: product.event_price,
+          current_stock: product.current_stock,
+        };
+        setItems(prev => {
+          // 첫 번째 빈 항목 교체 또는 추가
+          if (prev.length === 1 && !prev[0].variant_id) return [item];
+          return [...prev, item];
+        });
+        message.success(`${product.sku} 추가됨`);
+      }
+      if (product.current_stock !== undefined && product.current_stock < 5) {
+        message.warning(`재고 부족 주의: ${product.sku} 현재 ${product.current_stock}개`);
+      }
+    } catch {
+      message.error('상품을 찾을 수 없습니다');
+    } finally {
+      setBarcodeInput('');
+      setScanning(false);
+      setTimeout(() => barcodeInputRef.current?.focus(), 50);
+    }
+  };
+
   const addItem = () => setItems(prev => [...prev, newItem()]);
   const removeItem = (key: number) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
 
@@ -149,6 +203,8 @@ export default function SalesEntryPage() {
     setPartnerCode(undefined);
     setItems([newItem()]);
     setVariantSearchMap({});
+    setEntryMode('manual');
+    setBarcodeInput('');
     setModalOpen(true);
   };
 
@@ -208,7 +264,64 @@ export default function SalesEntryPage() {
     },
   ];
 
-  // 모달 내 아이템 컬럼
+  // 바코드 모드 아이템 컬럼
+  const barcodeItemColumns = [
+    {
+      title: '상품', dataIndex: 'variantLabel', key: 'product', ellipsis: true,
+      render: (_: any, record: SaleItem) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{record.variantLabel || '-'}</div>
+          {record.current_stock !== undefined && (
+            <span style={{ fontSize: 12, color: record.current_stock < 5 ? '#cf1322' : '#888' }}>
+              재고: {record.current_stock}개{record.current_stock < 5 ? ' ⚠' : ''}
+            </span>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '유형', dataIndex: 'sale_type', key: 'sale_type', width: 90,
+      render: (_: any, record: SaleItem) => (
+        <Select value={record.sale_type} options={SALE_TYPE_OPTIONS} style={{ width: 80 }}
+          onChange={(v) => updateItem(record.key, 'sale_type', v)} />
+      ),
+    },
+    {
+      title: '수량', dataIndex: 'qty', key: 'qty', width: 130,
+      render: (_: any, record: SaleItem) => (
+        <Space size={4}>
+          <Button size="small" icon={<MinusOutlined />}
+            disabled={record.qty <= 1}
+            onClick={() => updateItem(record.key, 'qty', Math.max(1, record.qty - 1))} />
+          <InputNumber min={1} value={record.qty} style={{ width: 55 }} size="small" controls={false}
+            onChange={(v) => updateItem(record.key, 'qty', v || 1)} />
+          <Button size="small" icon={<PlusOutlined />}
+            onClick={() => updateItem(record.key, 'qty', record.qty + 1)} />
+        </Space>
+      ),
+    },
+    {
+      title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 110,
+      render: (_: any, record: SaleItem) => (
+        <span>{Number(record.unit_price || 0).toLocaleString()}</span>
+      ),
+    },
+    {
+      title: '소계', key: 'subtotal', width: 110,
+      render: (_: any, record: SaleItem) => (
+        <span style={{ fontWeight: 600 }}>{((record.qty || 0) * (record.unit_price || 0)).toLocaleString()}</span>
+      ),
+    },
+    {
+      title: '', key: 'actions', width: 40,
+      render: (_: any, record: SaleItem) => (
+        <Button type="text" danger icon={<DeleteOutlined />}
+          onClick={() => removeItem(record.key)} size="small" />
+      ),
+    },
+  ];
+
+  // 모달 내 아이템 컬럼 (수동 모드)
   const itemColumns = [
     {
       title: '상품', dataIndex: 'variant_id', key: 'variant_id', width: 300,
@@ -292,14 +405,48 @@ export default function SalesEntryPage() {
           )}
         </Space>
 
+        <div style={{ marginBottom: 12 }}>
+          <Segmented
+            value={entryMode}
+            onChange={(v) => {
+              setEntryMode(v as 'manual' | 'barcode');
+              if (v === 'barcode') setTimeout(() => barcodeInputRef.current?.focus(), 100);
+            }}
+            options={[
+              { label: '수동 입력', value: 'manual' },
+              { label: '바코드 스캔', value: 'barcode', icon: <BarcodeOutlined /> },
+            ]}
+          />
+        </div>
+
+        {entryMode === 'barcode' && (
+          <Input
+            ref={barcodeInputRef}
+            placeholder="바코드를 스캔하거나 SKU를 입력하세요"
+            prefix={<BarcodeOutlined />}
+            value={barcodeInput}
+            onChange={(e) => setBarcodeInput(e.target.value)}
+            onPressEnter={() => handleBarcodeScan(barcodeInput)}
+            disabled={scanning}
+            allowClear
+            size="large"
+            style={{ marginBottom: 12 }}
+            autoFocus
+          />
+        )}
+
         <Table
-          columns={itemColumns} dataSource={items} rowKey="key" size="small"
+          columns={entryMode === 'barcode' ? barcodeItemColumns : itemColumns}
+          dataSource={items.filter(i => entryMode === 'barcode' ? i.variant_id : true)}
+          rowKey="key" size="small"
           pagination={false} scroll={{ y: 300 }}
         />
 
-        <Button type="dashed" icon={<PlusOutlined />} onClick={addItem} style={{ width: '100%', marginTop: 8 }}>
-          상품 추가
-        </Button>
+        {entryMode === 'manual' && (
+          <Button type="dashed" icon={<PlusOutlined />} onClick={addItem} style={{ width: '100%', marginTop: 8 }}>
+            상품 추가
+          </Button>
+        )}
 
         <Divider style={{ margin: '12px 0' }} />
 

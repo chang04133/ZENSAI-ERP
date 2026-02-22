@@ -49,6 +49,53 @@ router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => 
   res.json({ success: true, data });
 }));
 
+// 일별 판매 상품 리스트
+router.get('/daily-products', authMiddleware, asyncHandler(async (req, res) => {
+  const { date } = req.query as { date?: string };
+  if (!date) {
+    res.status(400).json({ success: false, error: 'date 파라미터가 필요합니다.' });
+    return;
+  }
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.dailySalesProducts(date, partnerCode);
+  res.json({ success: true, data });
+}));
+
+// 바코드/SKU 스캔 조회
+router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
+  const code = (req.query.code as string || '').trim();
+  if (!code) {
+    res.status(400).json({ success: false, error: 'code 파라미터가 필요합니다.' });
+    return;
+  }
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.barcode,
+            p.product_code, p.product_name, p.category,
+            p.base_price, p.discount_price, p.event_price
+       ${partnerCode ? `, COALESCE(i.qty, 0)::int AS current_stock` : ''}
+     FROM product_variants pv
+     JOIN products p ON pv.product_code = p.product_code
+     ${partnerCode ? `LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code = $2` : ''}
+     WHERE pv.is_active = TRUE AND p.is_active = TRUE
+       AND (pv.sku = $1 OR pv.barcode = $1)
+     LIMIT 1`,
+    partnerCode ? [code, partnerCode] : [code],
+  );
+
+  if (result.rows.length === 0) {
+    res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
+    return;
+  }
+  res.json({ success: true, data: result.rows[0] });
+}));
+
 // 종합 매출조회
 router.get('/comprehensive', authMiddleware, asyncHandler(async (req, res) => {
   const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };

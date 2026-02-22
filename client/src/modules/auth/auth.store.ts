@@ -41,9 +41,9 @@ export const useAuthStore = create<AuthState>((set) => ({
       const port = window.location.port;
       const portAccounts: Record<string, [string, string]> = {
         '5172': ['admin', 'admin1234!'],          // 마스터
-        '5173': ['hq_manager', 'manager1234!'],   // 관리자
+        '5173': ['hq_mgr', 'test1234!'],          // 본사 관리자
         '5174': ['gangnam', 'test1234!'],          // 매장 매니저
-        '5175': ['gangnam_staff', 'staff1234!'],   // 직원
+        '5175': ['daegu', 'test1234!'],            // 매장 직원
       };
       const account = portAccounts[port];
       if (account) {

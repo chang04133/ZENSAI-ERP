@@ -63,6 +63,13 @@ class ProductionController extends BaseController<ProductionPlan> {
     res.json({ success: true, data });
   });
 
+  categorySubStats = asyncHandler(async (req: Request, res: Response) => {
+    const category = req.params.category as string;
+    if (!category) { res.status(400).json({ success: false, error: '카테고리가 필요합니다.' }); return; }
+    const data = await productionService.categorySubStats(category);
+    res.json({ success: true, data });
+  });
+
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     const { status } = req.body;

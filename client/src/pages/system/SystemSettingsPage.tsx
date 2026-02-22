@@ -20,7 +20,7 @@ export default function SystemSettingsPage() {
   const [saving, setSaving] = useState(false);
   const [low, setLow] = useState(1);
   const [med, setMed] = useState(10);
-  const [penalties, setPenalties] = useState<Record<string, number>>({});
+  const [weights, setWeights] = useState<Record<string, number>>({});
 
   const currentSeason = getCurrentSeason();
 
@@ -32,14 +32,14 @@ export default function SystemSettingsPage() {
         setSettings(data.data);
         setLow(parseInt(data.data.LOW_STOCK_THRESHOLD || '1', 10));
         setMed(parseInt(data.data.MEDIUM_STOCK_THRESHOLD || '10', 10));
-        const p: Record<string, number> = {};
+        const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
-            const key = `SEASON_PENALTY_${ps}_${cs}`;
-            p[key] = parseFloat(data.data[key] || (ps === cs ? '1.0' : '0.5'));
+            const key = `SEASON_WEIGHT_${ps}_${cs}`;
+            w[key] = parseFloat(data.data[key] || (ps === cs ? '1.0' : '0.5'));
           }
         }
-        setPenalties(p);
+        setWeights(w);
       }
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -58,7 +58,7 @@ export default function SystemSettingsPage() {
         LOW_STOCK_THRESHOLD: String(low),
         MEDIUM_STOCK_THRESHOLD: String(med),
         ...Object.fromEntries(
-          Object.entries(penalties).map(([k, v]) => [k, String(v)]),
+          Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
       };
       const res = await apiFetch('/api/system/settings', {
@@ -76,10 +76,10 @@ export default function SystemSettingsPage() {
     finally { setSaving(false); }
   };
 
-  const setPenalty = (productSeason: string, currentSz: string, val: number) => {
-    setPenalties((prev) => ({
+  const setWeight = (productSeason: string, currentSz: string, val: number) => {
+    setWeights((prev) => ({
       ...prev,
-      [`SEASON_PENALTY_${productSeason}_${currentSz}`]: val,
+      [`SEASON_WEIGHT_${productSeason}_${currentSz}`]: val,
     }));
   };
 
@@ -165,7 +165,7 @@ export default function SystemSettingsPage() {
                   {SEASON_LABELS[ps]}
                 </td>
                 {SEASONS.map((cs) => {
-                  const key = `SEASON_PENALTY_${ps}_${cs}`;
+                  const key = `SEASON_WEIGHT_${ps}_${cs}`;
                   const isDiagonal = ps === cs;
                   return (
                     <td key={cs} style={{
@@ -174,8 +174,8 @@ export default function SystemSettingsPage() {
                     }}>
                       <InputNumber
                         min={0} max={1} step={0.1}
-                        value={penalties[key] ?? 1.0}
-                        onChange={(v) => v !== null && setPenalty(ps, cs, v)}
+                        value={weights[key] ?? 1.0}
+                        onChange={(v) => v !== null && setWeight(ps, cs, v)}
                         disabled={isDiagonal}
                         style={{ width: 80 }}
                         size="small"
@@ -192,7 +192,7 @@ export default function SystemSettingsPage() {
           <div><strong>해석 예시</strong> (현재: {SEASON_LABELS[currentSeason]})</div>
           <div style={{ marginTop: 4 }}>
             {SEASONS.filter((ps) => ps !== currentSeason).map((ps) => {
-              const val = penalties[`SEASON_PENALTY_${ps}_${currentSeason}`] ?? 0.5;
+              const val = weights[`SEASON_WEIGHT_${ps}_${currentSeason}`] ?? 0.5;
               return (
                 <div key={ps}>
                   {SEASON_LABELS[ps]} 상품 → 수요의 <strong>{Math.round(val * 100)}%</strong> 반영

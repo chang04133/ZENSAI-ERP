@@ -1,6 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, message, Typography } from 'antd';
-import { PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined, StopOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, Collapse, Divider, message, Typography } from 'antd';
+import {
+  PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
+  StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
+} from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { codeApi } from '../../modules/code/code.api';
 import { apiFetch } from '../../core/api.client';
@@ -13,17 +16,30 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
+const CATEGORY_COLORS: Record<string, string> = {
+  TOP: '#1890ff', BOTTOM: '#52c41a', OUTER: '#fa8c16', DRESS: '#eb2f96', ACC: '#722ed1',
+};
 
 const fmtNum = (v: number) => v.toLocaleString();
 
-interface PlanItem {
-  category: string;
+interface SubItem {
+  key: number;
+  sub_category: string | null;
   fit: string | null;
   length: string | null;
   plan_qty: number;
   unit_cost: number | null;
   memo: string | null;
 }
+
+interface CategoryGroup {
+  key: number;
+  category: string;
+  items: SubItem[];
+}
+
+let keySeq = 0;
+const newSubItem = (): SubItem => ({ key: ++keySeq, sub_category: null, fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null });
 
 export default function ProductionPlanPage() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
@@ -36,13 +52,21 @@ export default function ProductionPlanPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProductionPlan | null>(null);
   const [form] = Form.useForm();
-  const [items, setItems] = useState<PlanItem[]>([{ category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }]);
   const [partners, setPartners] = useState<any[]>([]);
+
+  // 카테고리별 그룹
+  const [catGroups, setCatGroups] = useState<CategoryGroup[]>([]);
 
   // 코드 옵션
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [subCategoryMap, setSubCategoryMap] = useState<Record<string, { label: string; value: string }[]>>({});
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
+  const catLabelMap = Object.fromEntries(categoryOptions.map(o => [o.value, o.label]));
+  const subCatLabelMap: Record<string, string> = {};
+  Object.values(subCategoryMap).flat().forEach(o => { subCatLabelMap[o.value] = o.label; });
+  const fitLabelMap = Object.fromEntries(fitOptions.map(o => [o.value, o.label]));
+  const lenLabelMap = Object.fromEntries(lengthOptions.map(o => [o.value, o.label]));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,33 +90,92 @@ export default function ProductionPlanPage() {
           codeApi.getAll(),
         ]);
         if (ptRes.success) setPartners(ptRes.data.data || ptRes.data);
-
-        const toOpts = (items: any[]) => (items || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
-        setCategoryOptions((codes.CATEGORY || []).filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+        const toOpts = (arr: any[]) => (arr || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
+        const allCats = codes.CATEGORY || [];
+        const parents = allCats.filter((c: any) => !c.parent_code && c.is_active);
+        setCategoryOptions(parents.map((c: any) => ({ label: c.code_label, value: c.code_value })));
+        // 세부 카테고리: parent_code별로 그룹핑
+        const subMap: Record<string, { label: string; value: string }[]> = {};
+        for (const parent of parents) {
+          const children = allCats.filter((c: any) => c.parent_code === parent.code_id && c.is_active);
+          if (children.length > 0) {
+            subMap[parent.code_value] = children.map((c: any) => ({ label: c.code_label, value: c.code_value }));
+          }
+        }
+        setSubCategoryMap(subMap);
         setFitOptions(toOpts(codes.FIT));
         setLengthOptions(toOpts(codes.LENGTH));
       } catch (e: any) { console.error('코드/거래처 로드 실패:', e); }
     })();
   }, []);
 
-  const itemsTotal = items.reduce((sum, i) => sum + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
+  // --- 카테고리 그룹 조작 ---
+  const addCategoryGroup = () => {
+    setCatGroups(prev => [...prev, { key: ++keySeq, category: '', items: [newSubItem()] }]);
+  };
+
+  const removeCategoryGroup = (gKey: number) => {
+    setCatGroups(prev => prev.filter(g => g.key !== gKey));
+  };
+
+  const updateGroupCategory = (gKey: number, cat: string) => {
+    setCatGroups(prev => prev.map(g => g.key === gKey ? { ...g, category: cat } : g));
+  };
+
+  const addSubItem = (gKey: number) => {
+    setCatGroups(prev => prev.map(g => g.key === gKey ? { ...g, items: [...g.items, newSubItem()] } : g));
+  };
+
+  const removeSubItem = (gKey: number, iKey: number) => {
+    setCatGroups(prev => prev.map(g => {
+      if (g.key !== gKey) return g;
+      const next = g.items.filter(i => i.key !== iKey);
+      return { ...g, items: next.length > 0 ? next : [newSubItem()] };
+    }));
+  };
+
+  const updateSubItem = (gKey: number, iKey: number, field: keyof SubItem, value: any) => {
+    setCatGroups(prev => prev.map(g => {
+      if (g.key !== gKey) return g;
+      return { ...g, items: g.items.map(i => i.key === iKey ? { ...i, [field]: value } : i) };
+    }));
+  };
+
+  // 전체 합계
+  const grandTotalQty = catGroups.reduce((sum, g) => sum + g.items.reduce((s, i) => s + (i.plan_qty || 0), 0), 0);
+  const grandTotalCost = catGroups.reduce((sum, g) => sum + g.items.reduce((s, i) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0), 0);
+
+  const openCreateModal = () => {
+    keySeq = 0;
+    form.resetFields();
+    setCatGroups([{ key: ++keySeq, category: '', items: [newSubItem()] }]);
+    setCreateOpen(true);
+  };
 
   const handleCreate = async () => {
     try {
       const values = await form.validateFields();
-      const validItems = items.filter(i => i.category && i.plan_qty > 0);
-      if (validItems.length === 0) { message.error('품목을 추가해주세요 (카테고리 필수).'); return; }
+      const flatItems: Array<{ category: string; sub_category: string | null; fit: string | null; length: string | null; plan_qty: number; unit_cost: number | null; memo: string | null }> = [];
+      for (const g of catGroups) {
+        if (!g.category) { message.error('모든 카테고리를 선택해주세요.'); return; }
+        for (const i of g.items) {
+          if (i.plan_qty > 0) {
+            flatItems.push({ category: g.category, sub_category: i.sub_category, fit: i.fit, length: i.length, plan_qty: i.plan_qty, unit_cost: i.unit_cost, memo: i.memo });
+          }
+        }
+      }
+      if (flatItems.length === 0) { message.error('품목을 1개 이상 추가해주세요.'); return; }
+
       await productionApi.create({
         plan_name: values.plan_name,
         season: values.season,
         target_date: values.target_date?.format('YYYY-MM-DD'),
         partner_code: values.partner_code,
         memo: values.memo,
-        items: validItems,
+        items: flatItems,
       });
       message.success('생산계획이 등록되었습니다.');
-      setCreateOpen(false); form.resetFields();
-      setItems([{ category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }]);
+      setCreateOpen(false);
       load();
     } catch (e: any) { message.error(e.message); }
   };
@@ -115,6 +198,20 @@ export default function ProductionPlanPage() {
       setDetail(d); setDetailOpen(true);
     } catch (e: any) { message.error(e.message); }
   };
+
+  // 상세 모달: 카테고리별 그룹핑
+  const detailGrouped = (() => {
+    if (!detail?.items) return [];
+    const map = new Map<string, any[]>();
+    for (const item of detail.items) {
+      const cat = item.category || '미분류';
+      if (!map.has(cat)) map.set(cat, []);
+      map.get(cat)!.push(item);
+    }
+    return Array.from(map.entries()).map(([cat, items]) => ({ category: cat, items }));
+  })();
+
+  const detailTotalCost = (detail?.items || []).reduce((sum, i) => sum + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
 
   const columns = [
     { title: '계획번호', dataIndex: 'plan_no', key: 'no', width: 120 },
@@ -158,8 +255,8 @@ export default function ProductionPlanPage() {
     )},
   ];
 
-  // 상세 모달 품목 비용 합계
-  const detailTotalCost = (detail?.items || []).reduce((sum, i) => sum + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
+  // 사용 가능한 카테고리 (이미 추가된 카테고리 제외)
+  const usedCategories = new Set(catGroups.map(g => g.category).filter(Boolean));
 
   return (
     <div style={{ maxWidth: 1200 }}>
@@ -169,7 +266,7 @@ export default function ProductionPlanPage() {
             {Object.entries(STATUS_LABELS).map(([k, v]) => <Select.Option key={k} value={k}>{v}</Select.Option>)}
           </Select>
           <Input.Search placeholder="검색" onSearch={setSearch} allowClear style={{ width: 180 }} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateOpen(true)}>생산계획 등록</Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
         </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
@@ -179,7 +276,7 @@ export default function ProductionPlanPage() {
 
       {/* 등록 모달 */}
       <Modal title="생산계획 등록" open={createOpen} onCancel={() => setCreateOpen(false)}
-        onOk={handleCreate} width={900} okText="등록">
+        onOk={handleCreate} width={960} okText="등록">
         <Form form={form} layout="vertical">
           <Form.Item name="plan_name" label="계획명" rules={[{ required: true }]}>
             <Input placeholder="예: 26SA 상의 1차 생산" />
@@ -209,67 +306,128 @@ export default function ProductionPlanPage() {
           <Form.Item name="memo" label="메모"><Input.TextArea rows={2} /></Form.Item>
         </Form>
 
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-          <Typography.Text strong>품목 목록</Typography.Text>
-          <Typography.Text type="secondary">
-            총 금액: <strong style={{ color: '#1677ff' }}>{fmtNum(itemsTotal)}원</strong>
+        <Divider style={{ margin: '8px 0 16px' }} />
+
+        {/* 요약 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <Typography.Text strong style={{ fontSize: 15 }}>
+            <AppstoreOutlined style={{ marginRight: 6 }} />카테고리별 품목 등록
           </Typography.Text>
+          <Space>
+            <Tag color="blue">총 {grandTotalQty.toLocaleString()}개</Tag>
+            <Tag color="gold">합계 {grandTotalCost.toLocaleString()}원</Tag>
+          </Space>
         </div>
-        <Table
-          columns={[
-            { title: '카테고리', key: 'category', width: 130, render: (_: any, __: any, idx: number) => (
-              <Select value={items[idx]?.category || undefined} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], category: v }; setItems(next);
-              }} style={{ width: '100%' }} placeholder="카테고리" showSearch optionFilterProp="label"
-                options={categoryOptions} />
-            )},
-            { title: '핏', key: 'fit', width: 120, render: (_: any, __: any, idx: number) => (
-              <Select value={items[idx]?.fit || undefined} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], fit: v || null }; setItems(next);
-              }} style={{ width: '100%' }} placeholder="핏" allowClear showSearch optionFilterProp="label"
-                options={fitOptions} />
-            )},
-            { title: '기장', key: 'length', width: 120, render: (_: any, __: any, idx: number) => (
-              <Select value={items[idx]?.length || undefined} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], length: v || null }; setItems(next);
-              }} style={{ width: '100%' }} placeholder="기장" allowClear showSearch optionFilterProp="label"
-                options={lengthOptions} />
-            )},
-            { title: '수량', key: 'qty', width: 90, render: (_: any, __: any, idx: number) => (
-              <InputNumber min={1} value={items[idx]?.plan_qty} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], plan_qty: v || 1 }; setItems(next);
-              }} style={{ width: '100%' }} />
-            )},
-            { title: '단가', key: 'cost', width: 110, render: (_: any, __: any, idx: number) => (
-              <InputNumber min={0} value={items[idx]?.unit_cost} onChange={(v) => {
-                const next = [...items]; next[idx] = { ...next[idx], unit_cost: v }; setItems(next);
-              }} style={{ width: '100%' }}
-                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                parser={(v) => Number((v || '').replace(/,/g, ''))} />
-            )},
-            { title: '금액', key: 'amount', width: 110, render: (_: any, __: any, idx: number) => {
-              const amt = (items[idx]?.plan_qty || 0) * (items[idx]?.unit_cost || 0);
-              return <span style={{ fontWeight: 600 }}>{fmtNum(amt)}</span>;
-            }},
-            { title: '', key: 'del', width: 40, render: (_: any, __: any, idx: number) => (
-              items.length > 1 ? <Button size="small" danger icon={<DeleteOutlined />}
-                onClick={() => setItems(items.filter((_, i) => i !== idx))} /> : null
-            )},
-          ]}
-          dataSource={items}
-          rowKey={(_, i) => String(i)}
-          pagination={false}
-          size="small"
-          footer={() => <Button type="dashed" block onClick={() =>
-            setItems([...items, { category: '', fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null }])}>
-            + 품목 추가
-          </Button>}
-        />
+
+        {/* 카테고리 그룹들 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, maxHeight: 400, overflowY: 'auto' }}>
+          {catGroups.map((group) => {
+            const groupQty = group.items.reduce((s, i) => s + (i.plan_qty || 0), 0);
+            const groupCost = group.items.reduce((s, i) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
+            const catColor = CATEGORY_COLORS[group.category] || '#666';
+
+            return (
+              <Card
+                key={group.key}
+                size="small"
+                style={{ borderLeft: `4px solid ${group.category ? catColor : '#d9d9d9'}`, borderRadius: 8 }}
+                title={
+                  <Space>
+                    <Select
+                      value={group.category || undefined}
+                      onChange={(v) => updateGroupCategory(group.key, v)}
+                      placeholder="카테고리 선택"
+                      style={{ width: 160 }}
+                      showSearch optionFilterProp="label"
+                    >
+                      {categoryOptions
+                        .filter(o => o.value === group.category || !usedCategories.has(o.value))
+                        .map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+                    </Select>
+                    <Tag>{groupQty}개</Tag>
+                    {groupCost > 0 && <Tag color="gold">{groupCost.toLocaleString()}원</Tag>}
+                  </Space>
+                }
+                extra={
+                  catGroups.length > 1 ? (
+                    <Button size="small" danger type="text" icon={<DeleteOutlined />}
+                      onClick={() => removeCategoryGroup(group.key)} />
+                  ) : null
+                }
+              >
+                {group.items.map((item) => (
+                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {subCategoryMap[group.category]?.length > 0 && (
+                      <Select
+                        value={item.sub_category || undefined}
+                        onChange={(v) => updateSubItem(group.key, item.key, 'sub_category', v || null)}
+                        placeholder="세부카테고리"
+                        allowClear showSearch optionFilterProp="label"
+                        style={{ width: 140 }}
+                        options={subCategoryMap[group.category]}
+                      />
+                    )}
+                    <Select
+                      value={item.fit || undefined}
+                      onChange={(v) => updateSubItem(group.key, item.key, 'fit', v || null)}
+                      placeholder="핏"
+                      allowClear showSearch optionFilterProp="label"
+                      style={{ width: 130 }}
+                      options={fitOptions}
+                    />
+                    <Select
+                      value={item.length || undefined}
+                      onChange={(v) => updateSubItem(group.key, item.key, 'length', v || null)}
+                      placeholder="기장"
+                      allowClear showSearch optionFilterProp="label"
+                      style={{ width: 110 }}
+                      options={lengthOptions}
+                    />
+                    <InputNumber
+                      min={1}
+                      value={item.plan_qty}
+                      onChange={(v) => updateSubItem(group.key, item.key, 'plan_qty', v || 1)}
+                      style={{ width: 80 }}
+                      placeholder="수량"
+                      addonAfter="개"
+                    />
+                    <InputNumber
+                      min={0}
+                      value={item.unit_cost}
+                      onChange={(v) => updateSubItem(group.key, item.key, 'unit_cost', v)}
+                      style={{ width: 120 }}
+                      placeholder="단가"
+                      formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      parser={(v) => Number((v || '').replace(/,/g, ''))}
+                    />
+                    <span style={{ width: 90, textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#555', flexShrink: 0 }}>
+                      {((item.plan_qty || 0) * (item.unit_cost || 0)).toLocaleString()}원
+                    </span>
+                    {group.items.length > 1 ? (
+                      <Button size="small" type="text" danger icon={<MinusCircleOutlined />}
+                        onClick={() => removeSubItem(group.key, item.key)} />
+                    ) : <div style={{ width: 32 }} />}
+                  </div>
+                ))}
+                <Button size="small" type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 4 }}
+                  onClick={() => addSubItem(group.key)}>
+                  핏/기장 추가
+                </Button>
+              </Card>
+            );
+          })}
+        </div>
+
+        <Button type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 12, height: 40 }}
+          onClick={addCategoryGroup}
+          disabled={catGroups.length >= categoryOptions.length}>
+          + 카테고리 추가
+        </Button>
       </Modal>
 
       {/* 상세 모달 */}
       <Modal title={`생산계획 상세 - ${detail?.plan_no || ''}`} open={detailOpen}
-        onCancel={() => setDetailOpen(false)} footer={null} width={900}>
+        onCancel={() => setDetailOpen(false)} footer={null} width={960}>
         {detail && (
           <>
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
@@ -284,34 +442,67 @@ export default function ProductionPlanPage() {
             </div>
             {detail.memo && <div style={{ marginBottom: 16, color: '#666' }}>{detail.memo}</div>}
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Typography.Text strong>품목 목록</Typography.Text>
-              <Typography.Text type="secondary">
-                총 생산비용: <strong style={{ color: '#1677ff' }}>{fmtNum(detailTotalCost)}원</strong>
-              </Typography.Text>
+              <Space>
+                <Tag color="blue">총 {(detail.items || []).reduce((s, i) => s + i.plan_qty, 0).toLocaleString()}개</Tag>
+                <Tag color="gold">비용 {fmtNum(detailTotalCost)}원</Tag>
+              </Space>
             </div>
-            <Table
-              columns={[
-                { title: '카테고리', dataIndex: 'category', key: 'cat', width: 100 },
-                { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
-                { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
-                { title: '수량', dataIndex: 'plan_qty', key: 'plan', width: 80, render: (v: number) => fmtNum(v) },
-                { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 100,
-                  render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
-                { title: '금액', key: 'amount', width: 110, render: (_: any, r: any) => {
-                  const amt = (r.plan_qty || 0) * (r.unit_cost || 0);
-                  return amt > 0 ? <strong>{fmtNum(amt)}원</strong> : '-';
-                }},
-                { title: '생산', dataIndex: 'produced_qty', key: 'prod', width: 70, render: (v: number) => fmtNum(v || 0) },
-                { title: '진행률', key: 'pct', width: 120, render: (_: any, r: any) => {
-                  const pct = r.plan_qty > 0 ? Math.round(((r.produced_qty || 0) / r.plan_qty) * 100) : 0;
-                  return <Progress percent={pct} size="small" />;
-                }},
-              ]}
-              dataSource={detail.items || []}
-              rowKey="item_id"
-              pagination={false}
-              size="small"
+
+            {/* 카테고리별 그룹핑 표시 */}
+            <Collapse
+              defaultActiveKey={detailGrouped.map(g => g.category)}
+              style={{ marginBottom: 16 }}
+              items={detailGrouped.map(({ category, items }) => {
+                const catQty = items.reduce((s: number, i: any) => s + i.plan_qty, 0);
+                const catProduced = items.reduce((s: number, i: any) => s + (i.produced_qty || 0), 0);
+                const catCost = items.reduce((s: number, i: any) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
+                const catPct = catQty > 0 ? Math.round((catProduced / catQty) * 100) : 0;
+                return {
+                  key: category,
+                  label: (
+                    <Space>
+                      <Tag color={CATEGORY_COLORS[category] || 'default'} style={{ fontWeight: 600 }}>
+                        {catLabelMap[category] || category}
+                      </Tag>
+                      <span style={{ fontSize: 12, color: '#888' }}>
+                        {items.length}건 | {catQty.toLocaleString()}개
+                        {catCost > 0 && ` | ${catCost.toLocaleString()}원`}
+                      </span>
+                      <Progress percent={catPct} size="small" style={{ width: 100 }} />
+                    </Space>
+                  ),
+                  children: (
+                    <Table
+                      columns={[
+                        { title: '세부카테고리', dataIndex: 'sub_category', key: 'sub', width: 120,
+                          render: (v: string) => v ? <Tag color="cyan">{subCatLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>-</span> },
+                        { title: '핏', dataIndex: 'fit', key: 'fit', width: 120,
+                          render: (v: string) => v ? <Tag>{fitLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>전체</span> },
+                        { title: '기장', dataIndex: 'length', key: 'len', width: 100,
+                          render: (v: string) => v ? <Tag>{lenLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>전체</span> },
+                        { title: '계획수량', dataIndex: 'plan_qty', key: 'plan', width: 90, render: (v: number) => fmtNum(v) },
+                        { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 100,
+                          render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
+                        { title: '금액', key: 'amount', width: 110, render: (_: any, r: any) => {
+                          const amt = (r.plan_qty || 0) * (r.unit_cost || 0);
+                          return amt > 0 ? <strong>{fmtNum(amt)}원</strong> : '-';
+                        }},
+                        { title: '생산량', dataIndex: 'produced_qty', key: 'prod', width: 80, render: (v: number) => fmtNum(v || 0) },
+                        { title: '진행률', key: 'pct', width: 130, render: (_: any, r: any) => {
+                          const pct = r.plan_qty > 0 ? Math.round(((r.produced_qty || 0) / r.plan_qty) * 100) : 0;
+                          return <Progress percent={pct} size="small" status={pct >= 100 ? 'success' : 'active'} />;
+                        }},
+                      ]}
+                      dataSource={items}
+                      rowKey="item_id"
+                      pagination={false}
+                      size="small"
+                    />
+                  ),
+                };
+              })}
             />
 
             {(detail.materials || []).length > 0 && (

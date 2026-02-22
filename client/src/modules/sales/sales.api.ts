@@ -50,10 +50,20 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/year-comparison?year=${year}`));
   },
 
+  // 일별 판매 상품 리스트
+  dailyProducts: async (date: string) => {
+    return parse(await apiFetch(`/api/sales/daily-products?date=${date}`));
+  },
+
   // 종합 매출조회
   comprehensive: async (dateFrom: string, dateTo: string) => {
     const q = `?date_from=${dateFrom}&date_to=${dateTo}`;
     return parse(await apiFetch(`/api/sales/comprehensive${q}`));
+  },
+
+  // 바코드/SKU 스캔 조회
+  scanProduct: async (code: string) => {
+    return parse(await apiFetch(`/api/sales/scan?code=${encodeURIComponent(code)}`));
   },
 
   // 엑셀 업로드

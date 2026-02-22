@@ -10,6 +10,7 @@ router.get('/dashboard', authMiddleware, requireRole('ADMIN', 'HQ_MANAGER'), pro
 router.get('/generate-no', authMiddleware, requireRole('ADMIN'), productionController.generateNo);
 router.get('/recommendations', authMiddleware, requireRole('ADMIN', 'HQ_MANAGER'), productionController.recommendations);
 router.get('/category-stats', authMiddleware, requireRole('ADMIN', 'HQ_MANAGER'), productionController.categoryStats);
+router.get('/category-stats/:category/sub', authMiddleware, requireRole('ADMIN', 'HQ_MANAGER'), productionController.categorySubStats);
 router.put('/:id/status', authMiddleware, requireRole('ADMIN'), productionController.updateStatus);
 router.put('/:id/produced-qty', authMiddleware, requireRole('ADMIN'), productionController.updateProducedQty);
 router.put('/:id/materials', authMiddleware, requireRole('ADMIN'), productionController.saveMaterials);

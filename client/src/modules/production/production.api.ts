@@ -34,6 +34,12 @@ export const productionApi = {
     if (!d.success) throw new Error(d.error);
     return d.data;
   },
+  categorySubStats: async (category: string) => {
+    const res = await apiFetch(`/api/productions/category-stats/${encodeURIComponent(category)}/sub`);
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
   updateStatus: async (id: number, status: string) => {
     const res = await apiFetch(`/api/productions/${id}/status`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

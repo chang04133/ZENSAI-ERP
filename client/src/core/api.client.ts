@@ -26,11 +26,11 @@ async function tryRefresh(): Promise<boolean> {
   const refreshToken = getRefreshToken();
   if (!refreshToken) return false;
   try {
-    const res = await fetch('/api/auth/refresh', {
+    const res = await fetchWithTimeout('/api/auth/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refreshToken }),
-    });
+    }, 10000);
     if (!res.ok) return false;
     const data = await res.json();
     if (data.success) {
@@ -43,6 +43,13 @@ async function tryRefresh(): Promise<boolean> {
   }
 }
 
+// 타임아웃 fetch (기본 30초)
+function fetchWithTimeout(url: string, opts: RequestInit = {}, ms = 30000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const isFormData = options.body instanceof FormData;
@@ -52,7 +59,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
   };
   if (token) headers['Authorization'] = `Bearer ${token}`;
 
-  let res = await fetch(path, { ...options, headers });
+  let res = await fetchWithTimeout(path, { ...options, headers });
 
   if (res.status === 401 && getRefreshToken()) {
     if (!isRefreshing) {
@@ -66,7 +73,7 @@ export async function apiFetch(path: string, options: RequestInit = {}): Promise
 
     if (refreshed) {
       headers['Authorization'] = `Bearer ${getToken()}`;
-      res = await fetch(path, { ...options, headers });
+      res = await fetchWithTimeout(path, { ...options, headers });
     } else {
       clearTokens();
       window.location.href = '/login';

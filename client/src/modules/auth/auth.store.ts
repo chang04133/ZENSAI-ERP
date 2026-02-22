@@ -36,53 +36,64 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   checkAuth: async () => {
-    // 개발환경: 포트별 자동 로그인 (기존 토큰 무시하고 항상 포트 계정 사용)
-    if (import.meta.env.DEV) {
-      const port = window.location.port;
-      const portAccounts: Record<string, [string, string]> = {
-        '5172': ['admin', 'admin1234!'],          // 마스터
-        '5173': ['hq_mgr', 'test1234!'],          // 본사 관리자
-        '5174': ['gangnam', 'test1234!'],          // 매장 매니저
-        '5175': ['daegu', 'test1234!'],            // 매장 직원
-      };
-      const account = portAccounts[port];
-      if (account) {
-        const token = getToken();
-        // 기존 토큰이 있으면 유저 확인 후 계정이 다르면 재로그인
-        if (token) {
-          try {
-            const user = await getMeApi();
-            if (user.userId === account[0]) {
-              set({ user, isAuthenticated: true, isLoading: false });
-              return;
+    // 안전장치: 15초 내 완료 안 되면 강제 로딩 해제
+    const safetyTimer = setTimeout(() => {
+      const state = useAuthStore.getState();
+      if (state.isLoading) {
+        console.warn('checkAuth 타임아웃 — 로딩 강제 해제');
+        set({ isLoading: false, isAuthenticated: false, user: null });
+      }
+    }, 15000);
+
+    try {
+      // 개발환경: 포트별 자동 로그인
+      if (import.meta.env.DEV) {
+        const port = window.location.port;
+        const portAccounts: Record<string, [string, string]> = {
+          '5172': ['admin', 'admin1234!'],
+          '5173': ['hq_mgr', 'test1234!'],
+          '5174': ['gangnam', 'test1234!'],
+          '5175': ['daegu', 'test1234!'],
+        };
+        const account = portAccounts[port];
+        if (account) {
+          const token = getToken();
+          if (token) {
+            try {
+              const user = await getMeApi();
+              if (user.userId === account[0]) {
+                set({ user, isAuthenticated: true, isLoading: false });
+                return;
+              }
+              clearTokens();
+            } catch {
+              clearTokens();
             }
-            // 다른 계정 토큰 → 버리고 재로그인
-            clearTokens();
+          }
+          try {
+            const data = await loginApi(account[0], account[1]);
+            set({ user: data.user, isAuthenticated: true, isLoading: false });
+            return;
           } catch {
-            clearTokens();
+            set({ isLoading: false, isAuthenticated: false, user: null });
+            return;
           }
         }
-        try {
-          const data = await loginApi(account[0], account[1]);
-          set({ user: data.user, isAuthenticated: true, isLoading: false });
-          return;
-        } catch {
-          set({ isLoading: false, isAuthenticated: false, user: null });
-          return;
-        }
       }
-    }
-    const token = getToken();
-    if (!token) {
-      set({ isLoading: false, isAuthenticated: false, user: null });
-      return;
-    }
-    try {
-      const user = await getMeApi();
-      set({ user, isAuthenticated: true, isLoading: false });
-    } catch {
-      clearTokens();
-      set({ user: null, isAuthenticated: false, isLoading: false });
+      const token = getToken();
+      if (!token) {
+        set({ isLoading: false, isAuthenticated: false, user: null });
+        return;
+      }
+      try {
+        const user = await getMeApi();
+        set({ user, isAuthenticated: true, isLoading: false });
+      } catch {
+        clearTokens();
+        set({ user: null, isAuthenticated: false, isLoading: false });
+      }
+    } finally {
+      clearTimeout(safetyTimer);
     }
   },
 }));

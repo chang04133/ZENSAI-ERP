@@ -23,3 +23,11 @@ body {
   white-space: nowrap;
   overflow: hidden;
 }
+
+/* 빈 모달 마스크가 화면 가리는 것 방지 */
+.ant-modal-mask:empty {
+  display: none !important;
+}
+.ant-modal-wrap:empty {
+  display: none !important;
+}

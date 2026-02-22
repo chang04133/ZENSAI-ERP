@@ -3,22 +3,25 @@ import { Table, Button, Select, Space, Tag, Modal, Form, InputNumber, Alert, mes
 import { SearchOutlined, EyeOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', APPROVED: 'blue', PROCESSING: 'orange',
-  SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', APPROVED: '승인', PROCESSING: '처리중',
-  SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소',
+  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
 };
 
 export default function ShipmentProcessPage() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string>('APPROVED');
+  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
 
@@ -38,6 +41,7 @@ export default function ShipmentProcessPage() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (statusFilter) params.status = statusFilter;
+      if (isStore && user?.partnerCode) params.partner = user.partnerCode;
       const result = await shipmentApi.list(params);
       setData(result.data);
       setTotal(result.total);
@@ -136,10 +140,7 @@ export default function ShipmentProcessPage() {
     { title: '처리', key: 'action', width: 200, render: (_: any, record: any) => (
       <Space>
         <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-        {record.status === 'APPROVED' && (
-          <Button type="primary" size="small" onClick={() => handleStatusChange(record.request_id, 'PROCESSING')}>처리시작</Button>
-        )}
-        {record.status === 'PROCESSING' && (
+        {record.status === 'PENDING' && (
           <Button type="primary" size="small" onClick={() => handleOpenShippedModal(record)}>출고완료</Button>
         )}
         {record.status === 'SHIPPED' && (
@@ -155,10 +156,9 @@ export default function ShipmentProcessPage() {
       <Space style={{ marginBottom: 16 }}>
         <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 150 }}
           options={[
-            { label: '승인건', value: 'APPROVED' },
-            { label: '처리중', value: 'PROCESSING' },
+            { label: '대기', value: 'PENDING' },
             { label: '출고완료', value: 'SHIPPED' },
-            { label: '수령완료', value: 'RECEIVED' },
+            { label: '입고완료', value: 'RECEIVED' },
           ]} />
         <Button icon={<SearchOutlined />} onClick={() => load()}>조회</Button>
       </Space>

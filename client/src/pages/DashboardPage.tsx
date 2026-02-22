@@ -4,6 +4,7 @@ import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, WarningOutlined, TruckOutlined,
   CheckOutlined, CloseOutlined, BellOutlined, SendOutlined,
+  ClockCircleOutlined, SwapOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
@@ -11,12 +12,16 @@ import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
 import { apiFetch } from '../core/api.client';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', APPROVED: 'blue', PROCESSING: 'orange',
-  SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', APPROVED: '승인', PROCESSING: '처리중',
-  SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소',
+  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
+};
+const RESTOCK_STATUS_COLORS: Record<string, string> = {
+  DRAFT: 'default', APPROVED: 'blue', ORDERED: 'cyan', RECEIVED: 'green', CANCELLED: 'red',
+};
+const RESTOCK_STATUS_LABELS: Record<string, string> = {
+  DRAFT: '작성중', APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소',
 };
 
 /* ── Styled Stat Card ── */
@@ -116,11 +121,11 @@ export default function DashboardPage() {
     try {
       const res = await apiFetch(`/api/shipments/${requestId}`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'APPROVED' }),
+        body: JSON.stringify({ status: 'SHIPPED' }),
       });
       const data = await res.json();
       if (data.success) {
-        message.success('승인되었습니다.');
+        message.success('출고 처리되었습니다.');
         loadStats();
       } else { message.error(data.error); }
     } catch (e: any) { message.error(e.message); }
@@ -145,8 +150,11 @@ export default function DashboardPage() {
   const handleStockRequest = async (item: any) => {
     const key = `${item.partner_code}-${item.variant_id}`;
     if (requestingIds.has(key)) return;
-    const targets = (item.other_locations || []).filter((loc: any) => loc.qty > 0);
-    if (targets.length === 0) { message.warning('다른 매장에 재고가 없습니다.'); return; }
+    const allTargets = (item.other_locations || []).filter((loc: any) => loc.qty >= 1);
+    if (allTargets.length === 0) { message.warning('다른 매장에 재고가 없습니다.'); return; }
+    // 가장 수량 많은 지점만 요청 (동일 수량이면 전부)
+    const maxQty = Math.max(...allTargets.map((t: any) => t.qty));
+    const targets = allTargets.filter((t: any) => t.qty === maxQty);
     setRequestingIds((prev) => new Set(prev).add(key));
     try {
       const res = await apiFetch('/api/notifications/stock-request', {
@@ -158,7 +166,7 @@ export default function DashboardPage() {
         }),
       });
       const data = await res.json();
-      if (data.success) message.success(`${targets.length}개 매장/본사에 재고 요청 완료`);
+      if (data.success) message.success(`${targets.length}개 매장/본사에 재고 요청 완료 (최다재고 ${maxQty}개)`);
       else message.error(data.error);
     } catch (e: any) { message.error(e.message); }
     finally {
@@ -166,10 +174,39 @@ export default function DashboardPage() {
     }
   };
 
-  const pendingCount = Number(stats?.shipments?.draft || 0) + Number(stats?.shipments?.approved || 0);
-  const processingCount = Number(stats?.shipments?.processing || 0);
+  const handleRestockApprove = async (requestId: number) => {
+    try {
+      const res = await apiFetch(`/api/restocks/${requestId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'APPROVED' }),
+      });
+      const data = await res.json();
+      if (data.success) { message.success('재입고 의뢰가 승인되었습니다.'); loadStats(); }
+      else { message.error(data.error); }
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleRestockReject = async (requestId: number) => {
+    try {
+      const res = await apiFetch(`/api/restocks/${requestId}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'CANCELLED' }),
+      });
+      const data = await res.json();
+      if (data.success) { message.success('재입고 의뢰가 취소되었습니다.'); loadStats(); }
+      else { message.error(data.error); }
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const pa = stats?.pendingActions || {};
+  const totalPendingActions = isStore
+    ? (pa.shipmentsToProcess?.length || 0) + (pa.shipmentsToReceive?.length || 0) + (pa.restockPending?.length || 0)
+    : (stats?.pendingApprovals?.length || 0) + (pa.pendingRestocks?.length || 0) + (pa.shippedAwaitingReceipt?.length || 0);
+
+  const pendingCount = Number(stats?.shipments?.pending || 0);
   const shippedCount = Number(stats?.shipments?.shipped || 0);
-  const totalShipments = pendingCount + processingCount + shippedCount + Number(stats?.shipments?.received || 0);
+  const receivedCount = Number(stats?.shipments?.received || 0);
+  const totalShipments = pendingCount + shippedCount + receivedCount;
 
   const shipmentColumns = [
     { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 120 },
@@ -264,7 +301,7 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
             icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
-            sub={`처리중 ${processingCount}건`} onClick={() => navigate('/shipment/process')} />
+            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate('/shipment/process')} />
         </Col>
       </Row>
 
@@ -328,9 +365,8 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: 16 }}>
               {[
                 { label: '대기', count: pendingCount, color: '#6366f1' },
-                { label: '처리중', count: processingCount, color: '#f59e0b' },
                 { label: '출고완료', count: shippedCount, color: '#10b981' },
-                { label: '수령완료', count: Number(stats?.shipments?.received || 0), color: '#06b6d4' },
+                { label: '입고완료', count: receivedCount, color: '#06b6d4' },
               ].map((s) => (
                 <div key={s.label}>
                   <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.count}</div>
@@ -341,8 +377,8 @@ export default function DashboardPage() {
             {totalShipments > 0 && (
               <Progress
                 percent={100}
-                success={{ percent: (Number(stats?.shipments?.received || 0) / totalShipments) * 100 }}
-                strokeColor="#f59e0b"
+                success={{ percent: (receivedCount / totalShipments) * 100 }}
+                strokeColor="#10b981"
                 trailColor="#f3f4f6"
                 showInfo={false}
                 style={{ marginBottom: 8 }}
@@ -402,45 +438,219 @@ export default function DashboardPage() {
         </Row>
       )}
 
-      {/* Pending Approvals - ADMIN/HQ only */}
-      {isAdmin && (stats?.pendingApprovals || []).length > 0 && (
+      {/* ── 할일 / 대기 항목 ── */}
+      {totalPendingActions > 0 && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col span={24}>
             <Card
-              title={<span><BellOutlined style={{ color: '#f59e0b', marginRight: 8 }} />승인 대기 의뢰 <Badge count={(stats?.pendingApprovals || []).length} style={{ backgroundColor: '#f59e0b', marginLeft: 8 }} /></span>}
-              size="small" style={{ borderRadius: 10, borderLeft: '4px solid #f59e0b' }} loading={loading}
-              extra={<a onClick={() => navigate('/shipment/request')}>전체보기</a>}
+              title={
+                <span>
+                  <ClockCircleOutlined style={{ color: '#f59e0b', marginRight: 8 }} />
+                  할일 <Badge count={totalPendingActions} style={{ backgroundColor: '#f59e0b', marginLeft: 8 }} />
+                </span>
+              }
+              size="small"
+              style={{ borderRadius: 10, borderLeft: '4px solid #f59e0b' }}
+              loading={loading}
             >
-              <Table
-                columns={[
-                  { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
-                  { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                  { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
-                  { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
-                  { title: '품목수', dataIndex: 'item_count', key: 'items', width: 70, render: (v: number) => `${v}건` },
-                  { title: '총수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-                  { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 100, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-                  { title: '요청자', dataIndex: 'requested_by_name', key: 'by', width: 100 },
-                  {
-                    title: '처리', key: 'action', width: 140, fixed: 'right' as const,
-                    render: (_: any, record: any) => (
-                      <span style={{ display: 'flex', gap: 6 }}>
-                        <Popconfirm title="이 의뢰를 승인하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="승인" cancelText="취소">
-                          <Button type="primary" size="small" icon={<CheckOutlined />}>승인</Button>
-                        </Popconfirm>
-                        <Popconfirm title="이 의뢰를 반려하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="반려" cancelText="취소" okButtonProps={{ danger: true }}>
-                          <Button danger size="small" icon={<CloseOutlined />}>반려</Button>
-                        </Popconfirm>
-                      </span>
-                    ),
-                  },
-                ]}
-                dataSource={stats?.pendingApprovals || []}
-                rowKey="request_id"
-                pagination={false}
-                size="small"
-                scroll={{ x: 800 }}
-              />
+              {/* ── Admin/HQ: 출고 대기 ── */}
+              {isAdmin && (stats?.pendingApprovals || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <TruckOutlined style={{ color: '#f59e0b' }} />
+                    <Typography.Text strong>출고 대기</Typography.Text>
+                    <Badge count={(stats?.pendingApprovals || []).length} style={{ backgroundColor: '#f59e0b' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>전체보기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                      { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                      { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 60, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                      { title: '요청자', dataIndex: 'requested_by_name', key: 'by', width: 90 },
+                      {
+                        title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                        render: (_: any, record: any) => (
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <Popconfirm title="출고 처리하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="출고" cancelText="취소">
+                              <Button type="primary" size="small" icon={<CheckOutlined />}>출고</Button>
+                            </Popconfirm>
+                            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
+                              <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
+                            </Popconfirm>
+                          </span>
+                        ),
+                      },
+                    ]}
+                    dataSource={stats?.pendingApprovals || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 800 }}
+                  />
+                </>
+              )}
+
+              {/* ── Admin/HQ: 재입고 승인 대기 ── */}
+              {isAdmin && (pa.pendingRestocks || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (stats?.pendingApprovals || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
+                    <ReloadOutlined style={{ color: '#722ed1' }} />
+                    <Typography.Text strong>재입고 승인 대기</Typography.Text>
+                    <Badge count={(pa.pendingRestocks || []).length} style={{ backgroundColor: '#722ed1' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/restock/progress')}>전체보기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '거래처', dataIndex: 'partner_name', key: 'partner', ellipsis: true },
+                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                      {
+                        title: '처리', key: 'action', width: 140, fixed: 'right' as const,
+                        render: (_: any, record: any) => (
+                          <span style={{ display: 'flex', gap: 6 }}>
+                            <Popconfirm title="승인하시겠습니까?" onConfirm={() => handleRestockApprove(record.request_id)} okText="승인" cancelText="취소">
+                              <Button type="primary" size="small" icon={<CheckOutlined />}>승인</Button>
+                            </Popconfirm>
+                            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleRestockReject(record.request_id)} okText="취소처리" cancelText="돌아가기" okButtonProps={{ danger: true }}>
+                              <Button danger size="small" icon={<CloseOutlined />}>취소</Button>
+                            </Popconfirm>
+                          </span>
+                        ),
+                      },
+                    ]}
+                    dataSource={pa.pendingRestocks || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 600 }}
+                  />
+                </>
+              )}
+
+              {/* ── Admin/HQ: 수령확인 대기 (출고완료) ── */}
+              {isAdmin && (pa.shippedAwaitingReceipt || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 20, marginBottom: 8 }}>
+                    <SwapOutlined style={{ color: '#10b981' }} />
+                    <Typography.Text strong>수령확인 대기</Typography.Text>
+                    <Badge count={(pa.shippedAwaitingReceipt || []).length} style={{ backgroundColor: '#10b981' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>전체보기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                      { title: '출발', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                      { title: '도착', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    ]}
+                    dataSource={pa.shippedAwaitingReceipt || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 600 }}
+                  />
+                </>
+              )}
+
+              {/* ── Store: 출고 처리 대기 ── */}
+              {isStore && (pa.shipmentsToProcess || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                    <TruckOutlined style={{ color: '#f59e0b' }} />
+                    <Typography.Text strong>출고 처리 대기</Typography.Text>
+                    <Badge count={(pa.shipmentsToProcess || []).length} style={{ backgroundColor: '#f59e0b' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>처리하기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                      { title: '도착지', dataIndex: 'to_partner_name', key: 'to', ellipsis: true, render: (v: string) => v || '-' },
+                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                      {
+                        title: '', key: 'action', width: 80,
+                        render: () => <Button type="primary" size="small" onClick={() => navigate('/shipment/process')}>처리</Button>,
+                      },
+                    ]}
+                    dataSource={pa.shipmentsToProcess || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 600 }}
+                  />
+                </>
+              )}
+
+              {/* ── Store: 수령확인 대기 ── */}
+              {isStore && (pa.shipmentsToReceive || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: (pa.shipmentsToProcess || []).length > 0 ? 20 : 0, marginBottom: 8 }}>
+                    <InboxOutlined style={{ color: '#10b981' }} />
+                    <Typography.Text strong>수령확인 대기</Typography.Text>
+                    <Badge count={(pa.shipmentsToReceive || []).length} style={{ backgroundColor: '#10b981' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/shipment/process')}>확인하기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '유형', dataIndex: 'request_type', key: 'type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+                      { title: '출발지', dataIndex: 'from_partner_name', key: 'from', ellipsis: true },
+                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                      {
+                        title: '', key: 'action', width: 80,
+                        render: () => <Button size="small" type="primary" onClick={() => navigate('/shipment/process')}>수령</Button>,
+                      },
+                    ]}
+                    dataSource={pa.shipmentsToReceive || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 600 }}
+                  />
+                </>
+              )}
+
+              {/* ── Store: 재입고 진행현황 ── */}
+              {isStore && (pa.restockPending || []).length > 0 && (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: ((pa.shipmentsToProcess || []).length > 0 || (pa.shipmentsToReceive || []).length > 0) ? 20 : 0, marginBottom: 8 }}>
+                    <ReloadOutlined style={{ color: '#722ed1' }} />
+                    <Typography.Text strong>재입고 진행</Typography.Text>
+                    <Badge count={(pa.restockPending || []).length} style={{ backgroundColor: '#722ed1' }} />
+                    <a style={{ marginLeft: 'auto', fontSize: 12 }} onClick={() => navigate('/restock/progress')}>전체보기</a>
+                  </div>
+                  <Table
+                    columns={[
+                      { title: '의뢰번호', dataIndex: 'request_no', key: 'no', width: 130 },
+                      { title: '상태', dataIndex: 'status', key: 'status', width: 80,
+                        render: (v: string) => <Tag color={RESTOCK_STATUS_COLORS[v]}>{RESTOCK_STATUS_LABELS[v] || v}</Tag> },
+                      { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
+                      { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
+                      { title: '의뢰일', dataIndex: 'request_date', key: 'date', width: 95, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                      { title: '입고예정', dataIndex: 'expected_date', key: 'expect', width: 95,
+                        render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+                    ]}
+                    dataSource={pa.restockPending || []}
+                    rowKey="request_id"
+                    pagination={false}
+                    size="small"
+                    scroll={{ x: 500 }}
+                  />
+                </>
+              )}
             </Card>
           </Col>
         </Row>

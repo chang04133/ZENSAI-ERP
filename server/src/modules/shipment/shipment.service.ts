@@ -31,8 +31,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       const oldStatus = current.status;
       const newStatus = data.status || oldStatus;
 
-      // APPROVED 전환 시 approved_by 자동 설정
-      const approvedBy = (newStatus === 'APPROVED' && oldStatus !== 'APPROVED') ? userId : data.approved_by;
+      const approvedBy = data.approved_by;
 
       // 상태 및 기타 필드 업데이트
       await client.query(

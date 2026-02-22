@@ -55,7 +55,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
       const header = await client.query(
         `INSERT INTO shipment_requests
          (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by)
-         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'DRAFT', $5, $6)
+         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'PENDING', $5, $6)
          RETURNING *`,
         [requestNo, headerData.from_partner, headerData.to_partner || null,
          headerData.request_type, headerData.memo || null, headerData.requested_by],

@@ -42,9 +42,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
     pool.query('SELECT COUNT(*) FROM partners WHERE is_active = TRUE'),
     pool.query('SELECT COUNT(*) FROM products WHERE is_active = TRUE'),
     pool.query(`SELECT
-      COUNT(*) FILTER (WHERE status = 'DRAFT') as draft,
-      COUNT(*) FILTER (WHERE status = 'APPROVED') as approved,
-      COUNT(*) FILTER (WHERE status = 'PROCESSING') as processing,
+      COUNT(*) FILTER (WHERE status = 'PENDING') as pending,
       COUNT(*) FILTER (WHERE status = 'SHIPPED') as shipped,
       COUNT(*) FILTER (WHERE status = 'RECEIVED') as received
     FROM shipment_requests sr WHERE 1=1 ${shipFilter}`, params),
@@ -120,7 +118,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
       LEFT JOIN users u ON sr.requested_by = u.user_id
       LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
-      WHERE sr.status = 'DRAFT'
+      WHERE sr.status = 'PENDING'
       GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
                sr.from_partner, sr.to_partner, sr.memo, sr.requested_by,
                fp.partner_name, tp.partner_name, u.user_name
@@ -128,6 +126,88 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       LIMIT 20
     `),
   ]);
+
+  // ── 할일/대기 항목 (역할별) ──
+  const pendingActions: any = {};
+
+  if (isStore) {
+    const [shipmentsToProcess, shipmentsToReceive, restockPending] = await Promise.all([
+      // 대기중 출고의뢰 (내 매장에서 출고해야 할 것)
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               tp.partner_name as to_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'PENDING' AND sr.from_partner = $1
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `, [pc]),
+      // 출고완료된 의뢰 (내 매장으로 수령확인 대기)
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               fp.partner_name as from_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'SHIPPED' AND sr.to_partner = $1
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date, fp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `, [pc]),
+      // 재입고 진행중 (내 매장 재입고 요청 중 미완료)
+      pool.query(`
+        SELECT rr.request_id, rr.request_no, rr.status, rr.request_date, rr.expected_date,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM restock_requests rr
+        LEFT JOIN restock_request_items ri ON rr.request_id = ri.request_id
+        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED') AND rr.partner_code = $1
+        GROUP BY rr.request_id, rr.request_no, rr.status, rr.request_date, rr.expected_date
+        ORDER BY CASE rr.status WHEN 'ORDERED' THEN 1 WHEN 'APPROVED' THEN 2 ELSE 3 END, rr.created_at DESC
+        LIMIT 20
+      `, [pc]),
+    ]);
+    pendingActions.shipmentsToProcess = shipmentsToProcess.rows;
+    pendingActions.shipmentsToReceive = shipmentsToReceive.rows;
+    pendingActions.restockPending = restockPending.rows;
+  } else {
+    const [pendingRestocks, shippedAwaitingReceipt] = await Promise.all([
+      // 재입고 승인 대기 (DRAFT 상태)
+      pool.query(`
+        SELECT rr.request_id, rr.request_no, rr.request_date, rr.expected_date,
+               p.partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM restock_requests rr
+        JOIN partners p ON rr.partner_code = p.partner_code
+        LEFT JOIN restock_request_items ri ON rr.request_id = ri.request_id
+        WHERE rr.status = 'DRAFT'
+        GROUP BY rr.request_id, rr.request_no, rr.request_date, rr.expected_date, p.partner_name
+        ORDER BY rr.created_at DESC LIMIT 20
+      `),
+      // 출고완료 → 수령확인 대기
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               fp.partner_name as from_partner_name, tp.partner_name as to_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'SHIPPED'
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+                 fp.partner_name, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `),
+    ]);
+    pendingActions.pendingRestocks = pendingRestocks.rows;
+    pendingActions.shippedAwaitingReceipt = shippedAwaitingReceipt.rows;
+  }
 
   res.json({
     success: true,
@@ -146,6 +226,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       lowStock: lowStock.rows,
       monthlySalesTrend: monthlySalesTrend.rows,
       pendingApprovals: pendingApprovals.rows,
+      pendingActions,
       isStore: !!isStore,
       partnerCode: pc || null,
     },

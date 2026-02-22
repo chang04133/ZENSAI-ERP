@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Modal, Form, Popconfirm, InputNumber, message } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, CheckOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Select, Space, Tag, Modal, Form, Popconfirm, InputNumber, Upload, message } from 'antd';
+import { PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined, DeleteOutlined, DownloadOutlined, UploadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { getToken } from '../../core/api.client';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', APPROVED: 'blue', PROCESSING: 'orange',
-  SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', APPROVED: '승인', PROCESSING: '처리중',
-  SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소',
+  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
 };
 
 interface ItemRow {
@@ -26,6 +27,9 @@ interface ItemRow {
 }
 
 export default function ShipmentRequestPage() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -54,6 +58,7 @@ export default function ShipmentRequestPage() {
       if (search) params.search = search;
       if (typeFilter) params.request_type = typeFilter;
       if (statusFilter) params.status = statusFilter;
+      if (isStore && user?.partnerCode) params.partner = user.partnerCode;
       const result = await shipmentApi.list(params);
       setData(result.data);
       setTotal(result.total);
@@ -128,10 +133,39 @@ export default function ShipmentRequestPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
-  const handleApprove = async (id: number) => {
+  const handleDownloadTemplate = () => {
+    const token = getToken();
+    fetch(shipmentApi.templateUrl, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => res.blob())
+      .then(blob => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'shipment_template.xlsx';
+        a.click();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => message.error('템플릿 다운로드 실패'));
+  };
+
+  const handleExcelUpload = async (file: File) => {
     try {
-      await shipmentApi.update(id, { status: 'APPROVED' });
-      message.success('승인되었습니다.');
+      const result = await shipmentApi.uploadExcel(file);
+      message.success(`${result.createdRequests}건 의뢰 (${result.createdItems}개 품목) 등록 완료`);
+      if (result.errors && result.errors.length > 0) {
+        Modal.warning({ title: '일부 오류', content: result.errors.join('\n'), width: 500 });
+      }
+      load();
+    } catch (e: any) {
+      message.error('업로드 실패: ' + e.message);
+    }
+    return false; // prevent default upload
+  };
+
+  const handleCancel = async (id: number) => {
+    try {
+      await shipmentApi.update(id, { status: 'CANCELLED' });
+      message.success('취소되었습니다.');
       load();
     } catch (e: any) { message.error(e.message); }
   };
@@ -155,9 +189,9 @@ export default function ShipmentRequestPage() {
     { title: '관리', key: 'action', width: 140, render: (_: any, record: any) => (
       <Space>
         <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-        {record.status === 'DRAFT' && (
-          <Popconfirm title="승인하시겠습니까?" onConfirm={() => handleApprove(record.request_id)}>
-            <Button size="small" type="primary" icon={<CheckOutlined />}>승인</Button>
+        {record.status === 'PENDING' && (
+          <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}>
+            <Button size="small" danger icon={<CloseOutlined />}>취소</Button>
           </Popconfirm>
         )}
       </Space>
@@ -183,7 +217,15 @@ export default function ShipmentRequestPage() {
 
   return (
     <div>
-      <PageHeader title="의뢰등록" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); form.setFieldsValue({ request_type: '출고' }); setItems([]); setModalOpen(true); }}>의뢰 등록</Button>} />
+      <PageHeader title="의뢰등록" extra={
+        <Space>
+          <Button icon={<DownloadOutlined />} onClick={handleDownloadTemplate}>엑셀폼</Button>
+          <Upload accept=".xlsx,.xls" showUploadList={false} beforeUpload={handleExcelUpload as any}>
+            <Button icon={<UploadOutlined />}>엑셀 업로드</Button>
+          </Upload>
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); form.setFieldsValue({ request_type: '출고', ...(isStore && user?.partnerCode ? { from_partner: user.partnerCode } : {}) }); setItems([]); setModalOpen(true); }}>의뢰 등록</Button>
+        </Space>
+      } />
       <Space style={{ marginBottom: 16 }}>
         <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }} />
         <Select placeholder="유형" allowClear value={typeFilter} onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -202,10 +244,11 @@ export default function ShipmentRequestPage() {
             <Select placeholder="유형 선택" options={shipmentTypes.map(t => ({ label: t.code_label, value: t.code_value }))} />
           </Form.Item>
           <Form.Item name="from_partner" label="출발 거래처" rules={[{ required: true, message: '출발 거래처를 선택해주세요' }]}>
-            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
+            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} disabled={isStore} />
           </Form.Item>
           <Form.Item name="to_partner" label="도착 거래처">
-            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" allowClear options={partnerOptions} />
+            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" allowClear
+              options={isStore ? partnerOptions.filter(p => p.value !== user?.partnerCode) : partnerOptions} />
           </Form.Item>
           <Form.Item label="품목 추가">
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}

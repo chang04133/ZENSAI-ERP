@@ -9,12 +9,10 @@ import { apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', APPROVED: 'blue', PROCESSING: 'orange',
-  SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', APPROVED: '승인', PROCESSING: '처리중',
-  SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소',
+  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
 };
 
 interface ItemRow { variant_id: number; request_qty: number; sku: string; product_name: string; color: string; size: string; }

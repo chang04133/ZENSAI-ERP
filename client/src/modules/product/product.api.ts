@@ -58,6 +58,18 @@ export const productApi = {
     return data.data;
   },
 
+  // 행사 추천
+  eventRecommendations: async (params?: { category?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.category) qs.set('category', params.category);
+    if (params?.limit) qs.set('limit', String(params.limit));
+    const q = qs.toString() ? `?${qs}` : '';
+    const res = await apiFetch(`/api/products/events/recommendations${q}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
   // 바코드 대시보드
   barcodeDashboard: async () => {
     const res = await apiFetch('/api/products/barcode-dashboard');

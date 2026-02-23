@@ -19,7 +19,11 @@ async function start() {
 
     // Seed dummy data for development
     if (config.nodeEnv === 'development') {
-      await seedDummyData(getPool());
+      try {
+        await seedDummyData(getPool());
+      } catch (e) {
+        console.warn('더미 데이터 삽입 중 오류 (무시):', (e as any).message || e);
+      }
     }
 
     // Start server

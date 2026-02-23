@@ -201,6 +201,163 @@ export class ProductRepository extends BaseRepository<Product> {
       client.release();
     }
   }
+  async eventRecommendations(options: { category?: string; limit?: number } = {}): Promise<any[]> {
+    const pool = getPool();
+
+    // 1. 설정값 로드
+    const settingsResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'EVENT_REC_%'",
+    );
+    const sm: Record<string, string> = {};
+    for (const r of settingsResult.rows) sm[r.code_value] = r.code_label;
+
+    const salesPeriodDays = parseInt(sm.EVENT_REC_SALES_PERIOD_DAYS || '365', 10);
+    const minSalesThreshold = parseInt(sm.EVENT_REC_MIN_SALES_THRESHOLD || '10', 10);
+    const brokenSizeWeight = parseInt(sm.EVENT_REC_BROKEN_SIZE_WEIGHT || '60', 10);
+    const lowSalesWeight = parseInt(sm.EVENT_REC_LOW_SALES_WEIGHT || '40', 10);
+    const maxResults = options.limit || parseInt(sm.EVENT_REC_MAX_RESULTS || '50', 10);
+
+    // 2. 파라미터 구성
+    const params: any[] = [salesPeriodDays, minSalesThreshold, brokenSizeWeight, lowSalesWeight];
+    let idx = 5;
+    let catFilter = '';
+    if (options.category) {
+      catFilter = `AND p.category = $${idx}`;
+      params.push(options.category);
+      idx++;
+    }
+    params.push(maxResults);
+    const limitIdx = idx;
+
+    const sql = `
+      WITH product_sizes AS (
+        SELECT
+          p.product_code, p.product_name, p.category, p.season,
+          p.base_price, p.cost_price,
+          pv.size,
+          CASE pv.size
+            WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
+            WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
+            ELSE 99
+          END AS size_order,
+          COALESCE(SUM(i.qty), 0)::int AS total_stock
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE p.is_active = TRUE
+          AND p.sale_status = '판매중'
+          AND pv.size != 'FREE'
+          AND p.event_price IS NULL
+          ${catFilter}
+        GROUP BY p.product_code, p.product_name, p.category, p.season,
+                 p.base_price, p.cost_price, pv.size
+      ),
+      size_range AS (
+        SELECT
+          product_code,
+          MIN(size_order) FILTER (WHERE total_stock > 0) AS min_stocked,
+          MAX(size_order) FILTER (WHERE total_stock > 0) AS max_stocked
+        FROM product_sizes
+        GROUP BY product_code
+      ),
+      broken_analysis AS (
+        SELECT
+          ps.product_code,
+          COUNT(*)::int AS total_sizes,
+          COUNT(*) FILTER (WHERE ps.total_stock > 0)::int AS sizes_with_stock,
+          COUNT(*) FILTER (WHERE ps.total_stock = 0)::int AS sizes_without_stock,
+          COUNT(*) FILTER (
+            WHERE ps.total_stock = 0
+              AND ps.size_order > sr.min_stocked
+              AND ps.size_order < sr.max_stocked
+          )::int AS broken_count
+        FROM product_sizes ps
+        JOIN size_range sr ON ps.product_code = sr.product_code
+        GROUP BY ps.product_code
+        HAVING COUNT(*) >= 3
+          AND COUNT(*) FILTER (WHERE ps.total_stock > 0) >= 2
+      ),
+      sales_analysis AS (
+        SELECT
+          p.product_code,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code
+        LEFT JOIN sales s ON pv.variant_id = s.variant_id
+          AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
+        WHERE p.is_active = TRUE AND p.sale_status = '판매중'
+          AND p.event_price IS NULL
+          ${catFilter}
+        GROUP BY p.product_code
+      ),
+      product_inventory AS (
+        SELECT
+          pv.product_code,
+          COALESCE(SUM(i.qty), 0)::int AS total_stock
+        FROM product_variants pv
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE pv.is_active = TRUE
+        GROUP BY pv.product_code
+      ),
+      size_detail AS (
+        SELECT
+          product_code,
+          json_agg(
+            json_build_object('size', size, 'stock', total_stock)
+            ORDER BY size_order
+          ) AS sizes
+        FROM product_sizes
+        GROUP BY product_code
+      ),
+      scored AS (
+        SELECT
+          ps_info.product_code,
+          ps_info.product_name,
+          ps_info.category,
+          ps_info.season,
+          ps_info.base_price,
+          COALESCE(pi.total_stock, 0) AS total_stock,
+          COALESCE(ba.broken_count, 0) AS broken_count,
+          COALESCE(ba.total_sizes, 0) AS total_sizes,
+          COALESCE(ba.sizes_with_stock, 0) AS sizes_with_stock,
+          COALESCE(sa.total_sold, 0) AS total_sold,
+          sd.sizes AS size_detail,
+          CASE
+            WHEN COALESCE(ba.broken_count, 0) > 0 AND COALESCE(ba.total_sizes, 0) > 2
+              THEN LEAST(100, ROUND(ba.broken_count::numeric / GREATEST(ba.total_sizes - 2, 1)::numeric * 100))
+            ELSE 0
+          END AS broken_score,
+          CASE
+            WHEN COALESCE(sa.total_sold, 0) <= $2
+              THEN ROUND((1.0 - COALESCE(sa.total_sold, 0)::numeric / GREATEST($2, 1)::numeric) * 100)
+            ELSE 0
+          END AS low_sales_score
+        FROM (
+          SELECT DISTINCT product_code, product_name, category, season, base_price
+          FROM product_sizes
+        ) ps_info
+        LEFT JOIN broken_analysis ba ON ps_info.product_code = ba.product_code
+        LEFT JOIN sales_analysis sa ON ps_info.product_code = sa.product_code
+        LEFT JOIN product_inventory pi ON ps_info.product_code = pi.product_code
+        LEFT JOIN size_detail sd ON ps_info.product_code = sd.product_code
+        WHERE COALESCE(ba.broken_count, 0) > 0
+           OR COALESCE(sa.total_sold, 0) <= $2
+      )
+      SELECT *,
+        ROUND(
+          broken_score * ($3::numeric / 100.0)
+          + low_sales_score * ($4::numeric / 100.0)
+        )::int AS recommendation_score
+      FROM scored
+      ORDER BY
+        ROUND(broken_score * ($3::numeric / 100.0) + low_sales_score * ($4::numeric / 100.0)) DESC,
+        broken_count DESC,
+        total_sold ASC
+      LIMIT $${limitIdx}`;
+
+    const result = await pool.query(sql, params);
+    return result.rows;
+  }
 }
 
 export const productRepository = new ProductRepository();

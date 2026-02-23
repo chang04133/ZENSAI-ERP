@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, InputNumber, Button, message, Descriptions, Spin, Typography, Tag } from 'antd';
-import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined, FireOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
@@ -30,6 +30,13 @@ export default function SystemSettingsPage() {
   const [gradeB, setGradeB] = useState({ min: 30, mult: 1.0 });
   const [safetyBuffer, setSafetyBuffer] = useState(1.2);
 
+  // 행사 추천 설정
+  const [eventRecBrokenWeight, setEventRecBrokenWeight] = useState(60);
+  const [eventRecLowSalesWeight, setEventRecLowSalesWeight] = useState(40);
+  const [eventRecSalesPeriod, setEventRecSalesPeriod] = useState(365);
+  const [eventRecMinSales, setEventRecMinSales] = useState(10);
+  const [eventRecMaxResults, setEventRecMaxResults] = useState(50);
+
   const currentSeason = getCurrentSeason();
 
   const loadSettings = async () => {
@@ -46,6 +53,11 @@ export default function SystemSettingsPage() {
         setGradeA({ min: parseInt(data.data.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_A_MULT || '1.2') });
         setGradeB({ min: parseInt(data.data.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_B_MULT || '1.0') });
         setSafetyBuffer(parseFloat(data.data.AUTO_PROD_SAFETY_BUFFER || '1.2'));
+        setEventRecBrokenWeight(parseInt(data.data.EVENT_REC_BROKEN_SIZE_WEIGHT || '60', 10));
+        setEventRecLowSalesWeight(parseInt(data.data.EVENT_REC_LOW_SALES_WEIGHT || '40', 10));
+        setEventRecSalesPeriod(parseInt(data.data.EVENT_REC_SALES_PERIOD_DAYS || '365', 10));
+        setEventRecMinSales(parseInt(data.data.EVENT_REC_MIN_SALES_THRESHOLD || '10', 10));
+        setEventRecMaxResults(parseInt(data.data.EVENT_REC_MAX_RESULTS || '50', 10));
         const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
@@ -80,6 +92,11 @@ export default function SystemSettingsPage() {
         AUTO_PROD_GRADE_B_MIN: String(gradeB.min),
         AUTO_PROD_GRADE_B_MULT: String(gradeB.mult),
         AUTO_PROD_SAFETY_BUFFER: String(safetyBuffer),
+        EVENT_REC_BROKEN_SIZE_WEIGHT: String(eventRecBrokenWeight),
+        EVENT_REC_LOW_SALES_WEIGHT: String(eventRecLowSalesWeight),
+        EVENT_REC_SALES_PERIOD_DAYS: String(eventRecSalesPeriod),
+        EVENT_REC_MIN_SALES_THRESHOLD: String(eventRecMinSales),
+        EVENT_REC_MAX_RESULTS: String(eventRecMaxResults),
         ...Object.fromEntries(
           Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
@@ -365,6 +382,100 @@ export default function SystemSettingsPage() {
               );
             })}
             <div>{SEASON_LABELS[currentSeason]} 상품 → 수요의 <strong>100%</strong> 반영 (정시즌)</div>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={<span><FireOutlined style={{ marginRight: 8 }} />행사 추천 설정</span>}
+        style={{ borderRadius: 10, marginTop: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          사이즈 깨짐(중간 사이즈 품절)과 저판매 상품을 자동으로 행사 대상으로 추천합니다.
+        </div>
+
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>사이즈 깨짐 가중치</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={100}
+                value={eventRecBrokenWeight}
+                onChange={(v) => v !== null && setEventRecBrokenWeight(v)}
+                addonAfter="점"
+                style={{ width: 130 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>사이즈 깨짐 심각도 반영 비중 (0~100)</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>저판매 가중치</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={100}
+                value={eventRecLowSalesWeight}
+                onChange={(v) => v !== null && setEventRecLowSalesWeight(v)}
+                addonAfter="점"
+                style={{ width: 130 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>저판매 심각도 반영 비중 (0~100)</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={7} max={730}
+                value={eventRecSalesPeriod}
+                onChange={(v) => v !== null && setEventRecSalesPeriod(v)}
+                addonAfter="일"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>최근 N일 판매수량 기준 (기본 365일 = 1년)</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>저판매 판정 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={999}
+                value={eventRecMinSales}
+                onChange={(v) => v !== null && setEventRecMinSales(v)}
+                addonAfter="개 이하"
+                style={{ width: 150 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>분석 기간 내 판매량이 이 수량 이하면 저판매 상품</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>최대 추천 수</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={10} max={200}
+                value={eventRecMaxResults}
+                onChange={(v) => v !== null && setEventRecMaxResults(v)}
+                addonAfter="건"
+                style={{ width: 130 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>한 번에 표시할 최대 추천 상품 수</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        {eventRecBrokenWeight + eventRecLowSalesWeight !== 100 && (
+          <div style={{ marginTop: 12, padding: '8px 12px', background: '#fff7e6', borderRadius: 6, fontSize: 12, color: '#d48806', border: '1px solid #ffe58f' }}>
+            가중치 합계가 {eventRecBrokenWeight + eventRecLowSalesWeight}입니다. 100으로 맞추면 추천 점수가 0~100 범위로 표시됩니다.
+          </div>
+        )}
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>추천 점수 계산</strong></div>
+          <div style={{ marginTop: 4 }}>
+            추천점수 = (사이즈 깨짐 점수 x {eventRecBrokenWeight}/100) + (저판매 점수 x {eventRecLowSalesWeight}/100)
+          </div>
+          <div style={{ marginTop: 4 }}>
+            사이즈 깨짐 점수: 중간 품절 사이즈 수 / (전체 사이즈 - 2) x 100
+          </div>
+          <div>
+            저판매 점수: (1 - 판매량/{eventRecMinSales}) x 100
+          </div>
+          <div style={{ marginTop: 6 }}>
+            점수가 높을수록 행사 대상으로 우선 추천됩니다.
           </div>
         </div>
       </Card>

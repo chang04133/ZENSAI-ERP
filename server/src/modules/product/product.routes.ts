@@ -146,6 +146,7 @@ router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(
 
 // 행사 상품
 router.get('/events', authMiddleware, productController.listEventProducts);
+router.get('/events/recommendations', authMiddleware, productController.eventRecommendations);
 router.put('/events/bulk', ...write, productController.bulkUpdateEventPrices);
 
 router.get('/',      authMiddleware, productController.list);

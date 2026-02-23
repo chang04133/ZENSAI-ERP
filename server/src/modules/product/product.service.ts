@@ -38,6 +38,10 @@ class ProductService extends BaseService<Product> {
   async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>) {
     return productRepository.bulkUpdateEventPrices(updates);
   }
+
+  async eventRecommendations(options: { category?: string; limit?: number }) {
+    return productRepository.eventRecommendations(options);
+  }
 }
 
 export const productService = new ProductService();

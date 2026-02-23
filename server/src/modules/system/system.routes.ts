@@ -86,6 +86,13 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'SEASON_WEIGHT_SM_SA', 'SEASON_WEIGHT_SM_SM', 'SEASON_WEIGHT_SM_WN',
     'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
     'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD',
+    'AUTO_PROD_GRADE_S_MIN', 'AUTO_PROD_GRADE_S_MULT',
+    'AUTO_PROD_GRADE_A_MIN', 'AUTO_PROD_GRADE_A_MULT',
+    'AUTO_PROD_GRADE_B_MIN', 'AUTO_PROD_GRADE_B_MULT',
+    'AUTO_PROD_SAFETY_BUFFER',
+    'EVENT_REC_BROKEN_SIZE_WEIGHT', 'EVENT_REC_LOW_SALES_WEIGHT',
+    'EVENT_REC_SALES_PERIOD_DAYS', 'EVENT_REC_MIN_SALES_THRESHOLD',
+    'EVENT_REC_MAX_RESULTS',
   ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;
@@ -95,6 +102,10 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
       const fv = parseFloat(value);
       if (isNaN(fv) || fv < 0 || fv > 1) continue;
       saveVal = fv.toFixed(2);
+    } else if (key.endsWith('_MULT') || key === 'AUTO_PROD_SAFETY_BUFFER') {
+      const fv = parseFloat(value);
+      if (isNaN(fv) || fv < 0) continue;
+      saveVal = String(fv);
     } else {
       const numVal = parseInt(value, 10);
       if (isNaN(numVal) || numVal < 0) continue;

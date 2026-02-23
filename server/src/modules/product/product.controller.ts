@@ -146,6 +146,15 @@ class ProductController extends BaseController<Product> {
     }
     res.json({ success: true, data: result });
   });
+
+  eventRecommendations = asyncHandler(async (req: Request, res: Response) => {
+    const { limit, category } = req.query;
+    const data = await productService.eventRecommendations({
+      limit: limit ? parseInt(limit as string, 10) : undefined,
+      category: category as string | undefined,
+    });
+    res.json({ success: true, data: stripCostFromResult(data, req) });
+  });
 }
 
 export const productController = new ProductController();

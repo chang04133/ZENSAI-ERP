@@ -30,5 +30,7 @@ import m028 from './028_sales_tax_free';
 import m029 from './029_shipment_status_simplify';
 import m030 from './030_product_image';
 import m031 from './031_variant_low_stock_alert';
+import m032 from './032_event_dates';
+import m033 from './033_general_notifications';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033];

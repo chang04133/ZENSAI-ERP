@@ -224,6 +224,27 @@ router.get('/my-pending-requests', authMiddleware, asyncHandler(async (req, res)
   res.json({ success: true, data: result.rows.map((r: any) => r.variant_id) });
 }));
 
+// GET /api/notifications/general — 일반 알림 목록 (출고/생산 등)
+router.get('/general', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const pc = req.user?.partnerCode;
+  const { limit = '20' } = req.query;
+  const lim = parseInt(limit as string, 10);
+
+  let filter = '';
+  const params: any[] = [lim];
+  if (pc) {
+    filter = 'WHERE target_partner = $2 OR target_partner IS NULL';
+    params.push(pc);
+  }
+
+  const result = await pool.query(
+    `SELECT * FROM general_notifications ${filter} ORDER BY created_at DESC LIMIT $1`,
+    params,
+  );
+  res.json({ success: true, data: result.rows });
+}));
+
 // GET /api/notifications/count — 미읽음 알림 수
 router.get('/count', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();

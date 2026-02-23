@@ -4,6 +4,7 @@ import { ConfigProvider, Spin } from 'antd';
 import koKR from 'antd/locale/ko_KR';
 import { useAuthStore } from './modules/auth/auth.store';
 import ProtectedRoute from './components/ProtectedRoute';
+import ErrorBoundary from './components/ErrorBoundary';
 import MainLayout from './layouts/MainLayout';
 import { appRoutes, LoginPage } from './routes';
 import './styles/global.css';
@@ -38,6 +39,7 @@ export default function App() {
   }, [checkAuth]);
 
   return (
+    <ErrorBoundary>
     <ConfigProvider locale={koKR}>
       <BrowserRouter>
         <RouteCleanup />
@@ -63,5 +65,6 @@ export default function App() {
         </Suspense>
       </BrowserRouter>
     </ConfigProvider>
+    </ErrorBoundary>
   );
 }

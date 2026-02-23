@@ -43,6 +43,9 @@ export default function ProductListPage() {
   const [variantsLoading, setVariantsLoading] = useState<Record<string, boolean>>({});
   const [viewMode, setViewMode] = useState<ViewMode>('product');
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
+  const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
+  const [bulkStatus, setBulkStatus] = useState<string | undefined>();
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
@@ -92,6 +95,27 @@ export default function ProductListPage() {
       load();
     } catch (e: any) {
       message.error(e.message);
+    }
+  };
+
+  const handleBulkStatusChange = async () => {
+    if (!bulkStatus || selectedRowKeys.length === 0) return;
+    setBulkLoading(true);
+    try {
+      let success = 0;
+      for (const code of selectedRowKeys) {
+        await productApi.update(code as string, { sale_status: bulkStatus });
+        success++;
+      }
+      message.success(`${success}개 상품의 상태가 "${bulkStatus}"(으)로 변경되었습니다.`);
+      setSelectedRowKeys([]);
+      setBulkStatusModalOpen(false);
+      setBulkStatus(undefined);
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    } finally {
+      setBulkLoading(false);
     }
   };
 
@@ -447,6 +471,15 @@ export default function ProductListPage() {
           ]}
         />
       </div>
+      {canWrite && viewMode === 'product' && selectedRowKeys.length > 0 && (
+        <Space style={{ marginBottom: 8 }}>
+          <Tag>{selectedRowKeys.length}개 선택</Tag>
+          <Button size="small" onClick={() => { setBulkStatus(undefined); setBulkStatusModalOpen(true); }}>
+            일괄 상태변경
+          </Button>
+          <Button size="small" onClick={() => setSelectedRowKeys([])}>선택 해제</Button>
+        </Space>
+      )}
       <Table
         columns={displayColumns}
         dataSource={displayData}
@@ -459,7 +492,35 @@ export default function ProductListPage() {
           : { pageSize: 50, showTotal: (t: number) => `총 ${t}건` }
         }
         expandable={tableExpandable}
+        rowSelection={canWrite && viewMode === 'product' ? {
+          selectedRowKeys,
+          onChange: setSelectedRowKeys,
+        } : undefined}
       />
+
+      {/* Bulk Status Modal */}
+      <Modal
+        title={`상품 일괄 상태변경 (${selectedRowKeys.length}개)`}
+        open={bulkStatusModalOpen}
+        onOk={handleBulkStatusChange}
+        onCancel={() => setBulkStatusModalOpen(false)}
+        okText="변경"
+        cancelText="취소"
+        confirmLoading={bulkLoading}
+      >
+        <p>선택된 {selectedRowKeys.length}개 상품의 판매 상태를 변경합니다.</p>
+        <Select
+          value={bulkStatus}
+          onChange={setBulkStatus}
+          placeholder="변경할 상태 선택"
+          style={{ width: '100%' }}
+          options={[
+            { label: '판매중', value: '판매중' },
+            { label: '일시품절', value: '일시품절' },
+            { label: '단종', value: '단종' },
+          ]}
+        />
+      </Modal>
 
       {/* Excel Upload Modal */}
       <Modal

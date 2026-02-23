@@ -5,6 +5,8 @@ import dayjs, { Dayjs } from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 
+import { datePresets } from '../../utils/date-presets';
+
 const { RangePicker } = DatePicker;
 
 interface PartnerRow {
@@ -170,6 +172,7 @@ export default function MonthlySalesPage() {
         <RangePicker
           value={range}
           onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
+          presets={datePresets}
           format="YYYY-MM-DD"
           size="small"
           style={{ width: 240 }}

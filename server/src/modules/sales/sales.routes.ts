@@ -162,6 +162,60 @@ router.get('/comprehensive', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// 매장별 성과 비교
+router.get('/store-comparison', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+  const from = date_from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
+  const to = date_to || new Date().toISOString().slice(0, 10);
+
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT s.partner_code, pa.partner_name,
+            COUNT(DISTINCT s.sale_id)::int AS sale_count,
+            SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END)::int AS total_qty,
+            SUM(s.total_price)::numeric AS total_revenue,
+            COUNT(DISTINCT s.sale_date)::int AS active_days
+     FROM sales s
+     JOIN partners pa ON s.partner_code = pa.partner_code
+     WHERE s.sale_date BETWEEN $1 AND $2
+     GROUP BY s.partner_code, pa.partner_name
+     ORDER BY total_revenue DESC`,
+    [from, to],
+  );
+  res.json({ success: true, data: result.rows });
+}));
+
+// 상품별 판매이력
+router.get('/by-product/:code', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const productCode = req.params.code;
+  const { limit = '20' } = req.query;
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+
+  const pool = getPool();
+  const params: any[] = [productCode, parseInt(limit as string, 10)];
+  let partnerFilter = '';
+  if (partnerCode) {
+    partnerFilter = 'AND s.partner_code = $3';
+    params.push(partnerCode);
+  }
+
+  const result = await pool.query(
+    `SELECT s.sale_id, s.sale_date, s.qty, s.unit_price, s.total_price, s.sale_type,
+            s.partner_code, pa.partner_name,
+            pv.sku, pv.color, pv.size
+     FROM sales s
+     JOIN product_variants pv ON s.variant_id = pv.variant_id
+     JOIN partners pa ON s.partner_code = pa.partner_code
+     WHERE pv.product_code = $1 ${partnerFilter}
+     ORDER BY s.sale_date DESC, s.sale_id DESC
+     LIMIT $2`,
+    params,
+  );
+  res.json({ success: true, data: result.rows });
+}));
+
 // 매출 목록 (JOIN 포함)
 router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const role = req.user?.role;
@@ -193,6 +247,21 @@ router.post('/batch',
     }
     const globalTaxFree = !!tax_free;
     const pool = getPool();
+
+    // 재고 부족 경고 수집
+    const warnings: string[] = [];
+    for (const item of items) {
+      if (!item.variant_id || !item.qty) continue;
+      const stockResult = await pool.query(
+        'SELECT COALESCE(qty, 0)::int AS qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+        [pc, item.variant_id],
+      );
+      const currentStock = stockResult.rows[0]?.qty || 0;
+      if (currentStock < item.qty) {
+        warnings.push(`variant_id=${item.variant_id}: 재고 ${currentStock}개, 판매요청 ${item.qty}개 (부족 ${item.qty - currentStock}개)`);
+      }
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -213,7 +282,7 @@ router.post('/batch',
         results.push(sale.rows[0]);
       }
       await client.query('COMMIT');
-      res.status(201).json({ success: true, data: results });
+      res.status(201).json({ success: true, data: results, ...(warnings.length > 0 && { warnings }) });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -232,6 +301,18 @@ router.post('/',
     const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user.partnerCode : partner_code;
     const total_price = qty * unit_price;
     const pool = getPool();
+
+    // 재고 부족 경고
+    const warnings: string[] = [];
+    const stockResult = await pool.query(
+      'SELECT COALESCE(qty, 0)::int AS qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+      [pc, variant_id],
+    );
+    const currentStock = stockResult.rows[0]?.qty || 0;
+    if (currentStock < qty) {
+      warnings.push(`재고 ${currentStock}개, 판매요청 ${qty}개 (부족 ${qty - currentStock}개)`);
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -244,7 +325,7 @@ router.post('/',
         pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
       );
       await client.query('COMMIT');
-      res.status(201).json({ success: true, data: sale.rows[0] });
+      res.status(201).json({ success: true, data: sale.rows[0], ...(warnings.length > 0 && { warnings }) });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;

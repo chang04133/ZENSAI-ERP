@@ -40,9 +40,9 @@ export const productApi = {
     return data.data as { data: Product[]; total: number; page: number; limit: number };
   },
 
-  updateEventPrice: async (productCode: string, eventPrice: number | null) => {
+  updateEventPrice: async (productCode: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null) => {
     const res = await apiFetch(`/api/products/${productCode}/event-price`, {
-      method: 'PUT', body: JSON.stringify({ event_price: eventPrice }),
+      method: 'PUT', body: JSON.stringify({ event_price: eventPrice, event_start_date: startDate, event_end_date: endDate }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);

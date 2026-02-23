@@ -4,6 +4,7 @@ import { Product } from '../../../../shared/types/product';
 import { productService } from './product.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
+import { audit } from '../../core/audit';
 
 /** 매장 역할이면 cost_price 제거 */
 function isStoreRole(req: Request): boolean {
@@ -118,12 +119,18 @@ class ProductController extends BaseController<Product> {
   });
 
   updateEventPrice = asyncHandler(async (req: Request, res: Response) => {
-    const { event_price } = req.body;
-    const product = await productService.updateEventPrice(req.params.code as string, event_price ?? null);
+    const { event_price, event_start_date, event_end_date } = req.body;
+    const code = req.params.code as string;
+    const product = await productService.updateEventPrice(
+      code, event_price ?? null,
+      event_start_date, event_end_date,
+    );
     if (!product) {
       res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
       return;
     }
+    audit('products', code, 'UPDATE', req.user!.userId,
+      null, { event_price, event_start_date, event_end_date });
     res.json({ success: true, data: stripCostFromResult(product, req) });
   });
 

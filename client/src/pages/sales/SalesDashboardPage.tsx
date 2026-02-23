@@ -9,6 +9,7 @@ import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
 import { salesApi } from '../../modules/sales/sales.api';
+import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 
@@ -326,6 +327,7 @@ export default function SalesDashboardPage() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
+  const [storeComparison, setStoreComparison] = useState<any[]>([]);
 
   const loadStats = async (p: string) => {
     setLoading(true);
@@ -337,8 +339,17 @@ export default function SalesDashboardPage() {
     finally { setLoading(false); }
   };
 
+  const loadStoreComparison = async () => {
+    try {
+      const res = await apiFetch('/api/sales/store-comparison');
+      const data = await res.json();
+      if (data.success) setStoreComparison(data.data);
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => {
     loadStats(period);
+    if (!isStore) loadStoreComparison();
   }, []);
 
   const handlePeriodChange = (v: string) => {
@@ -642,6 +653,34 @@ export default function SalesDashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* 매장별 성과 비교 (본사만) */}
+      {!isStore && storeComparison.length > 0 && (
+        <Card title={<span><ShopOutlined /> 매장별 성과 비교 (이번달)</span>} style={{ marginTop: 16 }}>
+          <Table
+            dataSource={storeComparison}
+            rowKey="partner_code"
+            size="small"
+            pagination={false}
+            columns={[
+              { title: '순위', key: 'rank', width: 50, render: (_: any, __: any, i: number) => {
+                if (i === 0) return <Tag color="gold"><CrownOutlined /> 1</Tag>;
+                return <Tag>{i + 1}</Tag>;
+              }},
+              { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
+              { title: '매출건수', dataIndex: 'sale_count', key: 'sale_count', width: 80, render: (v: number) => `${v}건` },
+              { title: '판매수량', dataIndex: 'total_qty', key: 'total_qty', width: 80, render: (v: number) => `${v}개` },
+              { title: '매출액', dataIndex: 'total_revenue', key: 'total_revenue', width: 120, render: (v: number) => fmtWon(Number(v)) },
+              { title: '활동일수', dataIndex: 'active_days', key: 'active_days', width: 80, render: (v: number) => `${v}일` },
+              { title: '매출비중', key: 'share', width: 150, render: (_: any, r: any) => {
+                const total = storeComparison.reduce((s, c) => s + Number(c.total_revenue), 0);
+                const pct = total > 0 ? Math.round((Number(r.total_revenue) / total) * 100) : 0;
+                return <Progress percent={pct} size="small" strokeColor="#6366f1" />;
+              }},
+            ]}
+          />
+        </Card>
+      )}
     </div>
   );
 }

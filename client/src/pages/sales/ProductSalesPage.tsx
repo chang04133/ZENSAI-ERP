@@ -8,6 +8,8 @@ import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
 
+import { datePresets } from '../../utils/date-presets';
+
 const { RangePicker } = DatePicker;
 
 const CAT_COLORS: Record<string, string> = {
@@ -57,6 +59,7 @@ export default function ProductSalesPage() {
         <RangePicker
           value={range}
           onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
+          presets={datePresets}
           format="YYYY-MM-DD"
           size="small"
           style={{ width: 240 }}

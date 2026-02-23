@@ -171,10 +171,10 @@ export class ProductRepository extends BaseRepository<Product> {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async updateEventPrice(code: string, eventPrice: number | null) {
+  async updateEventPrice(code: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null) {
     const result = await this.pool.query(
-      `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
-      [eventPrice, code],
+      `UPDATE products SET event_price = $1, event_start_date = $2, event_end_date = $3, updated_at = NOW() WHERE product_code = $4 RETURNING *`,
+      [eventPrice, startDate || null, endDate || null, code],
     );
     return result.rows[0] || null;
   }

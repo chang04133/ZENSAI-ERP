@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Descriptions, Table, Button, Card, Space, Tag, Modal, Form, Input, InputNumber, Select, Popconfirm, Image, message } from 'antd';
-import { PlusOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
+import { Descriptions, Table, Button, Card, Space, Tag, Modal, Form, Input, InputNumber, Select, Popconfirm, Image, Collapse, message } from 'antd';
+import { PlusOutlined, ArrowLeftOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { productApi } from '../../modules/product/product.api';
+import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
+import dayjs from 'dayjs';
 
 const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'].map((s) => ({ label: s, value: s }));
 
@@ -37,6 +39,10 @@ export default function ProductDetailPage() {
   const [editForm] = Form.useForm();
   const [editingVariant, setEditingVariant] = useState<any>(null);
 
+  // 판매이력
+  const [salesHistory, setSalesHistory] = useState<any[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+
   const load = async () => {
     try {
       const data = await productApi.get(code!);
@@ -48,7 +54,16 @@ export default function ProductDetailPage() {
     }
   };
 
-  useEffect(() => { load(); }, [code]);
+  const loadSales = async () => {
+    setSalesLoading(true);
+    try {
+      const res = await apiFetch(`/api/sales/by-product/${code}?limit=50`);
+      const data = await res.json();
+      if (data.success) setSalesHistory(data.data);
+    } catch { /* ignore */ } finally { setSalesLoading(false); }
+  };
+
+  useEffect(() => { load(); loadSales(); }, [code]);
 
   // 변형 추가
   const handleAddVariant = async (values: any) => {
@@ -208,6 +223,37 @@ export default function ProductDetailPage() {
               <Table.Summary.Cell index={7} colSpan={2} />
             </Table.Summary.Row>
           )}
+        />
+      </Card>
+
+      {/* 판매이력 */}
+      <Card style={{ marginTop: 24 }}>
+        <Collapse
+          ghost
+          items={[{
+            key: 'sales',
+            label: <span><HistoryOutlined /> 최근 판매이력 ({salesHistory.length}건)</span>,
+            children: (
+              <Table
+                dataSource={salesHistory}
+                rowKey="sale_id"
+                size="small"
+                loading={salesLoading}
+                pagination={{ pageSize: 10, showTotal: (t) => `총 ${t}건` }}
+                columns={[
+                  { title: '판매일', dataIndex: 'sale_date', key: 'sale_date', width: 100, render: (v: string) => dayjs(v).format('YYYY-MM-DD') },
+                  { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 100 },
+                  { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
+                  { title: '컬러', dataIndex: 'color', key: 'color', width: 60 },
+                  { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> },
+                  { title: '수량', dataIndex: 'qty', key: 'qty', width: 60 },
+                  { title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 100, render: (v: number) => `${Number(v).toLocaleString()}원` },
+                  { title: '합계', dataIndex: 'total_price', key: 'total_price', width: 100, render: (v: number) => `${Number(v).toLocaleString()}원` },
+                  { title: '유형', dataIndex: 'sale_type', key: 'sale_type', width: 70, render: (v: string) => <Tag color={v === '반품' ? 'red' : v === '행사' ? 'orange' : 'blue'}>{v}</Tag> },
+                ]}
+              />
+            ),
+          }]}
         />
       </Card>
 

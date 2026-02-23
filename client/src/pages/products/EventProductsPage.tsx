@@ -1,11 +1,12 @@
-import { useEffect, useState, useRef } from 'react';
-import { Table, Button, Input, InputNumber, Space, Tag, Modal, Alert, Popconfirm, message } from 'antd';
+import { useEffect, useState } from 'react';
+import { Table, Button, Input, InputNumber, Space, Tag, Modal, Alert, Popconfirm, DatePicker, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
+import dayjs from 'dayjs';
 
 export default function EventProductsPage() {
   const navigate = useNavigate();
@@ -51,6 +52,19 @@ export default function EventProductsPage() {
       await productApi.updateEventPrice(code, newPrice);
       message.success('행사가가 수정되었습니다.');
       setEditingPrices((prev) => { const next = { ...prev }; delete next[code]; return next; });
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const handleDateChange = async (code: string, type: 'start' | 'end', date: any) => {
+    try {
+      const item = data.find((d: any) => d.product_code === code);
+      const startDate = type === 'start' ? (date ? date.format('YYYY-MM-DD') : null) : (item?.event_start_date || null);
+      const endDate = type === 'end' ? (date ? date.format('YYYY-MM-DD') : null) : (item?.event_end_date || null);
+      await productApi.updateEventPrice(code, item?.event_price, startDate, endDate);
+      message.success('행사 기간이 수정되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -139,6 +153,38 @@ export default function EventProductsPage() {
         if (!base || !event) return '-';
         const rate = Math.round((1 - event / base) * 100);
         return <Tag color={rate >= 30 ? 'red' : rate >= 10 ? 'orange' : 'default'}>{rate}%</Tag>;
+      },
+    },
+    {
+      title: '시작일', dataIndex: 'event_start_date', key: 'event_start_date', width: 130,
+      render: (v: string, record: any) => {
+        if (!canWrite) return v ? dayjs(v).format('YYYY-MM-DD') : '-';
+        return (
+          <DatePicker
+            size="small"
+            value={v ? dayjs(v) : null}
+            onChange={(d) => handleDateChange(record.product_code, 'start', d)}
+            placeholder="시작일"
+            style={{ width: 120 }}
+          />
+        );
+      },
+    },
+    {
+      title: '종료일', dataIndex: 'event_end_date', key: 'event_end_date', width: 130,
+      render: (v: string, record: any) => {
+        const expired = v && dayjs(v).isBefore(dayjs(), 'day');
+        if (!canWrite) return v ? <span style={expired ? { color: '#ff4d4f' } : {}}>{dayjs(v).format('YYYY-MM-DD')}{expired ? ' (만료)' : ''}</span> : '-';
+        return (
+          <DatePicker
+            size="small"
+            value={v ? dayjs(v) : null}
+            onChange={(d) => handleDateChange(record.product_code, 'end', d)}
+            placeholder="종료일"
+            style={{ width: 120 }}
+            status={expired ? 'error' : undefined}
+          />
+        );
       },
     },
     {

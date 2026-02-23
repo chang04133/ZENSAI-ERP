@@ -80,7 +80,8 @@ export class BaseRepository<T = any> {
   }
 
   async list(options: QueryOptions = {}): Promise<PaginatedResponse<T>> {
-    const { page = 1, limit = 20, orderBy, orderDir } = options;
+    const { page = 1, limit: rawLimit = 20, orderBy, orderDir } = options;
+    const limit = Math.min(rawLimit, 100);
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
     const { whereClause, params, nextIdx } = qb.build();

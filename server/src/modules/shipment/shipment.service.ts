@@ -3,6 +3,7 @@ import { ShipmentRequest } from '../../../../shared/types/shipment';
 import { shipmentRepository } from './shipment.repository';
 import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
+import { createNotification } from '../../core/notify';
 
 class ShipmentService extends BaseService<ShipmentRequest> {
   constructor() {
@@ -77,7 +78,49 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
+      // CANCELLED 전환 시: 이전 재고 변동 롤백
+      if (oldStatus !== 'CANCELLED' && newStatus === 'CANCELLED') {
+        const items = await client.query(
+          'SELECT variant_id, shipped_qty, received_qty FROM shipment_request_items WHERE request_id = $1', [id],
+        );
+        // RECEIVED 상태였으면 to_partner에서 received_qty 차감
+        if (oldStatus === 'RECEIVED' && current.to_partner) {
+          for (const item of items.rows) {
+            if (item.received_qty > 0) {
+              await inventoryRepository.applyChange(
+                current.to_partner, item.variant_id, -item.received_qty,
+                txType, id, userId, client,
+              );
+            }
+          }
+        }
+        // SHIPPED 또는 RECEIVED 상태였으면 from_partner에 shipped_qty 복구
+        if ((oldStatus === 'SHIPPED' || oldStatus === 'RECEIVED') && current.from_partner) {
+          for (const item of items.rows) {
+            if (item.shipped_qty > 0) {
+              await inventoryRepository.applyChange(
+                current.from_partner, item.variant_id, item.shipped_qty,
+                txType, id, userId, client,
+              );
+            }
+          }
+        }
+      }
+
       await client.query('COMMIT');
+
+      // 알림 생성 (비동기, 실패 무시)
+      if (oldStatus !== newStatus) {
+        const statusLabels: Record<string, string> = { SHIPPED: '출고확인', RECEIVED: '수령완료', CANCELLED: '취소' };
+        const label = statusLabels[newStatus] || newStatus;
+        const targetPartner = newStatus === 'SHIPPED' ? current.to_partner : current.from_partner;
+        createNotification(
+          'SHIPMENT', `출고의뢰 ${label}`,
+          `${current.request_type} #${current.request_no}이(가) ${label} 처리되었습니다.`,
+          id, targetPartner, userId,
+        );
+      }
+
       return shipmentRepository.getWithItems(id);
     } catch (e) {
       await client.query('ROLLBACK');

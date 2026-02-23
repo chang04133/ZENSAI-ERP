@@ -6,6 +6,8 @@ import { STATUS_COLORS, STATUS_LABELS } from '../../components/shipment/Shipment
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 
+import { datePresets } from '../../utils/date-presets';
+
 const { RangePicker } = DatePicker;
 
 export default function ShipmentHistoryPage() {
@@ -81,7 +83,7 @@ export default function ShipmentHistoryPage() {
         <Select size="small" placeholder="상태" allowClear value={statusFilter}
           onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
           options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
-        <RangePicker size="small" value={dateRange} onChange={(v) => setDateRange(v as any)} />
+        <RangePicker size="small" presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />
         <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
       </Space>
       <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}

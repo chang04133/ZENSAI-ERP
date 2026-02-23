@@ -2,8 +2,9 @@ import { useEffect, useState, CSSProperties } from 'react';
 import { Table, Tag, Button, Select, Space, Card, Row, Col, Modal, Form, InputNumber, Popconfirm, message } from 'antd';
 import {
   FileTextOutlined, CheckCircleOutlined, ShoppingCartOutlined,
-  InboxOutlined, ReloadOutlined,
+  InboxOutlined, ReloadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
+import { exportToExcel } from '../../utils/export-excel';
 import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
@@ -179,6 +180,12 @@ export default function RestockProgressPage() {
             onChange={setPartnerFilter} style={{ width: 150 }}
             options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
           />
+          <Button icon={<DownloadOutlined />} onClick={() => exportToExcel(requests, [
+            { title: '의뢰번호', key: 'request_no' }, { title: '거래처', key: 'partner_name' },
+            { title: '상태', key: 'status' }, { title: '의뢰일', key: 'request_date' },
+            { title: '입고예정', key: 'expected_date' }, { title: '품목수', key: 'item_count' },
+            { title: '총수량', key: 'total_qty' },
+          ], `재입고진행_${new Date().toISOString().slice(0, 10)}`)}>엑셀</Button>
           <Button icon={<ReloadOutlined />} onClick={() => { loadStats(); loadList(); }}>새로고침</Button>
         </Space>
       } />

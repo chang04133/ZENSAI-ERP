@@ -7,6 +7,8 @@ import {
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
 
+import { datePresets } from '../../utils/date-presets';
+
 const { RangePicker } = DatePicker;
 
 const fmt = (v: number) => Number(v).toLocaleString();
@@ -251,6 +253,7 @@ export default function SellThroughPage() {
                 <RangePicker
                   value={dateRange}
                   onChange={handleRangeChange}
+                  presets={datePresets}
                   size="small"
                   style={{ width: 240 }}
                   allowClear={false}

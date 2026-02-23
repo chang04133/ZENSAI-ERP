@@ -12,6 +12,8 @@ import { useAuthStore } from '../../modules/auth/auth.store';
 import { apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 
+import { datePresets } from '../../utils/date-presets';
+
 const { RangePicker } = DatePicker;
 
 interface ItemRow {
@@ -234,7 +236,7 @@ export default function ReturnManagePage() {
         <Select size="small" placeholder="상태" allowClear value={statusFilter}
           onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
           options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
-        <RangePicker size="small" value={dateRange} onChange={(v) => setDateRange(v as any)} />
+        <RangePicker size="small" presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />
         <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
       </Space>
       <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}

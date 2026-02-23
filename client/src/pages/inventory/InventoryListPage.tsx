@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
 import { Table, Button, Input, Select, Space, Tag, message } from 'antd';
-import { SearchOutlined } from '@ant-design/icons';
+import { SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { partnerApi } from '../../modules/partner/partner.api';
+import { exportToExcel } from '../../utils/export-excel';
 
 export default function InventoryListPage() {
   const [data, setData] = useState<any[]>([]);
@@ -55,7 +56,14 @@ export default function InventoryListPage() {
 
   return (
     <div>
-      <PageHeader title="전체 재고현황" />
+      <PageHeader title="전체 재고현황" extra={
+        <Button icon={<DownloadOutlined />} size="small" onClick={() => exportToExcel(data, [
+          { title: '거래처', key: 'partner_name' }, { title: '상품코드', key: 'product_code' },
+          { title: '상품명', key: 'product_name' }, { title: 'SKU', key: 'sku' },
+          { title: '색상', key: 'color' }, { title: '사이즈', key: 'size' },
+          { title: '수량', key: 'qty' },
+        ], `재고현황_${new Date().toISOString().slice(0, 10)}`)}>엑셀 다운로드</Button>
+      } />
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
           size="small" placeholder="거래처" allowClear showSearch optionFilterProp="label"

@@ -1,7 +1,9 @@
 import { BaseService } from '../../core/base.service';
 import { ProductionPlan } from '../../../../shared/types/production';
 import { productionRepository } from './production.repository';
+import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
+import { createNotification } from '../../core/notify';
 
 class ProductionService extends BaseService<ProductionPlan> {
   constructor() {
@@ -48,9 +50,9 @@ class ProductionService extends BaseService<ProductionPlan> {
       vals.push(id);
       await client.query(`UPDATE production_plans SET ${sets.join(', ')} WHERE plan_id = $${idx}`, vals);
 
-      // ── 생산완료 시 자재 자동차감 ──
-      // (재고 자동입고는 카테고리 기반이므로 개별 상품/variant 미지정 → 제거)
+      // ── 생산완료 시 자재 자동차감 + 완제품 재고 입고 ──
       if (status === 'COMPLETED' && plan.status !== 'COMPLETED') {
+        // 1) 자재 차감
         const materials = await client.query(
           'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
           [id],
@@ -61,9 +63,38 @@ class ProductionService extends BaseService<ProductionPlan> {
             [mat.used_qty, mat.material_id],
           );
         }
+
+        // 2) 완제품 재고 입고: 각 plan_item의 produced_qty만큼 본사(HQ) 재고 증가
+        const planItems = await client.query(
+          `SELECT ppi.variant_id, ppi.produced_qty
+           FROM production_plan_items ppi
+           WHERE ppi.plan_id = $1 AND ppi.produced_qty > 0`,
+          [id],
+        );
+        // 본사 파트너 코드 조회 (partner_type = 'HQ')
+        const hqResult = await client.query(
+          `SELECT partner_code FROM partners WHERE partner_type = 'HQ' LIMIT 1`,
+        );
+        const hqPartner = hqResult.rows[0]?.partner_code || 'HQ';
+        for (const item of planItems.rows) {
+          await inventoryRepository.applyChange(
+            hqPartner, item.variant_id, item.produced_qty,
+            'PRODUCTION', id, userId, client,
+          );
+        }
       }
 
       await client.query('COMMIT');
+
+      // 알림 생성
+      if (status === 'COMPLETED') {
+        createNotification(
+          'PRODUCTION', '생산완료',
+          `생산계획 #${plan.plan_no || id}이(가) 완료되었습니다. 완제품 재고가 입고 처리되었습니다.`,
+          id, undefined, userId,
+        );
+      }
+
       return productionRepository.getWithItems(id);
     } catch (e) {
       await client.query('ROLLBACK');

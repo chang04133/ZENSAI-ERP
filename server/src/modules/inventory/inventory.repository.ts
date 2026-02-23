@@ -2,6 +2,7 @@ import { BaseRepository } from '../../core/base.repository';
 import { Inventory, InventoryTransaction } from '../../../../shared/types/inventory';
 import { getPool } from '../../db/connection';
 import { QueryBuilder } from '../../core/query-builder';
+import { audit } from '../../core/audit';
 
 export class InventoryRepository extends BaseRepository<Inventory> {
   constructor() {
@@ -71,6 +72,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     partnerCode: string, variantId: number, qtyChange: number,
     txType: string, refId: number, userId: string, client: any,
   ): Promise<void> {
+    // Advisory lock으로 동시성 보호 (partner_code + variant_id 기반 해시)
+    const lockKey = Buffer.from(`${partnerCode}:${variantId}`).reduce((h, b) => (h * 31 + b) | 0, 0);
+    await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
+
     await client.query(
       `INSERT INTO inventory (partner_code, variant_id, qty)
        VALUES ($1, $2, GREATEST(0, $3))
@@ -378,6 +383,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         [partnerCode, variantId, qtyChange, newQty, userId, memo || null],
       );
       await client.query('COMMIT');
+
+      // 감사 로그
+      audit('inventory', `${partnerCode}:${variantId}`, 'UPDATE', userId,
+        { qty: currentQty }, { qty: newQty, change: qtyChange, memo });
 
       const result = inv.rows[0];
       // 음수 조정으로 0이 된 경우 경고 포함

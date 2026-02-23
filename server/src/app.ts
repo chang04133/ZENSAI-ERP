@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import { config } from './config/env';
@@ -47,7 +48,25 @@ app.use(cors({
   origin: getCorsOrigin(),
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
+
+// Rate limiting
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
+});
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.' },
+});
+app.use('/api', apiLimiter);
+app.use('/api/auth/login', authLimiter);
 
 // Uploads: static file serving
 const uploadsDir = path.join(__dirname, '../../uploads/products');

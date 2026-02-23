@@ -96,10 +96,15 @@ export default function ProductListPage() {
     }
   };
 
-  const handleToggleAlert = async (code: string, checked: boolean) => {
+  const handleToggleVariantAlert = async (variantId: number, checked: boolean, productCode: string) => {
     try {
-      await productApi.update(code, { low_stock_alert: checked });
-      load();
+      await productApi.toggleVariantAlert(variantId, checked);
+      // variantsMap 캐시 업데이트
+      setVariantsMap((prev) => {
+        const variants = prev[productCode];
+        if (!variants) return prev;
+        return { ...prev, [productCode]: variants.map((v: any) => v.variant_id === variantId ? { ...v, low_stock_alert: checked } : v) };
+      });
     } catch (e: any) {
       message.error(e.message);
     }
@@ -204,6 +209,11 @@ export default function ProductListPage() {
         render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
       },
       { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+      { title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
+        render: (v: boolean, row: any) => (
+          <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, record.product_code)} />
+        ),
+      },
     ];
     return (
       <Table
@@ -253,16 +263,6 @@ export default function ProductListPage() {
         const qty = Number(v || 0);
         return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
       },
-    },
-    { title: '부족알림', key: 'low_stock_alert', width: 90,
-      render: (_: any, record: any) => (
-        <Switch
-          size="small"
-          checked={record.low_stock_alert}
-          onChange={(checked) => handleToggleAlert(record.product_code, checked)}
-          disabled={!canWrite}
-        />
-      ),
     },
     ...(canWrite ? [{
       title: '관리', key: 'actions', width: 120,
@@ -324,7 +324,7 @@ export default function ProductListPage() {
     if (viewMode === 'product') return columns;
 
     if (viewMode === 'color') {
-      const base = (columns as any[]).filter((c) => !['total_inv_qty', 'low_stock_alert'].includes(c.key));
+      const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
       const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
       const colorCol = { title: '컬러', dataIndex: '_color', key: '_color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
       const qtyCol = {
@@ -346,7 +346,7 @@ export default function ProductListPage() {
     }
 
     // size view
-    const base = (columns as any[]).filter((c) => !['total_inv_qty', 'low_stock_alert'].includes(c.key));
+    const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
     const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
     const colorCol = { title: '컬러', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
     const sizeCol = { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> };
@@ -356,6 +356,12 @@ export default function ProductListPage() {
       render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
     };
     const barcodeCol = { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 130, render: (v: string) => v || '-' };
+    const alertCol = {
+      title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
+      render: (v: boolean, row: any) => (
+        <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, row.product_code)} />
+      ),
+    };
     const newCols = [...base];
     newCols.splice(codeIdx + 1, 0, colorCol, sizeCol, skuCol);
     // update product_code render
@@ -363,7 +369,7 @@ export default function ProductListPage() {
       ...newCols[codeIdx],
       render: (_: any, record: any) => <a onClick={() => navigate(`/products/${record.product_code}`)}>{record.product_code}</a>,
     };
-    newCols.push(qtyCol, barcodeCol);
+    newCols.push(qtyCol, barcodeCol, alertCol);
     return newCols;
   }, [viewMode, columns, navigate, isStore, canWrite]);
 
@@ -377,6 +383,11 @@ export default function ProductListPage() {
         render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
       },
       { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+      { title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
+        render: (v: boolean, row: any) => (
+          <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, record.product_code)} />
+        ),
+      },
     ];
     return <Table columns={cols} dataSource={variants} rowKey="variant_id" pagination={false} size="small" style={{ margin: 0 }} />;
   };

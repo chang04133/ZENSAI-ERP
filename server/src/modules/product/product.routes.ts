@@ -156,6 +156,22 @@ router.put('/:code/event-price', ...write, productController.updateEventPrice);
 router.put('/:code', ...write, productController.update);
 router.delete('/:code', ...write, productController.remove);
 
+// SKU별 부족알림 토글
+router.put('/variants/:id/alert', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const variantId = parseInt(req.params.id as string, 10);
+  const { low_stock_alert } = req.body;
+  const result = await pool.query(
+    `UPDATE product_variants SET low_stock_alert = $1 WHERE variant_id = $2 RETURNING variant_id, low_stock_alert`,
+    [!!low_stock_alert, variantId],
+  );
+  if (result.rows.length === 0) {
+    res.status(404).json({ success: false, error: '변형을 찾을 수 없습니다.' });
+    return;
+  }
+  res.json({ success: true, data: result.rows[0] });
+}));
+
 // Variant sub-routes
 router.post('/:code/variants',       ...write, validateRequired(['color', 'size']), productController.addVariant);
 router.put('/:code/variants/:id',    ...write, productController.updateVariant);

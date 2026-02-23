@@ -79,6 +79,16 @@ export const productApi = {
     return data.data as { image_url: string };
   },
 
+  // SKU별 부족알림 토글
+  toggleVariantAlert: async (variantId: number, low_stock_alert: boolean) => {
+    const res = await apiFetch(`/api/products/variants/${variantId}/alert`, {
+      method: 'PUT', body: JSON.stringify({ low_stock_alert }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
   // 바코드 등록/수정
   updateBarcode: async (variantId: number, barcode: string | null) => {
     const res = await apiFetch(`/api/products/variants/${variantId}/barcode`, {

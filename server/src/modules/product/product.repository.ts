@@ -47,7 +47,15 @@ export class ProductRepository extends BaseRepository<Product> {
     const product = await pool.query('SELECT * FROM products WHERE product_code = $1', [code]);
     if (product.rows.length === 0) return null;
     const variants = await pool.query(
-      'SELECT * FROM product_variants WHERE product_code = $1 ORDER BY color, size',
+      `SELECT pv.*, COALESCE(inv.total_qty, 0)::int AS stock_qty
+       FROM product_variants pv
+       LEFT JOIN (
+         SELECT variant_id, SUM(qty) AS total_qty
+         FROM inventory
+         GROUP BY variant_id
+       ) inv ON pv.variant_id = inv.variant_id
+       WHERE pv.product_code = $1
+       ORDER BY pv.color, pv.size`,
       [code],
     );
     return { ...product.rows[0], variants: variants.rows };

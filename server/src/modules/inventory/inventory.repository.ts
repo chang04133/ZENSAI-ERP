@@ -229,7 +229,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON i.partner_code = pt.partner_code
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
-        AND p.low_stock_alert = TRUE
+        AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         AND i.qty < COALESCE(p.low_stock_threshold, $1)
         ${pcFilter}
       ORDER BY i.qty ASC, p.product_name
@@ -278,7 +278,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON i.partner_code = pt.partner_code
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
-        AND p.low_stock_alert = TRUE
+        AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         AND i.qty > COALESCE(p.low_stock_threshold, $1)
         AND i.qty <= COALESCE(p.medium_stock_threshold, $2)
         ${pcFilter}

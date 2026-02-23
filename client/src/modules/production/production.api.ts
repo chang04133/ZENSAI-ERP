@@ -46,6 +46,21 @@ export const productionApi = {
     if (!d.success) throw new Error(d.error);
     return d.data as Array<{ color: string; size: string; sku: string; sold_qty: number; current_stock: number; sell_through_rate: number }>;
   },
+  autoGeneratePreview: async () => {
+    const res = await apiFetch('/api/productions/auto-generate/preview');
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
+  autoGenerate: async (season?: string) => {
+    const res = await apiFetch('/api/productions/auto-generate', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ season }),
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
   updateStatus: async (id: number, status: string) => {
     const res = await apiFetch(`/api/productions/${id}/status`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

@@ -514,6 +514,175 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     return result.rows;
   }
 
+  async autoGenerateSettings(): Promise<{
+    gradeS: { min: number; mult: number };
+    gradeA: { min: number; mult: number };
+    gradeB: { min: number; mult: number };
+    safetyBuffer: number;
+  }> {
+    const pool = getPool();
+    const result = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'AUTO_PROD_%'",
+    );
+    const map: Record<string, string> = {};
+    for (const r of result.rows) map[r.code_value] = r.code_label;
+    return {
+      gradeS: { min: parseInt(map.AUTO_PROD_GRADE_S_MIN || '80', 10), mult: parseFloat(map.AUTO_PROD_GRADE_S_MULT || '1.5') },
+      gradeA: { min: parseInt(map.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(map.AUTO_PROD_GRADE_A_MULT || '1.2') },
+      gradeB: { min: parseInt(map.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(map.AUTO_PROD_GRADE_B_MULT || '1.0') },
+      safetyBuffer: parseFloat(map.AUTO_PROD_SAFETY_BUFFER || '1.2'),
+    };
+  }
+
+  async autoGeneratePlans(userId: string, season?: string): Promise<any[]> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      // 1) 설정값 로드
+      const settings = await this.autoGenerateSettings();
+      // 2) 추천 데이터 가져오기 (판매율 B급 이상만)
+      const recs = await this.recommendations({ limit: 100 });
+      if (recs.length === 0) return [];
+
+      // 3) 등급별 배수 적용 + 카테고리 그룹핑
+      const categoryGroups: Record<string, Array<{
+        product_code: string; product_name: string; category: string;
+        shortage_qty: number; sell_through_rate: number; grade: string;
+        final_qty: number; season_weight: number; days_of_stock: number;
+      }>> = {};
+
+      for (const rec of recs) {
+        const rate = Number(rec.sell_through_rate);
+        const shortage = Number(rec.shortage_qty);
+        if (shortage <= 0) continue;
+
+        let grade: string;
+        let mult: number;
+        if (rate >= settings.gradeS.min) { grade = 'S'; mult = settings.gradeS.mult; }
+        else if (rate >= settings.gradeA.min) { grade = 'A'; mult = settings.gradeA.mult; }
+        else if (rate >= settings.gradeB.min) { grade = 'B'; mult = settings.gradeB.mult; }
+        else continue; // C등급 제외
+
+        const finalQty = Math.ceil(shortage * settings.safetyBuffer * mult);
+        const cat = rec.category || '미분류';
+        if (!categoryGroups[cat]) categoryGroups[cat] = [];
+        categoryGroups[cat].push({
+          product_code: rec.product_code,
+          product_name: rec.product_name,
+          category: cat,
+          shortage_qty: shortage,
+          sell_through_rate: rate,
+          grade,
+          final_qty: finalQty,
+          season_weight: Number(rec.season_weight),
+          days_of_stock: Number(rec.days_of_stock),
+        });
+      }
+
+      if (Object.keys(categoryGroups).length === 0) return [];
+
+      // 4) 현재 시즌 결정
+      const m = new Date().getMonth() + 1;
+      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? '2026SA' : [6, 7, 8].includes(m) ? '2026SM' : '2025WN');
+
+      // 5) 카테고리별 생산계획 자동 생성
+      await client.query('BEGIN');
+      const createdPlans: any[] = [];
+
+      for (const [cat, items] of Object.entries(categoryGroups)) {
+        const totalQty = items.reduce((s, i) => s + i.final_qty, 0);
+        const gradeBreakdown = items.reduce((acc, i) => {
+          acc[i.grade] = (acc[i.grade] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const gradeSummary = Object.entries(gradeBreakdown).map(([g, c]) => `${g}급 ${c}건`).join(', ');
+
+        const planNo = (await pool.query('SELECT generate_plan_no() as no')).rows[0].no;
+        const planName = `[자동] ${cat} 생산기획 (${gradeSummary})`;
+
+        const planResult = await client.query(
+          `INSERT INTO production_plans (plan_no, plan_name, season, memo, created_by)
+           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+          [planNo, planName, currentSeason,
+           `판매율 기반 자동 생성. ${items.length}개 품목, 총 ${totalQty}개. ${gradeSummary}`,
+           userId],
+        );
+        const plan = planResult.rows[0];
+
+        // 카테고리 단위로 1개 아이템 (총합)
+        await client.query(
+          `INSERT INTO production_plan_items (plan_id, category, plan_qty, memo)
+           VALUES ($1, $2, $3, $4)`,
+          [plan.plan_id, cat, totalQty,
+           items.map(i => `${i.product_code}(${i.grade}급/${i.sell_through_rate}%→${i.final_qty}개)`).join(', ')],
+        );
+
+        createdPlans.push({
+          plan_id: plan.plan_id,
+          plan_no: planNo,
+          plan_name: planName,
+          category: cat,
+          total_qty: totalQty,
+          item_count: items.length,
+          items,
+          grade_breakdown: gradeBreakdown,
+        });
+      }
+
+      await client.query('COMMIT');
+      return createdPlans;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async autoGeneratePreview(): Promise<any> {
+    const settings = await this.autoGenerateSettings();
+    const recs = await this.recommendations({ limit: 100 });
+    if (recs.length === 0) return { settings, categories: {}, totalProducts: 0, totalQty: 0 };
+
+    const categories: Record<string, any> = {};
+    let totalProducts = 0;
+    let totalQty = 0;
+
+    for (const rec of recs) {
+      const rate = Number(rec.sell_through_rate);
+      const shortage = Number(rec.shortage_qty);
+      if (shortage <= 0) continue;
+
+      let grade: string;
+      let mult: number;
+      if (rate >= settings.gradeS.min) { grade = 'S'; mult = settings.gradeS.mult; }
+      else if (rate >= settings.gradeA.min) { grade = 'A'; mult = settings.gradeA.mult; }
+      else if (rate >= settings.gradeB.min) { grade = 'B'; mult = settings.gradeB.mult; }
+      else continue;
+
+      const finalQty = Math.ceil(shortage * settings.safetyBuffer * mult);
+      const cat = rec.category || '미분류';
+      if (!categories[cat]) categories[cat] = { items: [], totalQty: 0, grades: {} };
+      categories[cat].items.push({
+        product_code: rec.product_code,
+        product_name: rec.product_name,
+        sell_through_rate: rate,
+        grade,
+        shortage_qty: shortage,
+        final_qty: finalQty,
+        days_of_stock: Number(rec.days_of_stock),
+        current_stock: Number(rec.current_stock),
+        season_weight: Number(rec.season_weight),
+      });
+      categories[cat].totalQty += finalQty;
+      categories[cat].grades[grade] = (categories[cat].grades[grade] || 0) + 1;
+      totalProducts++;
+      totalQty += finalQty;
+    }
+
+    return { settings, categories, totalProducts, totalQty };
+  }
+
   async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {
     const pool = getPool();
     const client = await pool.connect();

@@ -104,6 +104,13 @@ class ProductionService extends BaseService<ProductionPlan> {
     }
   }
 
+  async autoGeneratePreview() {
+    return productionRepository.autoGeneratePreview();
+  }
+  async autoGeneratePlans(userId: string, season?: string) {
+    return productionRepository.autoGeneratePlans(userId, season);
+  }
+
   async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {
     return productionRepository.updateProducedQty(planId, items);
   }

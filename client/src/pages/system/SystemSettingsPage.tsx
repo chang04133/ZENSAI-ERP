@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Card, InputNumber, Button, message, Descriptions, Spin, Typography } from 'antd';
-import { SettingOutlined, ExperimentOutlined, RocketOutlined } from '@ant-design/icons';
+import { Card, InputNumber, Button, message, Descriptions, Spin, Typography, Tag } from 'antd';
+import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
@@ -24,6 +24,12 @@ export default function SystemSettingsPage() {
   const [salesPeriod, setSalesPeriod] = useState(60);
   const [sellThroughThreshold, setSellThroughThreshold] = useState(40);
 
+  // 자동생산기획 등급별 설정
+  const [gradeS, setGradeS] = useState({ min: 80, mult: 1.5 });
+  const [gradeA, setGradeA] = useState({ min: 50, mult: 1.2 });
+  const [gradeB, setGradeB] = useState({ min: 30, mult: 1.0 });
+  const [safetyBuffer, setSafetyBuffer] = useState(1.2);
+
   const currentSeason = getCurrentSeason();
 
   const loadSettings = async () => {
@@ -36,6 +42,10 @@ export default function SystemSettingsPage() {
         setMed(parseInt(data.data.MEDIUM_STOCK_THRESHOLD || '10', 10));
         setSalesPeriod(parseInt(data.data.PRODUCTION_SALES_PERIOD_DAYS || '60', 10));
         setSellThroughThreshold(parseInt(data.data.PRODUCTION_SELL_THROUGH_THRESHOLD || '40', 10));
+        setGradeS({ min: parseInt(data.data.AUTO_PROD_GRADE_S_MIN || '80', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_S_MULT || '1.5') });
+        setGradeA({ min: parseInt(data.data.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_A_MULT || '1.2') });
+        setGradeB({ min: parseInt(data.data.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_B_MULT || '1.0') });
+        setSafetyBuffer(parseFloat(data.data.AUTO_PROD_SAFETY_BUFFER || '1.2'));
         const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
@@ -63,6 +73,13 @@ export default function SystemSettingsPage() {
         MEDIUM_STOCK_THRESHOLD: String(med),
         PRODUCTION_SALES_PERIOD_DAYS: String(salesPeriod),
         PRODUCTION_SELL_THROUGH_THRESHOLD: String(sellThroughThreshold),
+        AUTO_PROD_GRADE_S_MIN: String(gradeS.min),
+        AUTO_PROD_GRADE_S_MULT: String(gradeS.mult),
+        AUTO_PROD_GRADE_A_MIN: String(gradeA.min),
+        AUTO_PROD_GRADE_A_MULT: String(gradeA.mult),
+        AUTO_PROD_GRADE_B_MIN: String(gradeB.min),
+        AUTO_PROD_GRADE_B_MULT: String(gradeB.mult),
+        AUTO_PROD_SAFETY_BUFFER: String(safetyBuffer),
         ...Object.fromEntries(
           Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
@@ -175,6 +192,105 @@ export default function SystemSettingsPage() {
           </div>
           <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
             판매율 = 판매수량 / (판매수량 + 현재재고) x 100
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={<span><ThunderboltOutlined style={{ marginRight: 8 }} />자동 생산기획 등급 설정</span>}
+        style={{ borderRadius: 10, marginTop: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          판매율에 따라 상품을 등급 분류하고, 등급별 생산 배수를 적용합니다. C등급 미만은 자동생산에서 제외됩니다.
+        </div>
+
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr>
+              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, width: 80 }}>등급</th>
+              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, textAlign: 'center' }}>판매율 기준</th>
+              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, textAlign: 'center' }}>생산 배수</th>
+              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13 }}>전략</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
+                <Tag color="red">S급</Tag>
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={1} max={100} value={gradeS.min} onChange={(v) => v !== null && setGradeS(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeS.mult} onChange={(v) => v !== null && setGradeS(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>공격적 생산</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
+                <Tag color="orange">A급</Tag>
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={1} max={100} value={gradeA.min} onChange={(v) => v !== null && setGradeA(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeA.mult} onChange={(v) => v !== null && setGradeA(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>적정 생산</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
+                <Tag color="blue">B급</Tag>
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={1} max={100} value={gradeB.min} onChange={(v) => v !== null && setGradeB(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
+                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeB.mult} onChange={(v) => v !== null && setGradeB(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보수적 생산</td>
+            </tr>
+            <tr>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
+                <Tag color="default">C급</Tag>
+              </td>
+              <td colSpan={2} style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center', color: '#888', fontSize: 12 }}>
+                B급 기준 미만 → 자동 생산에서 제외
+              </td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>생산 보류</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <Descriptions column={1} bordered size="middle" style={{ marginTop: 16 }}>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>안전재고 배수</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={1.0} max={3.0} step={0.1}
+                value={safetyBuffer}
+                onChange={(v) => v !== null && setSafetyBuffer(v)}
+                addonAfter="배"
+                style={{ width: 130 }}
+                size="small"
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>부족수량 × 이 배수 = 최종 생산권장량 (기본 1.2배 = 20% 여유분)</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>예시</strong>: 부족수량 100개인 상품</div>
+          <div style={{ marginTop: 4 }}>
+            판매율 {gradeS.min}% 이상(S급) → 100 × {safetyBuffer} × {gradeS.mult} = <strong>{Math.round(100 * safetyBuffer * gradeS.mult)}</strong>개 생산
+          </div>
+          <div>
+            판매율 {gradeA.min}~{gradeS.min - 1}%(A급) → 100 × {safetyBuffer} × {gradeA.mult} = <strong>{Math.round(100 * safetyBuffer * gradeA.mult)}</strong>개 생산
+          </div>
+          <div>
+            판매율 {gradeB.min}~{gradeA.min - 1}%(B급) → 100 × {safetyBuffer} × {gradeB.mult} = <strong>{Math.round(100 * safetyBuffer * gradeB.mult)}</strong>개 생산
+          </div>
+          <div>
+            판매율 {gradeB.min}% 미만(C급) → <strong>생산 제외</strong>
           </div>
         </div>
       </Card>

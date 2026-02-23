@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Select, Modal, Popover } from 'antd';
+import { Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Select, Modal, Popover, Button, Collapse, InputNumber } from 'antd';
 import {
   ExperimentOutlined, CheckCircleOutlined, SyncOutlined,
   FileDoneOutlined, ClockCircleOutlined, WarningOutlined,
   RocketOutlined, BarChartOutlined, RightOutlined, LoadingOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { productionApi } from '../../modules/production/production.api';
@@ -28,6 +29,13 @@ export default function ProductionDashboardPage() {
   const [subCategory, setSubCategory] = useState<string>('');
   const [subStats, setSubStats] = useState<any[]>([]);
   const [subLoading, setSubLoading] = useState(false);
+
+  // 자동 생산기획
+  const [autoModalOpen, setAutoModalOpen] = useState(false);
+  const [autoPreview, setAutoPreview] = useState<any>(null);
+  const [autoLoading, setAutoLoading] = useState(false);
+  const [autoGenerating, setAutoGenerating] = useState(false);
+  const [autoQtyOverrides, setAutoQtyOverrides] = useState<Record<string, number>>({});
 
   // 상품코드 호버 - 변형 상세
   const [variantCache, setVariantCache] = useState<Record<string, any[]>>({});
@@ -106,6 +114,35 @@ export default function ProductionDashboardPage() {
     );
   };
 
+  const GRADE_COLORS: Record<string, string> = { S: 'red', A: 'orange', B: 'blue' };
+  const GRADE_LABELS: Record<string, string> = { S: 'S급 (공격적)', A: 'A급 (적정)', B: 'B급 (보수적)' };
+
+  const handleAutoPreview = async () => {
+    setAutoModalOpen(true);
+    setAutoLoading(true);
+    setAutoQtyOverrides({});
+    try {
+      const data = await productionApi.autoGeneratePreview();
+      setAutoPreview(data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setAutoLoading(false); }
+  };
+
+  const handleAutoGenerate = async () => {
+    setAutoGenerating(true);
+    try {
+      const result = await productionApi.autoGenerate();
+      if (result.length === 0) {
+        message.info('생산 권장 품목이 없습니다.');
+      } else {
+        message.success(`${result.length}개 카테고리 생산기획이 DRAFT로 생성되었습니다.`);
+        setAutoModalOpen(false);
+        loadAll(catFilter);
+      }
+    } catch (e: any) { message.error(e.message); }
+    finally { setAutoGenerating(false); }
+  };
+
   const loadAll = async (category?: string | '') => {
     setLoading(true);
     try {
@@ -155,9 +192,18 @@ export default function ProductionDashboardPage() {
   return (
     <div>
       <PendingActionsBanner />
-      <Typography.Title level={4} style={{ marginBottom: 20 }}>
-        <ExperimentOutlined style={{ marginRight: 8 }} />생산기획 대시보드
-      </Typography.Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          <ExperimentOutlined style={{ marginRight: 8 }} />생산기획 대시보드
+        </Typography.Title>
+        <Button
+          type="primary" icon={<ThunderboltOutlined />}
+          onClick={handleAutoPreview}
+          style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}
+        >
+          자동 생산기획 생성
+        </Button>
+      </div>
 
       {/* Status Cards */}
       <Row gutter={[16, 16]}>
@@ -451,6 +497,106 @@ export default function ProductionDashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* 자동 생산기획 미리보기 모달 */}
+      <Modal
+        title={<><ThunderboltOutlined style={{ marginRight: 8, color: '#764ba2' }} />자동 생산기획 미리보기</>}
+        open={autoModalOpen}
+        onCancel={() => setAutoModalOpen(false)}
+        width={900}
+        footer={autoPreview && autoPreview.totalProducts > 0 ? [
+          <Button key="cancel" onClick={() => setAutoModalOpen(false)}>취소</Button>,
+          <Button key="create" type="primary" loading={autoGenerating} onClick={handleAutoGenerate}
+            style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: 'none' }}>
+            <ThunderboltOutlined /> {Object.keys(autoPreview?.categories || {}).length}개 카테고리 생산기획 생성 (DRAFT)
+          </Button>,
+        ] : null}
+      >
+        {autoLoading ? (
+          <Spin style={{ display: 'block', margin: '40px auto' }} />
+        ) : !autoPreview || autoPreview.totalProducts === 0 ? (
+          <div style={{ textAlign: 'center', padding: 40, color: '#52c41a' }}>
+            <CheckCircleOutlined style={{ fontSize: 32, marginBottom: 12 }} />
+            <div style={{ fontSize: 16, fontWeight: 600 }}>현재 자동 생산이 필요한 품목이 없습니다</div>
+            <div style={{ color: '#888', marginTop: 8 }}>판매율 기준에 해당하는 부족 재고가 없습니다</div>
+          </div>
+        ) : (
+          <>
+            {/* 요약 헤더 */}
+            <div style={{
+              display: 'flex', gap: 16, marginBottom: 16, padding: '12px 16px',
+              background: 'linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%)',
+              borderRadius: 8,
+            }}>
+              <div>
+                <div style={{ fontSize: 11, color: '#888' }}>대상 품목</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#764ba2' }}>{autoPreview.totalProducts}건</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#888' }}>총 생산수량</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#764ba2' }}>{autoPreview.totalQty.toLocaleString()}개</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: '#888' }}>카테고리</div>
+                <div style={{ fontSize: 20, fontWeight: 700, color: '#764ba2' }}>{Object.keys(autoPreview.categories).length}개</div>
+              </div>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center' }}>
+                <div style={{ fontSize: 11, color: '#888' }}>
+                  S급 ×{autoPreview.settings.gradeS.mult} | A급 ×{autoPreview.settings.gradeA.mult} | B급 ×{autoPreview.settings.gradeB.mult} | 안전 ×{autoPreview.settings.safetyBuffer}
+                </div>
+              </div>
+            </div>
+
+            {/* 카테고리별 Collapse */}
+            <Collapse
+              defaultActiveKey={Object.keys(autoPreview.categories)}
+              items={Object.entries(autoPreview.categories).map(([cat, catData]: [string, any]) => ({
+                key: cat,
+                label: (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+                    <span>
+                      <Tag color="blue" style={{ fontWeight: 700 }}>{CAT_LABELS[cat] || cat}</Tag>
+                      <span style={{ fontSize: 12, color: '#888' }}>{catData.items.length}개 품목</span>
+                      {Object.entries(catData.grades as Record<string, number>).map(([g, c]) => (
+                        <Tag key={g} color={GRADE_COLORS[g]} style={{ marginLeft: 4, fontSize: 11 }}>{g}급 {c}건</Tag>
+                      ))}
+                    </span>
+                    <strong style={{ color: '#764ba2' }}>{catData.totalQty.toLocaleString()}개</strong>
+                  </div>
+                ),
+                children: (
+                  <Table
+                    columns={[
+                      { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 120,
+                        render: (v: string) => <span style={{ fontWeight: 600, color: '#1890ff' }}>{v}</span> },
+                      { title: '상품명', dataIndex: 'product_name', key: 'name', width: 150, ellipsis: true },
+                      { title: '등급', dataIndex: 'grade', key: 'grade', width: 70, align: 'center' as const,
+                        render: (v: string) => <Tag color={GRADE_COLORS[v]} style={{ fontWeight: 700 }}>{v}급</Tag> },
+                      { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 75, align: 'center' as const,
+                        render: (v: number) => <span style={{ color: rateColor(v), fontWeight: 700 }}>{v}%</span> },
+                      { title: '재고일수', dataIndex: 'days_of_stock', key: 'days', width: 75, align: 'center' as const,
+                        render: (v: number) => {
+                          const c = v < 7 ? 'red' : v < 15 ? 'orange' : 'green';
+                          return <Tag color={c}>{v}일</Tag>;
+                        } },
+                      { title: '현재고', dataIndex: 'current_stock', key: 'stock', width: 70, align: 'right' as const,
+                        render: (v: number) => v.toLocaleString() },
+                      { title: '부족', dataIndex: 'shortage_qty', key: 'short', width: 70, align: 'right' as const,
+                        render: (v: number) => <span style={{ color: '#ff4d4f', fontWeight: 600 }}>{v.toLocaleString()}</span> },
+                      { title: '생산수량', dataIndex: 'final_qty', key: 'qty', width: 90, align: 'right' as const,
+                        render: (v: number) => <strong style={{ color: '#764ba2' }}>{v.toLocaleString()}</strong> },
+                    ]}
+                    dataSource={catData.items}
+                    rowKey="product_code"
+                    pagination={false}
+                    size="small"
+                  />
+                ),
+              }))}
+            />
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

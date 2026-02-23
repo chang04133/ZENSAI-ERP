@@ -77,6 +77,21 @@ class ProductionController extends BaseController<ProductionPlan> {
     res.json({ success: true, data });
   });
 
+  autoGeneratePreview = asyncHandler(async (_req: Request, res: Response) => {
+    const data = await productionService.autoGeneratePreview();
+    res.json({ success: true, data });
+  });
+
+  autoGenerate = asyncHandler(async (req: Request, res: Response) => {
+    const { season } = req.body;
+    const data = await productionService.autoGeneratePlans(req.user!.userId, season);
+    if (data.length === 0) {
+      res.json({ success: true, data: [], message: '생산이 권장되는 품목이 없습니다.' });
+      return;
+    }
+    res.status(201).json({ success: true, data });
+  });
+
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     const { status } = req.body;

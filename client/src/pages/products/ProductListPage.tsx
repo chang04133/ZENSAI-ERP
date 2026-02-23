@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert, Spin } from 'antd';
+import { useEffect, useMemo, useState } from 'react';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, Segmented, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -16,6 +16,11 @@ const SALE_STATUS_COLORS: Record<string, string> = {
   '단종': 'red',
   '승인대기': 'blue',
 };
+
+const SIZE_ORDER: Record<string, number> = { XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, FREE: 7 };
+const sizeSort = (a: string, b: string) => (SIZE_ORDER[a] ?? 99) - (SIZE_ORDER[b] ?? 99);
+
+type ViewMode = 'product' | 'color' | 'size';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
@@ -37,6 +42,8 @@ export default function ProductListPage() {
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [variantsMap, setVariantsMap] = useState<Record<string, any[]>>({});
   const [variantsLoading, setVariantsLoading] = useState<Record<string, boolean>>({});
+  const [viewMode, setViewMode] = useState<ViewMode>('product');
+  const [bulkLoading, setBulkLoading] = useState(false);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
@@ -161,6 +168,30 @@ export default function ProductListPage() {
     }
   };
 
+  const loadAllVariants = async () => {
+    const missing = products.filter((p: any) => !variantsMap[p.product_code]);
+    if (missing.length === 0) return;
+    setBulkLoading(true);
+    try {
+      const results = await Promise.all(
+        missing.map((p: any) => productApi.get(p.product_code).then((d: any) => ({ code: p.product_code, variants: d.variants || [] })).catch(() => ({ code: p.product_code, variants: [] }))),
+      );
+      setVariantsMap((prev) => {
+        const next = { ...prev };
+        results.forEach((r) => { next[r.code] = r.variants; });
+        return next;
+      });
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (viewMode !== 'product' && products.length > 0) {
+      loadAllVariants();
+    }
+  }, [viewMode, products]);
+
   const expandedRowRender = (record: any) => {
     const variants = variantsMap[record.product_code];
     if (variantsLoading[record.product_code]) return <Spin size="small" style={{ padding: 16 }} />;
@@ -246,6 +277,116 @@ export default function ProductListPage() {
     }] : []),
   ];
 
+  // --- 뷰 모드별 데이터 변환 ---
+  const displayData = useMemo(() => {
+    if (viewMode === 'product') return products;
+
+    if (viewMode === 'color') {
+      const rows: any[] = [];
+      products.forEach((p: any) => {
+        const variants = variantsMap[p.product_code];
+        if (!variants || variants.length === 0) {
+          rows.push({ ...p, _color: '-', _colorVariants: [], _rowKey: `${p.product_code}-none` });
+          return;
+        }
+        const colorMap: Record<string, any[]> = {};
+        variants.forEach((v: any) => {
+          const c = v.color || '-';
+          if (!colorMap[c]) colorMap[c] = [];
+          colorMap[c].push(v);
+        });
+        Object.entries(colorMap).forEach(([color, cvs]) => {
+          const colorQty = cvs.reduce((sum: number, v: any) => sum + Number(v.stock_qty || 0), 0);
+          rows.push({ ...p, _color: color, _colorVariants: cvs.sort((a: any, b: any) => sizeSort(a.size, b.size)), _colorQty: colorQty, _rowKey: `${p.product_code}-${color}` });
+        });
+      });
+      return rows;
+    }
+
+    // size view
+    const rows: any[] = [];
+    products.forEach((p: any) => {
+      const variants = variantsMap[p.product_code];
+      if (!variants || variants.length === 0) return;
+      const sorted = [...variants].sort((a: any, b: any) => {
+        const cc = (a.color || '').localeCompare(b.color || '');
+        if (cc !== 0) return cc;
+        return sizeSort(a.size, b.size);
+      });
+      sorted.forEach((v: any) => {
+        rows.push({ ...p, ...v, _rowKey: `${v.variant_id}` });
+      });
+    });
+    return rows;
+  }, [viewMode, products, variantsMap]);
+
+  const displayColumns = useMemo((): any[] => {
+    if (viewMode === 'product') return columns;
+
+    if (viewMode === 'color') {
+      const base = (columns as any[]).filter((c) => !['total_inv_qty', 'low_stock_alert'].includes(c.key));
+      const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
+      const colorCol = { title: '컬러', dataIndex: '_color', key: '_color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
+      const qtyCol = {
+        title: '재고', key: 'total_inv_qty', width: 80,
+        render: (_: any, record: any) => {
+          const qty = record._colorQty ?? 0;
+          return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
+        },
+      };
+      const newCols = [...base];
+      newCols.splice(codeIdx + 1, 0, colorCol);
+      // update product_code render to include color
+      newCols[codeIdx] = {
+        ...newCols[codeIdx],
+        render: (_: any, record: any) => <a onClick={() => navigate(`/products/${record.product_code}`)}>{record.product_code}-{record._color}</a>,
+      };
+      newCols.push(qtyCol);
+      return newCols;
+    }
+
+    // size view
+    const base = (columns as any[]).filter((c) => !['total_inv_qty', 'low_stock_alert'].includes(c.key));
+    const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
+    const colorCol = { title: '컬러', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
+    const sizeCol = { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> };
+    const skuCol = { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, ellipsis: true };
+    const qtyCol = {
+      title: '재고', dataIndex: 'stock_qty', key: 'stock_qty', width: 80,
+      render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
+    };
+    const barcodeCol = { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 130, render: (v: string) => v || '-' };
+    const newCols = [...base];
+    newCols.splice(codeIdx + 1, 0, colorCol, sizeCol, skuCol);
+    // update product_code render
+    newCols[codeIdx] = {
+      ...newCols[codeIdx],
+      render: (_: any, record: any) => <a onClick={() => navigate(`/products/${record.product_code}`)}>{record.product_code}</a>,
+    };
+    newCols.push(qtyCol, barcodeCol);
+    return newCols;
+  }, [viewMode, columns, navigate, isStore, canWrite]);
+
+  const colorExpandedRowRender = (record: any) => {
+    const variants = record._colorVariants || [];
+    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
+    const cols = [
+      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
+      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+      { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
+        render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
+      },
+      { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+    ];
+    return <Table columns={cols} dataSource={variants} rowKey="variant_id" pagination={false} size="small" style={{ margin: 0 }} />;
+  };
+
+  const tableExpandable = useMemo(() => {
+    if (viewMode === 'product') return { expandedRowRender, onExpand: handleExpand };
+    if (viewMode === 'color') return { expandedRowRender: colorExpandedRowRender };
+    return undefined; // size: no expand
+  }, [viewMode, variantsMap, variantsLoading]);
+
   return (
     <div>
       <PageHeader
@@ -285,15 +426,29 @@ export default function ProductListPage() {
           options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
         <Button onClick={load}>조회</Button>
       </Space>
+      <div style={{ marginBottom: 12 }}>
+        <Segmented
+          value={viewMode}
+          onChange={(v) => setViewMode(v as ViewMode)}
+          options={[
+            { label: '품번별', value: 'product' },
+            { label: '컬러별', value: 'color' },
+            { label: '사이즈별', value: 'size' },
+          ]}
+        />
+      </div>
       <Table
-        columns={columns}
-        dataSource={products}
-        rowKey="product_code"
-        loading={loading}
+        columns={displayColumns}
+        dataSource={displayData}
+        rowKey={viewMode === 'product' ? 'product_code' : '_rowKey'}
+        loading={loading || bulkLoading}
         size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
-        expandable={{ expandedRowRender, onExpand: handleExpand }}
+        scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+        pagination={viewMode === 'product'
+          ? { current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }
+          : { pageSize: 50, showTotal: (t: number) => `총 ${t}건` }
+        }
+        expandable={tableExpandable}
       />
 
       {/* Excel Upload Modal */}

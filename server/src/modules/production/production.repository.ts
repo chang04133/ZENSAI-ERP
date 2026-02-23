@@ -228,8 +228,8 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
             ELSE 'SA'
           END AS product_season,
           COALESCE(SUM(s.qty), 0)::int AS total_sold,
-          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1, 2) AS avg_daily_sales,
-          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1 * 30)::int AS predicted_30d
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric * 30)::int AS predicted_30d
         FROM products p
         JOIN product_variants pv ON p.product_code = pv.product_code
         JOIN sales s ON pv.variant_id = s.variant_id

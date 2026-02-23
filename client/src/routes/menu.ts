@@ -27,7 +27,7 @@ export const menuItems: MenuItem[] = [
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/my-store', label: '내 매장 재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/my-store', label: '내 매장 재고', icon: 'ShopOutlined', roles: [ROLES.STORE_MANAGER] },
       { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
       { key: '/inventory/restock', label: '재입고 관리', icon: 'PlusSquareOutlined', roles: ADMIN_HQ },
@@ -37,11 +37,10 @@ export const menuItems: MenuItem[] = [
   {
     key: '/shipment', label: '출고관리', icon: 'ExportOutlined', roles: ADMIN_HQ_STORE,
     children: [
-      { key: '/shipment/request', label: '의뢰등록', icon: 'FileAddOutlined', roles: ADMIN_HQ },
-      { key: '/shipment/process', label: '출고처리', icon: 'SendOutlined', roles: ADMIN_HQ },
-      { key: '/shipment/store', label: '출고관리', icon: 'ExportOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/return', label: '반품등록', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/request', label: '출고의뢰', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ },
     ],
   },
   {

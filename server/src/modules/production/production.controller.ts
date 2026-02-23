@@ -70,6 +70,13 @@ class ProductionController extends BaseController<ProductionPlan> {
     res.json({ success: true, data });
   });
 
+  productVariantDetail = asyncHandler(async (req: Request, res: Response) => {
+    const productCode = req.params.productCode as string;
+    if (!productCode) { res.status(400).json({ success: false, error: '상품코드가 필요합니다.' }); return; }
+    const data = await productionService.productVariantDetail(productCode);
+    res.json({ success: true, data });
+  });
+
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     const { status } = req.body;

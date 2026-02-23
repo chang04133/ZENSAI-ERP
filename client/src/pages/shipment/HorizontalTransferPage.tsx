@@ -1,19 +1,18 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Modal, Form, InputNumber, Alert, message } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Modal, Form, InputNumber, DatePicker, message } from 'antd';
 import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
+import { STATUS_COLORS, STATUS_LABELS } from '../../components/shipment/ShipmentConstants';
+import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
+import ShippedQtyModal from '../../components/shipment/ShippedQtyModal';
+import ReceivedQtyModal from '../../components/shipment/ReceivedQtyModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
-};
-const STATUS_LABELS: Record<string, string> = {
-  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
-};
+const { RangePicker } = DatePicker;
 
 interface ItemRow { variant_id: number; request_qty: number; sku: string; product_name: string; color: string; size: string; }
 
@@ -28,13 +27,16 @@ export default function HorizontalTransferPage() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detail, setDetail] = useState<any>(null);
   const [partners, setPartners] = useState<any[]>([]);
   const [form] = Form.useForm();
   const [items, setItems] = useState<ItemRow[]>([]);
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
+
+  // 상세
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detail, setDetail] = useState<any>(null);
 
   // 출고확인
   const [shipModalOpen, setShipModalOpen] = useState(false);
@@ -46,12 +48,15 @@ export default function HorizontalTransferPage() {
   const [receiveTarget, setReceiveTarget] = useState<any>(null);
   const [receivedQtys, setReceivedQtys] = useState<Record<number, number>>({});
 
-  const load = async () => {
+  const load = async (p?: number) => {
+    const currentPage = p ?? page;
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '50', request_type: '수평이동' };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50', request_type: '수평이동' };
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
+      if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
+      if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
       if (isStore && user?.partnerCode) params.partner = user.partnerCode;
       const result = await shipmentApi.list(params);
       setData(result.data);
@@ -60,7 +65,8 @@ export default function HorizontalTransferPage() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [page, statusFilter]);
+  useEffect(() => { load(); }, [page]);
+  useEffect(() => { setPage(1); load(1); }, [statusFilter]);
   useEffect(() => {
     (async () => {
       try {
@@ -73,7 +79,7 @@ export default function HorizontalTransferPage() {
   }, []);
 
   const handleVariantSearch = async (value: string) => {
-    try { setVariantOptions(await productApi.searchVariants(value)); } catch (e: any) { message.error('품목 검색 실패'); }
+    try { setVariantOptions(await productApi.searchVariants(value)); } catch { /* ignore */ }
   };
 
   const handleAddItem = (variantId: number) => {
@@ -118,8 +124,7 @@ export default function HorizontalTransferPage() {
     if (!shipTarget) return;
     try {
       const sItems = (shipTarget as any).items.map((item: any) => ({
-        variant_id: item.variant_id,
-        shipped_qty: shippedQtys[item.variant_id] || 0,
+        variant_id: item.variant_id, shipped_qty: shippedQtys[item.variant_id] || 0,
       }));
       await shipmentApi.updateShippedQty(shipTarget.request_id, sItems);
       await shipmentApi.update(shipTarget.request_id, { status: 'SHIPPED' });
@@ -144,8 +149,7 @@ export default function HorizontalTransferPage() {
     if (!receiveTarget) return;
     try {
       const rItems = (receiveTarget as any).items.map((item: any) => ({
-        variant_id: item.variant_id,
-        received_qty: receivedQtys[item.variant_id] || 0,
+        variant_id: item.variant_id, received_qty: receivedQtys[item.variant_id] || 0,
       }));
       await shipmentApi.receive(receiveTarget.request_id, rItems);
       message.success('수령 확인이 완료되었습니다. 재고가 증가합니다.');
@@ -157,7 +161,6 @@ export default function HorizontalTransferPage() {
     .filter(p => !isStore || p.partner_code !== user?.partnerCode)
     .map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }));
 
-  /** 현재 사용자가 출발매장인지 도착매장인지 */
   const getDirection = (record: any): 'send' | 'receive' | null => {
     if (!user?.partnerCode) return null;
     if (record.from_partner === user.partnerCode) return 'send';
@@ -188,11 +191,9 @@ export default function HorizontalTransferPage() {
       return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-          {/* 출발매장 or 관리자: PENDING → 출고확인 */}
           {record.status === 'PENDING' && (dir === 'send' || isAdmin) && (
             <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShipModal(record)}>출고확인</Button>
           )}
-          {/* 도착매장 or 관리자: SHIPPED → 수령확인 */}
           {record.status === 'SHIPPED' && (dir === 'receive' || isAdmin) && (
             <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2' }}
               onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>
@@ -204,11 +205,17 @@ export default function HorizontalTransferPage() {
 
   return (
     <div>
-      <PageHeader title="수평이동" extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setItems([]); setModalOpen(true); }}>수평이동 등록</Button>} />
-      <Space style={{ marginBottom: 16 }}>
-        <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search} onChange={(e) => setSearch(e.target.value)} onPressEnter={load} style={{ width: 200 }} />
-        <Select placeholder="상태" allowClear value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }} options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
-        <Button onClick={load}>조회</Button>
+      <PageHeader title="수평이동" extra={
+        <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setItems([]); setModalOpen(true); }}>수평이동 등록</Button>
+      } />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input size="small" placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+          onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }} />
+        <Select size="small" placeholder="상태" allowClear value={statusFilter}
+          onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+          options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
+        <RangePicker size="small" value={dateRange} onChange={(v) => setDateRange(v as any)} />
+        <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
       </Space>
       <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}
         size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
@@ -255,72 +262,19 @@ export default function HorizontalTransferPage() {
       </Modal>
 
       {/* 상세 모달 */}
-      <Modal title={`의뢰 상세 - ${detail?.request_no || ''}`} open={detailOpen} onCancel={() => setDetailOpen(false)} footer={null} width={700}>
-        {detail && (
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 6 }}>
-              <div><strong>유형:</strong> {detail.request_type}</div>
-              <div><strong>상태:</strong> <Tag color={STATUS_COLORS[detail.status]}>{STATUS_LABELS[detail.status]}</Tag></div>
-              <div><strong>출발:</strong> {detail.from_partner_name || '-'}</div>
-              <div><strong>도착:</strong> {detail.to_partner_name || '-'}</div>
-              <div><strong>의뢰일:</strong> {detail.request_date ? new Date(detail.request_date).toLocaleDateString('ko-KR') : '-'}</div>
-              <div><strong>메모:</strong> {detail.memo || '-'}</div>
-            </div>
-            {detail.items?.length > 0 ? (
-              <Table size="small" dataSource={detail.items} rowKey="item_id" pagination={false}
-                columns={[
-                  { title: 'SKU', dataIndex: 'sku' }, { title: '상품명', dataIndex: 'product_name' },
-                  { title: '색상', dataIndex: 'color' }, { title: '사이즈', dataIndex: 'size' },
-                  { title: '요청', dataIndex: 'request_qty' }, { title: '출고', dataIndex: 'shipped_qty' }, { title: '수령', dataIndex: 'received_qty' },
-                ]} />
-            ) : <div style={{ textAlign: 'center', color: '#999', padding: 16 }}>등록된 품목이 없습니다.</div>}
-          </div>
-        )}
-      </Modal>
+      <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
 
       {/* 출고확인 모달 */}
-      <Modal title="출고확인" open={shipModalOpen} onCancel={() => setShipModalOpen(false)} onOk={handleConfirmShip} okText="출고확인" cancelText="취소" width={650}>
-        <Alert message="출고할 실제 수량을 입력하세요. 확인 시 출발매장 재고가 차감됩니다." type="warning" showIcon style={{ marginBottom: 16 }} />
-        {shipTarget && (
-          <>
-            <div style={{ marginBottom: 12, padding: 8, background: '#f5f5f5', borderRadius: 6 }}>
-              <strong>출발:</strong> {shipTarget.from_partner_name} → <strong>도착:</strong> {shipTarget.to_partner_name}
-            </div>
-            <Table size="small" dataSource={(shipTarget as any).items || []} rowKey="variant_id" pagination={false}
-              columns={[
-                { title: 'SKU', dataIndex: 'sku', width: 140 },
-                { title: '상품명', dataIndex: 'product_name' },
-                { title: '요청수량', dataIndex: 'request_qty', width: 80 },
-                { title: '출고수량', key: 'shipped', width: 120, render: (_: any, record: any) => (
-                  <InputNumber min={0} max={record.request_qty} value={shippedQtys[record.variant_id] || 0}
-                    onChange={(v) => setShippedQtys({ ...shippedQtys, [record.variant_id]: v || 0 })} style={{ width: '100%' }} />
-                )},
-              ]} />
-          </>
-        )}
-      </Modal>
+      <ShippedQtyModal open={shipModalOpen} detail={shipTarget} qtys={shippedQtys}
+        onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
+        onConfirm={handleConfirmShip} onCancel={() => setShipModalOpen(false)}
+        alertMessage="출고할 실제 수량을 입력하세요. 확인 시 출발매장 재고가 차감됩니다." />
 
       {/* 수령확인 모달 */}
-      <Modal title="수령확인" open={receiveModalOpen} onCancel={() => setReceiveModalOpen(false)} onOk={handleConfirmReceive} okText="수령확인" cancelText="취소" width={650}>
-        <Alert message="수령한 실제 수량을 입력하세요. 확인 시 도착매장 재고가 증가합니다." type="info" showIcon style={{ marginBottom: 16 }} />
-        {receiveTarget && (
-          <>
-            <div style={{ marginBottom: 12, padding: 8, background: '#f5f5f5', borderRadius: 6 }}>
-              <strong>출발:</strong> {receiveTarget.from_partner_name} → <strong>도착:</strong> {receiveTarget.to_partner_name}
-            </div>
-            <Table size="small" dataSource={(receiveTarget as any).items || []} rowKey="variant_id" pagination={false}
-              columns={[
-                { title: 'SKU', dataIndex: 'sku', width: 140 },
-                { title: '상품명', dataIndex: 'product_name' },
-                { title: '출고수량', dataIndex: 'shipped_qty', width: 80 },
-                { title: '수령수량', key: 'received', width: 120, render: (_: any, record: any) => (
-                  <InputNumber min={0} max={record.shipped_qty} value={receivedQtys[record.variant_id] || 0}
-                    onChange={(v) => setReceivedQtys({ ...receivedQtys, [record.variant_id]: v || 0 })} style={{ width: '100%' }} />
-                )},
-              ]} />
-          </>
-        )}
-      </Modal>
+      <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
+        onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
+        onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)}
+        alertMessage="수령한 실제 수량을 입력하세요. 확인 시 도착매장 재고가 증가합니다." />
     </div>
   );
 }

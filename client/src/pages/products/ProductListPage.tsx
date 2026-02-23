@@ -17,8 +17,7 @@ const SALE_STATUS_COLORS: Record<string, string> = {
   '승인대기': 'blue',
 };
 
-const SIZE_ORDER: Record<string, number> = { XS: 1, S: 2, M: 3, L: 4, XL: 5, XXL: 6, FREE: 7 };
-const sizeSort = (a: string, b: string) => (SIZE_ORDER[a] ?? 99) - (SIZE_ORDER[b] ?? 99);
+import { sizeSort } from '../../utils/size-order';
 
 type ViewMode = 'product' | 'color' | 'size';
 

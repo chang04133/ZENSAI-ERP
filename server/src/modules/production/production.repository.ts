@@ -477,6 +477,43 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     return result.rows;
   }
 
+  async productVariantDetail(productCode: string): Promise<any[]> {
+    const pool = getPool();
+    // 설정값: 판매기간
+    const settingsResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'PRODUCTION_SALES_PERIOD_DAYS'",
+    );
+    const salesPeriodDays = settingsResult.rows.length > 0
+      ? parseInt(settingsResult.rows[0].code_label || '60', 10) : 60;
+
+    const sql = `
+      SELECT pv.color, pv.size, pv.sku,
+        COALESCE(sold.qty, 0)::int AS sold_qty,
+        COALESCE(stock.qty, 0)::int AS current_stock,
+        CASE WHEN (COALESCE(sold.qty, 0) + COALESCE(stock.qty, 0)) > 0
+          THEN ROUND(COALESCE(sold.qty, 0)::numeric / (COALESCE(sold.qty, 0) + COALESCE(stock.qty, 0)) * 100, 1)
+          ELSE 0
+        END AS sell_through_rate
+      FROM product_variants pv
+      LEFT JOIN (
+        SELECT variant_id, SUM(qty)::int AS qty
+        FROM sales
+        WHERE sale_date >= CURRENT_DATE - ($2 || ' days')::interval
+        GROUP BY variant_id
+      ) sold ON pv.variant_id = sold.variant_id
+      LEFT JOIN (
+        SELECT variant_id, SUM(qty)::int AS qty
+        FROM inventory
+        GROUP BY variant_id
+      ) stock ON pv.variant_id = stock.variant_id
+      WHERE pv.product_code = $1
+      ORDER BY pv.color,
+        CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 ELSE 7 END`;
+
+    const result = await pool.query(sql, [productCode, salesPeriodDays]);
+    return result.rows;
+  }
+
   async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {
     const pool = getPool();
     const client = await pool.connect();

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Input, InputNumber, Select, Space, Tag, Modal, Form, Card, message } from 'antd';
+import { useEffect, useState, useMemo } from 'react';
+import { Table, Button, Input, InputNumber, Select, Space, Tag, Modal, Form, Card, Segmented, message } from 'antd';
 import { SearchOutlined, PlusOutlined, EditOutlined, ShopOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
@@ -7,18 +7,22 @@ import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
+import { sizeSort } from '../../utils/size-order';
+
+type ViewMode = 'product' | 'color' | 'size';
 
 export default function StoreInventoryPage() {
   const user = useAuthStore((s) => s.user);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
 
-  const [data, setData] = useState<any[]>([]);
+  const [rawData, setRawData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
   const [partners, setPartners] = useState<any[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>('product');
 
   // 조정 모달
   const [adjustModalOpen, setAdjustModalOpen] = useState(false);
@@ -34,11 +38,11 @@ export default function StoreInventoryPage() {
   const load = async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '50' };
+      const params: Record<string, string> = { page: String(page), limit: '5000' };
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       const result = await inventoryApi.list(params);
-      setData(result.data);
+      setRawData(result.data);
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -111,19 +115,102 @@ export default function StoreInventoryPage() {
     value: p.partner_code,
   }));
 
-  const columns = [
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 150 },
-    { title: '거래처코드', dataIndex: 'partner_code', key: 'partner_code', width: 110 },
-    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150 },
-    { title: '색상', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => v || '-' },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-    { title: '재고수량', dataIndex: 'qty', key: 'qty', width: 100,
-      render: (v: number) => {
-        const qty = Number(v);
-        return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty.toLocaleString()}</Tag>;
-      },
+  // --- Render qty ---
+  const renderQty = (qty: number) => {
+    const n = Number(qty);
+    return <Tag color={n > 10 ? 'blue' : n > 0 ? 'orange' : 'red'}>{n.toLocaleString()}</Tag>;
+  };
+
+  // --- 뷰모드별 데이터 변환 ---
+  const displayData = useMemo(() => {
+    if (viewMode === 'product') {
+      const map: Record<string, any> = {};
+      rawData.forEach((r) => {
+        // Group by partner_code + product_code
+        const key = `${r.partner_code}__${r.product_code}`;
+        if (!map[key]) {
+          map[key] = {
+            partner_code: r.partner_code, partner_name: r.partner_name,
+            product_code: r.product_code, product_name: r.product_name, category: r.category,
+            brand: r.brand, season: r.season, image_url: r.image_url,
+            total_qty: 0, _variants: [], _rowKey: key,
+          };
+        }
+        map[key].total_qty += Number(r.qty || 0);
+        map[key]._variants.push(r);
+      });
+      return Object.values(map);
+    }
+
+    if (viewMode === 'color') {
+      const map: Record<string, any> = {};
+      rawData.forEach((r) => {
+        const key = `${r.partner_code}__${r.product_code}__${r.color || '-'}`;
+        if (!map[key]) {
+          map[key] = {
+            partner_code: r.partner_code, partner_name: r.partner_name,
+            product_code: r.product_code, product_name: r.product_name, category: r.category,
+            brand: r.brand, season: r.season, image_url: r.image_url,
+            _color: r.color || '-', _colorQty: 0, _colorVariants: [], _rowKey: key,
+          };
+        }
+        map[key]._colorQty += Number(r.qty || 0);
+        map[key]._colorVariants.push(r);
+      });
+      Object.values(map).forEach((row: any) => {
+        row._colorVariants.sort((a: any, b: any) => sizeSort(a.size, b.size));
+      });
+      return Object.values(map);
+    }
+
+    // size view
+    return rawData.map((r) => ({ ...r, _rowKey: `${r.inventory_id}` }));
+  }, [viewMode, rawData]);
+
+  // --- 품번별 columns ---
+  const productColumns: any[] = [
+    { title: '', dataIndex: 'image_url', key: 'image', width: 50,
+      render: (v: string) => v
+        ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
+        : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
     },
+    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
+    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, render: (v: number) => renderQty(v) },
+  ];
+
+  // --- 컬러별 columns ---
+  const colorColumns: any[] = [
+    { title: '', dataIndex: 'image_url', key: 'image', width: 50,
+      render: (v: string) => v
+        ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
+        : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
+    },
+    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
+    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
+    { title: 'Color', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
+    { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100, render: (v: number) => renderQty(v) },
+  ];
+
+  // --- 사이즈별 columns ---
+  const sizeViewColumns: any[] = [
+    { title: '', dataIndex: 'image_url', key: 'image', width: 50,
+      render: (v: string) => v
+        ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
+        : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
+    },
+    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
+    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
+    { title: '색상', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v || '-'}</Tag> },
+    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v || '-'}</Tag> },
+    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
+    { title: '재고', dataIndex: 'qty', key: 'qty', width: 100, render: (v: number) => renderQty(Number(v)) },
     ...(canWrite ? [{
       title: '조정', key: 'action', width: 80,
       render: (_: any, record: any) => (
@@ -132,12 +219,71 @@ export default function StoreInventoryPage() {
     }] : []),
   ];
 
+  const displayColumns = useMemo(() => {
+    if (viewMode === 'product') return productColumns;
+    if (viewMode === 'color') return colorColumns;
+    return sizeViewColumns;
+  }, [viewMode, canWrite]);
+
+  // --- Expandable rows ---
+  const productExpandedRow = (record: any) => {
+    const variants = record._variants || [];
+    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
+    const colorMap: Record<string, any[]> = {};
+    variants.forEach((v: any) => {
+      const c = v.color || '-';
+      if (!colorMap[c]) colorMap[c] = [];
+      colorMap[c].push(v);
+    });
+    const rows: any[] = [];
+    Object.entries(colorMap).forEach(([, vs]) => {
+      vs.sort((a: any, b: any) => sizeSort(a.size, b.size));
+      vs.forEach((v: any) => rows.push(v));
+    });
+    const cols: any[] = [
+      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
+      { title: 'Color', dataIndex: 'color', key: 'color', width: 80, render: (v: string) => v || '-' },
+      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
+      ...(canWrite ? [{
+        title: '조정', key: 'action', width: 80,
+        render: (_: any, row: any) => (
+          <Button size="small" icon={<EditOutlined />} onClick={() => openAdjust(row)}>조정</Button>
+        ),
+      }] : []),
+    ];
+    return <Table columns={cols} dataSource={rows} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
+  };
+
+  const colorExpandedRow = (record: any) => {
+    const variants = record._colorVariants || [];
+    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
+    const cols: any[] = [
+      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
+      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
+      ...(canWrite ? [{
+        title: '조정', key: 'action', width: 80,
+        render: (_: any, row: any) => (
+          <Button size="small" icon={<EditOutlined />} onClick={() => openAdjust(row)}>조정</Button>
+        ),
+      }] : []),
+    ];
+    return <Table columns={cols} dataSource={variants} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
+  };
+
+  const tableExpandable = useMemo(() => {
+    if (viewMode === 'product') return { expandedRowRender: productExpandedRow };
+    if (viewMode === 'color') return { expandedRowRender: colorExpandedRow };
+    return undefined;
+  }, [viewMode, rawData, canWrite]);
+
   return (
     <div>
       <PageHeader
         title="매장별 재고관리"
         extra={canWrite && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>
             재고 추가
           </Button>
         )}
@@ -145,7 +291,7 @@ export default function StoreInventoryPage() {
 
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
-          placeholder="거래처 선택"
+          size="small" placeholder="거래처 선택"
           allowClear showSearch optionFilterProp="label"
           value={partnerFilter}
           onChange={(v) => { setPartnerFilter(v); setPage(1); }}
@@ -153,35 +299,49 @@ export default function StoreInventoryPage() {
           options={partnerOptions}
         />
         <Input
-          placeholder="상품명/SKU 검색"
+          size="small" placeholder="상품명/SKU 검색"
           prefix={<SearchOutlined />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onPressEnter={load}
           style={{ width: 220 }}
         />
-        <Button onClick={load}>조회</Button>
+        <Button size="small" onClick={load}>조회</Button>
       </Space>
 
       {/* 거래처별 요약 */}
-      {partnerFilter && data.length > 0 && (
+      {partnerFilter && rawData.length > 0 && (
         <Card size="small" style={{ marginBottom: 16, borderRadius: 8 }}>
           <Space size="large">
-            <span>거래처: <strong>{data[0]?.partner_name}</strong></span>
-            <span>품목 수: <Tag color="blue">{data.length}</Tag></span>
-            <span>총 재고: <Tag color="geekblue">{data.reduce((s, r) => s + Number(r.qty || 0), 0).toLocaleString()}개</Tag></span>
+            <span>거래처: <strong>{rawData[0]?.partner_name}</strong></span>
+            <span>품목 수: <Tag color="blue">{rawData.length}</Tag></span>
+            <span>총 재고: <Tag color="geekblue">{rawData.reduce((s, r) => s + Number(r.qty || 0), 0).toLocaleString()}개</Tag></span>
           </Space>
         </Card>
       )}
 
+      {/* View Mode Segmented */}
+      <div style={{ marginBottom: 12 }}>
+        <Segmented
+          value={viewMode}
+          onChange={(v) => setViewMode(v as ViewMode)}
+          options={[
+            { label: '품번별', value: 'product' },
+            { label: '컬러별', value: 'color' },
+            { label: '사이즈별', value: 'size' },
+          ]}
+        />
+      </div>
+
       <Table
-        columns={columns}
-        dataSource={data}
-        rowKey="inventory_id"
+        columns={displayColumns}
+        dataSource={displayData}
+        rowKey="_rowKey"
         loading={loading}
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+        expandable={tableExpandable}
       />
 
       {/* 조정 모달 */}

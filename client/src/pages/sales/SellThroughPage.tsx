@@ -25,9 +25,11 @@ const AGE_COLORS: Record<string, { color: string; bg: string }> = {
   '1년차': { color: '#52c41a', bg: '#f6ffed' },
   '2년차': { color: '#fa8c16', bg: '#fff7e6' },
   '3년차': { color: '#fa541c', bg: '#fff2e8' },
-  '3년이상': { color: '#ff4d4f', bg: '#fff1f0' },
+  '4년차': { color: '#cf1322', bg: '#fff1f0' },
+  '5년차': { color: '#8c8c8c', bg: '#fafafa' },
   '미지정': { color: '#999', bg: '#fafafa' },
 };
+const getAgeColor = (ag: string) => AGE_COLORS[ag] || { color: '#8c8c8c', bg: '#fafafa' };
 
 const SEASON_SUFFIX: Record<string, string> = {
   SA: '봄/가을', SM: '여름', WN: '겨울', FW: '가을/겨울', SS: '봄/여름',
@@ -281,7 +283,7 @@ export default function SellThroughPage() {
               </Col>
               {/* 연차별 카드 */}
               {byAge.filter((a: any) => a.age_group !== '미지정').map((a: any) => {
-                const ac = AGE_COLORS[a.age_group] || AGE_COLORS['미지정'];
+                const ac = getAgeColor(a.age_group);
                 const rate = Number(a.sell_through_rate);
                 return (
                   <Col xs={12} sm={8} md={4} key={a.age_group}>
@@ -332,7 +334,11 @@ export default function SellThroughPage() {
             )}
 
             <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
-              {rangeLabel} 기준 | 판매율 = 판매수량 / (판매수량 + 현재재고) x 100
+              {viewTab === 'velocity'
+                ? '첫 입고일 기준 | 보정판매 = 판매 / (경과일 × 시즌가중치) | 가중치: 시스템설정 > 시즌 수요 가중치'
+                : ['drop_milestone', 'drop_cohort'].includes(viewTab)
+                ? '첫 입고일 기준 | 판매율 = 총판매 / 총공급량(초기입고+리오더) × 100'
+                : `${rangeLabel} 기준 | 판매율 = 판매수량 / (판매수량 + 현재재고) x 100`}
             </div>
 
             {/* 뷰 탭 전환 */}
@@ -365,7 +371,7 @@ export default function SellThroughPage() {
                   columns={[
                     { title: '연차', dataIndex: 'age_group', key: 'age', width: 100,
                       render: (v: string) => {
-                        const ac = AGE_COLORS[v] || AGE_COLORS['미지정'];
+                        const ac = getAgeColor(v);
                         return <Tag color={ac.color} style={{ fontWeight: 700 }}>{v}</Tag>;
                       } },
                     { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
@@ -408,8 +414,8 @@ export default function SellThroughPage() {
                       render: (_: any, r: any) => {
                         const year = parseInt((r.season || '').substring(0, 4));
                         const diff = new Date().getFullYear() - year;
-                        const ag = isNaN(diff) ? '미지정' : diff <= 0 ? '신상' : diff === 1 ? '1년차' : diff === 2 ? '2년차' : diff === 3 ? '3년차' : '3년이상';
-                        const ac = AGE_COLORS[ag] || AGE_COLORS['미지정'];
+                        const ag = isNaN(diff) ? '미지정' : diff <= 0 ? '신상' : `${diff}년차`;
+                        const ac = getAgeColor(ag);
                         return <Tag style={{ color: ac.color, borderColor: ac.color, fontSize: 11 }}>{ag}</Tag>;
                       } },
                     { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
@@ -655,6 +661,16 @@ export default function SellThroughPage() {
                     { title: '경과일', dataIndex: 'days_since_launch', key: 'days', width: 70, align: 'center' as const,
                       render: (v: number) => <span style={{ color: '#888' }}>{v}일</span>,
                       sorter: (a: any, b: any) => a.days_since_launch - b.days_since_launch },
+                    { title: '총공급', dataIndex: 'total_supplied', key: 'supply', width: 75, align: 'right' as const,
+                      render: (v: number) => <strong>{fmt(v)}</strong>,
+                      sorter: (a: any, b: any) => a.total_supplied - b.total_supplied },
+                    { title: '초기/리오더', key: 'breakdown', width: 95, align: 'center' as const,
+                      render: (_: any, r: any) => (
+                        <span style={{ fontSize: 11 }}>
+                          {fmt(Number(r.initial_supply))}
+                          {Number(r.reorder_supply) > 0 && <span style={{ color: '#fa8c16' }}> +{fmt(Number(r.reorder_supply))}</span>}
+                        </span>
+                      ) },
                     ...[
                       { key: '7d', title: '7일', field: 'rate_7d' },
                       { key: '14d', title: '14일', field: 'rate_14d' },
@@ -737,9 +753,15 @@ export default function SellThroughPage() {
                         render: (v: string) => <strong>{v.replace('-', '년 ')}월</strong> },
                       { title: '상품수', dataIndex: 'product_count', key: 'cnt', width: 75, align: 'center' as const,
                         render: (v: number) => `${v}종` },
+                      { title: '총공급', dataIndex: 'total_supplied', key: 'supply', width: 80, align: 'right' as const,
+                        render: (v: number) => <strong>{fmt(Number(v))}</strong> },
+                      { title: '초기입고', dataIndex: 'total_initial', key: 'init', width: 85, align: 'right' as const,
+                        render: (v: number) => fmt(Number(v)) },
+                      { title: '리오더', dataIndex: 'total_reorder', key: 'reorder', width: 75, align: 'right' as const,
+                        render: (v: number) => Number(v) > 0 ? <Tag color="orange">{fmt(v)}</Tag> : <span style={{ color: '#ddd' }}>-</span> },
                       { title: '총판매', dataIndex: 'total_sold', key: 'sold', width: 90, align: 'right' as const,
                         render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(Number(v))}</strong> },
-                      { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 90, align: 'right' as const,
+                      { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 80, align: 'right' as const,
                         render: (v: number) => fmt(Number(v)) },
                       { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 140, align: 'center' as const,
                         render: (v: number) => {
@@ -799,7 +821,10 @@ export default function SellThroughPage() {
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
                               <Tag color={i === 0 ? 'gold' : i === 1 ? '#aaa' : i === 2 ? '#cd7f32' : 'default'}
                                 style={{ fontWeight: 700, margin: 0, fontSize: 11 }}>#{i + 1}</Tag>
-                              <span style={{ fontSize: 11, color: '#888' }}>{v.days_since_launch}일</span>
+                              <Space size={4}>
+                                {Number(v.season_weight) < 1 && <Tag color="orange" style={{ fontSize: 10, margin: 0, padding: '0 3px', lineHeight: '16px' }}>×{Number(v.season_weight)}</Tag>}
+                                <span style={{ fontSize: 11, color: '#888' }}>{v.days_since_launch}일</span>
+                              </Space>
                             </div>
                             <div style={{ fontWeight: 700, fontSize: 13 }}>{v.product_code}</div>
                             <div style={{ fontSize: 11, color: '#666', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -831,10 +856,16 @@ export default function SellThroughPage() {
                       { title: '경과일', dataIndex: 'days_since_launch', key: 'days', width: 70, align: 'center' as const,
                         render: (v: number) => `${v}일`,
                         sorter: (a: any, b: any) => a.days_since_launch - b.days_since_launch },
+                      { title: '총공급', dataIndex: 'total_supplied', key: 'supply', width: 75, align: 'right' as const,
+                        render: (v: number) => <strong>{fmt(v)}</strong>,
+                        sorter: (a: any, b: any) => a.total_supplied - b.total_supplied },
+                      { title: '리오더', dataIndex: 'reorder_supply', key: 'reorder', width: 70, align: 'right' as const,
+                        render: (v: number) => Number(v) > 0 ? <Tag color="orange">{fmt(v)}</Tag> : <span style={{ color: '#ddd' }}>-</span>,
+                        sorter: (a: any, b: any) => a.reorder_supply - b.reorder_supply },
                       { title: '총판매', dataIndex: 'total_sold', key: 'sold', width: 80, align: 'right' as const,
                         render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(v)}</strong>,
                         sorter: (a: any, b: any) => a.total_sold - b.total_sold },
-                      { title: '일평균판매', dataIndex: 'daily_velocity', key: 'vel', width: 100, align: 'right' as const,
+                      { title: '일평균판매', dataIndex: 'daily_velocity', key: 'vel', width: 95, align: 'right' as const,
                         render: (v: number) => {
                           const n = Number(v);
                           const c = n >= 5 ? '#52c41a' : n >= 2 ? '#1890ff' : n >= 1 ? '#fa8c16' : '#ff4d4f';
@@ -842,12 +873,24 @@ export default function SellThroughPage() {
                         },
                         sorter: (a: any, b: any) => Number(a.daily_velocity) - Number(b.daily_velocity),
                         defaultSortOrder: 'descend' as const },
-                      { title: '일평균매출', dataIndex: 'daily_revenue', key: 'drev', width: 100, align: 'right' as const,
-                        render: (v: number) => `₩${fmt(Number(v))}`,
-                        sorter: (a: any, b: any) => Number(a.daily_revenue) - Number(b.daily_revenue) },
-                      { title: '재고', dataIndex: 'current_stock', key: 'stock', width: 70, align: 'right' as const,
+                      { title: '가중치', dataIndex: 'season_weight', key: 'sw', width: 65, align: 'center' as const,
+                        render: (v: number) => {
+                          const n = Number(v);
+                          return <Tag color={n >= 0.8 ? 'green' : n >= 0.5 ? 'blue' : n >= 0.3 ? 'orange' : 'red'}
+                            style={{ fontSize: 11, fontWeight: 600, margin: 0 }}>×{n}</Tag>;
+                        } },
+                      { title: '보정판매', dataIndex: 'adj_velocity', key: 'adjvel', width: 95, align: 'right' as const,
+                        render: (v: number, r: any) => {
+                          const n = Number(v);
+                          const sw = Number(r.season_weight);
+                          const c = n >= 5 ? '#52c41a' : n >= 2 ? '#1890ff' : n >= 1 ? '#fa8c16' : '#ff4d4f';
+                          return sw < 1 ? <strong style={{ color: c, fontSize: 14 }}>{n.toFixed(1)}</strong>
+                            : <span style={{ color: '#aaa' }}>{n.toFixed(1)}</span>;
+                        },
+                        sorter: (a: any, b: any) => Number(a.adj_velocity) - Number(b.adj_velocity) },
+                      { title: '재고', dataIndex: 'current_stock', key: 'stock', width: 65, align: 'right' as const,
                         render: (v: number) => fmt(v) },
-                      { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 80, align: 'center' as const,
+                      { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 75, align: 'center' as const,
                         render: (v: number) => {
                           const n = Number(v);
                           return <div style={{
@@ -856,7 +899,7 @@ export default function SellThroughPage() {
                           }}>{n}%</div>;
                         },
                         sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate) },
-                      { title: '소진예상', dataIndex: 'est_days_to_sellout', key: 'est', width: 85, align: 'center' as const,
+                      { title: '소진예상', dataIndex: 'est_days_to_sellout', key: 'est', width: 80, align: 'center' as const,
                         render: (v: number | null) => {
                           if (v == null) return <span style={{ color: '#ddd' }}>-</span>;
                           const n = Number(v);
@@ -864,6 +907,16 @@ export default function SellThroughPage() {
                           return <Tag color={c} style={{ fontWeight: 600 }}>{n}일</Tag>;
                         },
                         sorter: (a: any, b: any) => (a.est_days_to_sellout ?? 9999) - (b.est_days_to_sellout ?? 9999) },
+                      { title: '보정소진', dataIndex: 'adj_est_days', key: 'adjest', width: 80, align: 'center' as const,
+                        render: (v: number | null, r: any) => {
+                          if (v == null) return <span style={{ color: '#ddd' }}>-</span>;
+                          const n = Number(v);
+                          const sw = Number(r.season_weight);
+                          const c = n <= 14 ? '#52c41a' : n <= 30 ? '#1890ff' : n <= 60 ? '#fa8c16' : '#ff4d4f';
+                          return sw < 1 ? <Tag color={c} style={{ fontWeight: 600 }}>{n}일</Tag>
+                            : <span style={{ color: '#aaa' }}>{n}일</span>;
+                        },
+                        sorter: (a: any, b: any) => (a.adj_est_days ?? 9999) - (b.adj_est_days ?? 9999) },
                     ]}
                     dataSource={dropData?.velocity || []}
                     rowKey="product_code"

@@ -32,7 +32,7 @@ interface CodeItem {
 
 export default function CodeManagePage() {
   const user = useAuthStore((s) => s.user);
-  const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user.role as any);
   const [codes, setCodes] = useState<Record<string, CodeItem[]>>({});
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -157,8 +157,9 @@ export default function CodeManagePage() {
         dataSource={getDisplayData(codes[ct.key] || [])}
         rowKey="code_id"
         loading={loading}
-        pagination={false}
         size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
       />
     ),
   }));
@@ -168,7 +169,7 @@ export default function CodeManagePage() {
       <PageHeader
         title="코드관리"
         extra={canWrite && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openAdd}>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAdd}>
             코드 추가
           </Button>
         )}

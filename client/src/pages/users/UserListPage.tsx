@@ -68,10 +68,11 @@ export default function UserListPage() {
     <div>
       <PageHeader
         title={isStoreManager ? '직원 관리' : '사용자 관리'}
-        extra={<Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/users/new')}>{isStoreManager ? '직원 등록' : '사용자 등록'}</Button>}
+        extra={<Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => navigate('/users/new')}>{isStoreManager ? '직원 등록' : '사용자 등록'}</Button>}
       />
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Input
+          size="small"
           placeholder="아이디 또는 이름 검색"
           prefix={<SearchOutlined />}
           value={search}
@@ -79,7 +80,7 @@ export default function UserListPage() {
           onPressEnter={load}
           style={{ width: 250 }}
         />
-        <Button onClick={load}>조회</Button>
+        <Button size="small" onClick={load}>조회</Button>
       </Space>
       <Table
         columns={columns}

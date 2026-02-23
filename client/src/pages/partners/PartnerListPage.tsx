@@ -64,13 +64,14 @@ export default function PartnerListPage() {
       <PageHeader
         title="거래처 관리"
         extra={canWrite && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/partners/new')}>
+          <Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => navigate('/partners/new')}>
             거래처 등록
           </Button>
         )}
       />
-      <Space style={{ marginBottom: 16 }}>
+      <Space style={{ marginBottom: 16 }} wrap>
         <Input
+          size="small"
           placeholder="코드 또는 이름 검색"
           prefix={<SearchOutlined />}
           value={search}
@@ -79,6 +80,7 @@ export default function PartnerListPage() {
           style={{ width: 250 }}
         />
         <Select
+          size="small"
           placeholder="거래유형"
           allowClear
           value={partnerType}
@@ -93,7 +95,7 @@ export default function PartnerListPage() {
             { label: '온라인', value: '온라인' },
           ]}
         />
-        <Button onClick={load}>조회</Button>
+        <Button size="small" onClick={load}>조회</Button>
       </Space>
       <Table
         columns={columns}

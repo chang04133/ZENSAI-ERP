@@ -1,22 +1,26 @@
 import { useEffect, useState, useRef, useCallback, CSSProperties } from 'react';
-import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button, InputNumber } from 'antd';
+import { Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, message, Button } from 'antd';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
-  SendOutlined, AlertOutlined, ThunderboltOutlined,
+  SendOutlined, AlertOutlined, ThunderboltOutlined, WarningOutlined, ReloadOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
+import { restockApi } from '../../modules/restock/restock.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { apiFetch } from '../../core/api.client';
+import type { RestockSuggestion } from '../../../../shared/types/restock';
 
 /* ── 색상 팔레트 ── */
 const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
 const CAT_COLORS: Record<string, string> = {
   TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4', '미분류': '#94a3b8',
 };
+const URGENCY_COLORS: Record<string, string> = { CRITICAL: 'red', WARNING: 'orange', NORMAL: 'blue' };
+const URGENCY_LABELS: Record<string, string> = { CRITICAL: '위험', WARNING: '주의', NORMAL: '보통' };
 
 /* ── Stat Card ── */
 function StatCard({ title, value, icon, bg, color, sub, onClick }: {
@@ -79,47 +83,45 @@ export default function InventoryStatusPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  // 매장 매니저는 항상 내 매장만 볼 수 있음
   const effectiveStore = isStore;
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
 
-  // 리오더 임계값 (매장: 긴급 1이하, 추천 3이하 / 본사: 긴급 5이하, 추천 10이하)
-  const [urgentThreshold, setUrgentThreshold] = useState(isStore ? 1 : 5);
-  const [recommendThreshold, setRecommendThreshold] = useState(isStore ? 3 : 10);
+  // ── 본사: 재입고 제안 데이터 (60일+판매율+계절가중치) ──
+  const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
+  const [sugLoading, setSugLoading] = useState(true);
 
-  // 리오더 데이터
+  // ── 매장: 기존 리오더 데이터 ──
   const [reorderData, setReorderData] = useState<{ urgent: any[]; recommend: any[] }>({ urgent: [], recommend: [] });
   const [reorderLoading, setReorderLoading] = useState(true);
 
   // 재고찾기
   const [searchText, setSearchText] = useState('');
-  const [suggestions, setSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const [searchResult, setSearchResult] = useState<any>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const reorderDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  // 타이머 정리
+  // 매장용 재고 요청
+  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+
   useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (reorderDebounceRef.current) clearTimeout(reorderDebounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, []);
 
   const onSearchChange = (value: string) => {
     setSearchText(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    if (!value.trim()) { setSuggestions([]); setSearchResult(null); return; }
+    if (!value.trim()) { setSearchSuggestions([]); setSearchResult(null); return; }
     debounceRef.current = setTimeout(async () => {
       try {
         const data = await inventoryApi.searchSuggest(value);
-        setSuggestions(Array.isArray(data) ? data : []);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
       } catch (e: any) {
         console.error('검색 자동완성 실패:', e);
-        setSuggestions([]);
+        setSearchSuggestions([]);
       }
     }, 300);
   };
@@ -145,11 +147,6 @@ export default function InventoryStatusPage() {
     finally { setSearchLoading(false); }
   };
 
-  // 재고 요청 보내기 (매장용)
-  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
-  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
-
-  // 이미 보낸 요청 로드
   const loadMyPendingRequests = useCallback(async () => {
     try {
       const res = await apiFetch('/api/notifications/my-pending-requests');
@@ -160,42 +157,32 @@ export default function InventoryStatusPage() {
     } catch { /* ignore */ }
   }, []);
 
-  // 리오더 데이터 로드 (디바운스)
-  const loadReorder = useCallback((urgent: number, recommend: number, scope?: 'all') => {
-    if (reorderDebounceRef.current) clearTimeout(reorderDebounceRef.current);
-    reorderDebounceRef.current = setTimeout(async () => {
-      setReorderLoading(true);
-      try {
-        const data = await inventoryApi.reorderAlerts(urgent, recommend, scope);
-        setReorderData(data);
-      } catch (e: any) { console.error('리오더 조회 실패:', e); }
-      finally { setReorderLoading(false); }
-    }, 400);
-  }, []);
-
-  const loadAll = useCallback(() => {
+  const loadAll = useCallback(async () => {
     setStatsLoading(true);
     inventoryApi.dashboardStats()
       .then(setStats)
       .catch((e: any) => message.error(e.message))
       .finally(() => setStatsLoading(false));
-    loadReorder(urgentThreshold, recommendThreshold);
-    if (isStore) loadMyPendingRequests();
-  }, [urgentThreshold, recommendThreshold, loadReorder, isStore, loadMyPendingRequests]);
+
+    if (effectiveStore) {
+      // 매장: 기존 리오더 알림 유지
+      setReorderLoading(true);
+      inventoryApi.reorderAlerts(1, 3)
+        .then(setReorderData)
+        .catch((e: any) => console.error('리오더 조회 실패:', e))
+        .finally(() => setReorderLoading(false));
+      loadMyPendingRequests();
+    } else {
+      // 본사: 재입고 제안 엔진 (60일+판매율+계절가중치)
+      setSugLoading(true);
+      restockApi.getRestockSuggestions()
+        .then(setSuggestions)
+        .catch((e: any) => console.error('제안 조회 실패:', e))
+        .finally(() => setSugLoading(false));
+    }
+  }, [effectiveStore, loadMyPendingRequests]);
 
   useEffect(() => { loadAll(); }, []);
-
-  // 임계값 변경 시 재조회
-  const handleUrgentChange = (v: number | null) => {
-    if (v === null || v < 0) return;
-    setUrgentThreshold(v);
-    loadReorder(v, recommendThreshold);
-  };
-  const handleRecommendChange = (v: number | null) => {
-    if (v === null || v < 0) return;
-    setRecommendThreshold(v);
-    loadReorder(urgentThreshold, v);
-  };
 
   const handleStockRequest = async (item: any) => {
     const key = `${item.variant_id}`;
@@ -205,7 +192,6 @@ export default function InventoryStatusPage() {
       message.warning('다른 매장에 재고가 없습니다.');
       return;
     }
-    // 가장 수량 많은 지점만 요청 (동일 수량이면 전부)
     const maxQty = Math.max(...allTargets.map((t: any) => t.qty));
     const targets = allTargets.filter((t: any) => t.qty === maxQty);
     setRequestingIds((prev) => new Set(prev).add(key));
@@ -235,23 +221,62 @@ export default function InventoryStatusPage() {
   const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
   const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
 
-  // 리오더 테이블 컬럼 (공통)
-  const reorderBaseColumns = [
+  // ── 본사: 제안 통계 ──
+  const criticalCount = suggestions.filter(s => s.urgency === 'CRITICAL').length;
+  const warningCount = suggestions.filter(s => s.urgency === 'WARNING').length;
+
+  // ── 본사: 제안 테이블 컬럼 ──
+  const sugColumns = [
+    { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 70,
+      render: (v: string) => <Tag color={URGENCY_COLORS[v]}>{URGENCY_LABELS[v]}</Tag>,
+      filters: [
+        { text: '위험', value: 'CRITICAL' },
+        { text: '주의', value: 'WARNING' },
+        { text: '보통', value: 'NORMAL' },
+      ],
+      onFilter: (value: any, record: RestockSuggestion) => record.urgency === value,
+    },
+    { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true,
+      render: (v: string, r: RestockSuggestion) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
+    },
+    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
+    { title: 'Color', dataIndex: 'color', key: 'color', width: 55 },
+    { title: 'Size', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '판매율', dataIndex: 'sell_through_rate', key: 'sell_through_rate', width: 65,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.sell_through_rate - b.sell_through_rate,
+      render: (v: number) => <span style={{ fontWeight: 600, color: v >= 70 ? '#f5222d' : v >= 50 ? '#fa8c16' : '#1890ff' }}>{v}%</span>,
+    },
+    { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 65,
+      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'default'}>{v}</Tag>,
+    },
+    { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage_qty', width: 65,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.shortage_qty - b.shortage_qty,
+      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 700 }}>{v}</span> : '-',
+    },
+    { title: '소진일', dataIndex: 'days_of_stock', key: 'days_of_stock', width: 65,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.days_of_stock - b.days_of_stock,
+      render: (v: number) => <Tag color={v < 7 ? 'red' : v < 14 ? 'orange' : v < 30 ? 'gold' : 'default'}>{v}일</Tag>,
+    },
+    { title: '권장수량', dataIndex: 'suggested_qty', key: 'suggested_qty', width: 75,
+      render: (v: number) => v > 0 ? <Tag color="blue">{v}</Tag> : '-',
+    },
+  ];
+
+  // ── 매장: 리오더 테이블 컬럼 ──
+  const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
       render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
     },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
-    { title: '컬러', dataIndex: 'color', key: 'color', width: 55 },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
+    { title: 'Color', dataIndex: 'color', key: 'color', width: 55 },
+    { title: 'Size', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
     { title: '재고', dataIndex: 'current_qty', key: 'current_qty', width: 65,
-      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= urgentThreshold ? 'orange' : 'blue'}>{v}</Tag>,
+      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 1 ? 'orange' : 'blue'}>{v}</Tag>,
     },
     { title: '7일 판매', dataIndex: 'sold_7d', key: 'sold_7d', width: 75,
       render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span>,
     },
-    { title: '일평균', dataIndex: 'daily_7d', key: 'daily_7d', width: 65,
-      render: (v: number) => <span>{v}</span>,
-    },
+    { title: '일평균', dataIndex: 'daily_7d', key: 'daily_7d', width: 65 },
     { title: '잔여일(7d)', dataIndex: 'days_left_7d', key: 'days_left_7d', width: 80,
       render: (v: number | null) => v === null ? '-' : <Tag color={v <= 3 ? 'red' : v <= 7 ? 'orange' : 'gold'}>{v}일</Tag>,
     },
@@ -261,10 +286,6 @@ export default function InventoryStatusPage() {
     { title: '잔여일(30d)', dataIndex: 'days_left_30d', key: 'days_left_30d', width: 85,
       render: (v: number | null) => v === null ? '-' : <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'gold'}>{v}일</Tag>,
     },
-  ];
-
-  // 매장용: 다른매장재고 + 요청 버튼 추가
-  const storeExtraColumns = effectiveStore ? [
     { title: '다른 매장 재고', dataIndex: 'other_locations', key: 'other_locations',
       render: (locs: any[]) => {
         if (!locs || locs.length === 0) return <span style={{ color: '#ccc', fontSize: 12 }}>없음</span>;
@@ -300,9 +321,7 @@ export default function InventoryStatusPage() {
         ) : null;
       },
     },
-  ] : [];
-
-  const allColumns = [...reorderBaseColumns, ...storeExtraColumns];
+  ];
 
   return (
     <div>
@@ -322,13 +341,19 @@ export default function InventoryStatusPage() {
               sub="재고 보유 거래처" onClick={() => navigate('/inventory/store')} />
           </Col>
         )}
+        {/* 본사: CRITICAL/WARNING 카운트, 매장: 리오더 긴급/추천 카운트 */}
         <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
-          <StatCard title="리오더 긴급" value={reorderLoading ? '...' : reorderData.urgent.length}
+          <StatCard
+            title={effectiveStore ? '리오더 긴급' : '위험 (7일 미만)'}
+            value={effectiveStore ? (reorderLoading ? '...' : reorderData.urgent.length) : (sugLoading ? '...' : criticalCount)}
             icon={<ThunderboltOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff" />
         </Col>
         <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
-          <StatCard title="리오더 추천" value={reorderLoading ? '...' : reorderData.recommend.length}
-            icon={<AlertOutlined />} bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e" />
+          <StatCard
+            title={effectiveStore ? '리오더 추천' : '주의 (14일 미만)'}
+            value={effectiveStore ? (reorderLoading ? '...' : reorderData.recommend.length) : (sugLoading ? '...' : warningCount)}
+            icon={effectiveStore ? <AlertOutlined /> : <WarningOutlined />}
+            bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e" />
         </Col>
         <Col xs={24} sm={8} lg={effectiveStore ? 6 : 4}>
           <StatCard title="품절" value={Number(overall.zero_stock_count || 0)}
@@ -348,7 +373,7 @@ export default function InventoryStatusPage() {
           onChange={onSearchChange}
           onSelect={onSearchSelect}
           style={{ width: '100%', marginBottom: searchResult ? 16 : 0 }}
-          options={suggestions.map(s => ({
+          options={searchSuggestions.map(s => ({
             value: s.product_code,
             label: (
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
@@ -392,8 +417,8 @@ export default function InventoryStatusPage() {
               size="small"
               columns={[
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
-                { title: '컬러', dataIndex: 'color', key: 'color', width: 70 },
-                { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
+                { title: 'Color', dataIndex: 'color', key: 'color', width: 70 },
+                { title: 'Size', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
                 ...(isStore ? [{
                   title: '내 매장', dataIndex: 'my_store_qty', key: 'my_store_qty', width: 80,
                   render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#10b981', fontSize: 14 }}>{v}개</span>,
@@ -490,77 +515,103 @@ export default function InventoryStatusPage() {
         </Row>
       )}
 
-      {/* ── 리오더 긴급 ── */}
-      <Card
-        title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ThunderboltOutlined style={{ color: '#f5222d' }} />
-            리오더 긴급 ({reorderData.urgent.length}건)
-            <span style={{ marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 400 }}>
-              재고
-              <InputNumber
-                min={0} max={999} value={urgentThreshold}
-                onChange={handleUrgentChange}
-                size="small" style={{ width: 65 }}
-              />
-              개 이하
+      {/* ── 본사: 보충 필요 품목 (재입고 제안 엔진) ── */}
+      {!effectiveStore && (
+        <Card
+          title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertOutlined style={{ color: '#f5222d' }} />
+              보충 필요 품목 ({suggestions.length}건)
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#888', marginLeft: 8 }}>
+                60일 판매 · 판매율 ≥40% · 계절가중치 · 소진일 기준
+              </span>
             </span>
-          </span>
-        }
-        size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={reorderLoading}
-      >
-        {reorderData.urgent.length > 0 ? (
-          <Table
-            dataSource={reorderData.urgent}
-            rowKey="variant_id"
-            size="small"
-            scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-            pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
-            columns={allColumns}
-          />
-        ) : (
-          <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
-            <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-            긴급 리오더 항목이 없습니다
-          </div>
-        )}
-      </Card>
+          }
+          size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={sugLoading}
+          extra={
+            <Button size="small" icon={<ReloadOutlined />} onClick={() => {
+              setSugLoading(true);
+              restockApi.getRestockSuggestions().then(setSuggestions).catch(() => {}).finally(() => setSugLoading(false));
+            }}>새로고침</Button>
+          }
+        >
+          {suggestions.length > 0 ? (
+            <Table
+              dataSource={suggestions}
+              rowKey="variant_id"
+              size="small"
+              scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+              pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
+              columns={sugColumns}
+            />
+          ) : (
+            <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
+              <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
+              보충 필요 품목이 없습니다
+            </div>
+          )}
+        </Card>
+      )}
 
-      {/* ── 리오더 추천 ── */}
-      <Card
-        title={
-          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertOutlined style={{ color: '#fa8c16' }} />
-            리오더 추천 ({reorderData.recommend.length}건)
-            <span style={{ marginLeft: 12, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 13, fontWeight: 400 }}>
-              재고
-              <InputNumber
-                min={0} max={999} value={recommendThreshold}
-                onChange={handleRecommendChange}
-                size="small" style={{ width: 65 }}
-              />
-              개 이하
+      {/* ── 매장: 리오더 긴급 ── */}
+      {effectiveStore && (
+        <Card
+          title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <ThunderboltOutlined style={{ color: '#f5222d' }} />
+              리오더 긴급 ({reorderData.urgent.length}건)
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#888' }}>재고 1개 이하</span>
             </span>
-          </span>
-        }
-        size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={reorderLoading}
-      >
-        {reorderData.recommend.length > 0 ? (
-          <Table
-            dataSource={reorderData.recommend}
-            rowKey="variant_id"
-            size="small"
-            scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-            pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
-            columns={allColumns}
-          />
-        ) : (
-          <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
-            <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-            리오더 추천 항목이 없습니다
-          </div>
-        )}
-      </Card>
+          }
+          size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={reorderLoading}
+        >
+          {reorderData.urgent.length > 0 ? (
+            <Table
+              dataSource={reorderData.urgent}
+              rowKey="variant_id"
+              size="small"
+              scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+              pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
+              columns={storeColumns}
+            />
+          ) : (
+            <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
+              <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
+              긴급 리오더 항목이 없습니다
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* ── 매장: 리오더 추천 ── */}
+      {effectiveStore && (
+        <Card
+          title={
+            <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <AlertOutlined style={{ color: '#fa8c16' }} />
+              리오더 추천 ({reorderData.recommend.length}건)
+              <span style={{ fontSize: 12, fontWeight: 400, color: '#888' }}>재고 3개 이하</span>
+            </span>
+          }
+          size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={reorderLoading}
+        >
+          {reorderData.recommend.length > 0 ? (
+            <Table
+              dataSource={reorderData.recommend}
+              rowKey="variant_id"
+              size="small"
+              scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+              pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
+              columns={storeColumns}
+            />
+          ) : (
+            <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
+              <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
+              리오더 추천 항목이 없습니다
+            </div>
+          )}
+        </Card>
+      )}
     </div>
   );
 }

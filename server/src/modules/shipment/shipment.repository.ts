@@ -16,7 +16,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
   }
 
   async list(options: any = {}) {
-    const { page = 1, limit = 20, search, request_type, status, from_partner, to_partner, partner } = options;
+    const { page = 1, limit = 20, search, request_type, status, from_partner, to_partner, partner, date_from, date_to } = options;
     const offset = (page - 1) * limit;
     const qb = new QueryBuilder('sr');
     if (search) qb.search(['request_no'], search);
@@ -26,6 +26,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     if (to_partner) qb.eq('to_partner', to_partner);
     // 매장 사용자: 출발 또는 도착이 자기 매장인 건만
     if (partner) qb.raw('(sr.from_partner = ? OR sr.to_partner = ?)', partner, partner);
+    if (date_from || date_to) qb.dateRange('request_date', date_from, date_to);
     const { whereClause, params, nextIdx } = qb.build();
 
     const countSql = `SELECT COUNT(*) FROM shipment_requests sr ${whereClause}`;

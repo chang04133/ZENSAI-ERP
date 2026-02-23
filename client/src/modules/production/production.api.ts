@@ -40,6 +40,12 @@ export const productionApi = {
     if (!d.success) throw new Error(d.error);
     return d.data;
   },
+  productVariantDetail: async (productCode: string) => {
+    const res = await apiFetch(`/api/productions/product-variants/${encodeURIComponent(productCode)}`);
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data as Array<{ color: string; size: string; sku: string; sold_qty: number; current_stock: number; sell_through_rate: number }>;
+  },
   updateStatus: async (id: number, status: string) => {
     const res = await apiFetch(`/api/productions/${id}/status`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },

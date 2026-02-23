@@ -26,7 +26,7 @@ router.get('/:type', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data: result.rows });
 }));
 
-router.post('/', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), asyncHandler(async (req, res) => {
+router.post('/', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), asyncHandler(async (req, res) => {
   const { code_type, code_value, code_label, sort_order, parent_code } = req.body;
   if (!code_type || !code_value || !code_label) { res.status(400).json({ success: false, error: '코드타입, 코드값, 코드명은 필수입니다.' }); return; }
   if (!VALID_TYPES.includes(code_type.toUpperCase())) { res.status(400).json({ success: false, error: '유효하지 않은 코드 타입입니다.' }); return; }
@@ -43,7 +43,7 @@ router.post('/', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')
   }
 }));
 
-router.put('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), asyncHandler(async (req, res) => {
+router.put('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id as string, 10);
   const { code_value, code_label, sort_order, is_active, parent_code } = req.body;
   const pool = getPool();

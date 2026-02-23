@@ -6,8 +6,6 @@ import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
-import { useAuthStore } from '../../modules/auth/auth.store';
-import { ROLES } from '../../../../shared/constants/roles';
 import type { RestockSuggestion, SellingVelocity, RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
@@ -36,8 +34,6 @@ function SummaryCard({ title, count, icon, bg, color }: {
 
 export default function RestockManagePage() {
   const navigate = useNavigate();
-  const user = useAuthStore((s) => s.user);
-  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   const [tab, setTab] = useState('suggestions');
   const [partners, setPartners] = useState<any[]>([]);
@@ -68,7 +64,7 @@ export default function RestockManagePage() {
   const [detailData, setDetailData] = useState<RestockRequest | null>(null);
 
   useEffect(() => {
-    apiFetch('/api/partners?limit=100').then(r => r.json()).then(d => {
+    apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
       if (d.success) setPartners(d.data?.data || d.data || []);
     }).catch((e: any) => { message.error('거래처 로드 실패: ' + (e.message || '')); });
   }, []);
@@ -117,7 +113,6 @@ export default function RestockManagePage() {
     selectedItems.forEach(i => { qtys[i.variant_id] = i.suggested_qty; });
     setItemQtys(qtys);
     createForm.resetFields();
-    if (isStore && user?.partnerCode) createForm.setFieldsValue({ partner_code: user.partnerCode });
     setCreateOpen(true);
   };
 
@@ -257,7 +252,7 @@ export default function RestockManagePage() {
         title="재입고 관리"
         extra={
           <Space>
-            {tab === 'velocity' && !isStore && (
+            {tab === 'velocity' && (
               <Select placeholder="거래처 필터" allowClear value={partnerFilter}
                 onChange={setPartnerFilter} style={{ width: 150 }}
                 options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
@@ -345,12 +340,10 @@ export default function RestockManagePage() {
                   onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
                   options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))}
                 />
-                {!isStore && (
-                  <Select placeholder="거래처" allowClear value={partnerFilter}
-                    onChange={setPartnerFilter} style={{ width: 150 }}
-                    options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
-                  />
-                )}
+                <Select placeholder="거래처" allowClear value={partnerFilter}
+                  onChange={setPartnerFilter} style={{ width: 150 }}
+                  options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+                />
               </Space>
               <Table
                 dataSource={requests}
@@ -381,7 +374,7 @@ export default function RestockManagePage() {
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="partner_code" label="입고 거래처" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
-                <Select showSearch placeholder="거래처" optionFilterProp="label" disabled={isStore}
+                <Select showSearch placeholder="거래처" optionFilterProp="label"
                   options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
                 />
               </Form.Item>

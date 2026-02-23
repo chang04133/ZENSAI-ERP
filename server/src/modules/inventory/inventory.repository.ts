@@ -17,6 +17,15 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   async listWithDetails(options: any = {}) {
     const { page = 1, limit = 20, partner_code, search, category, season, size, color, fit, stock_level, sort_field, sort_dir } = options;
     const offset = (page - 1) * limit;
+
+    // stock_level 필터에 시스템 설정 임계값 사용
+    let lowThreshold = 5;
+    let medThreshold = 10;
+    if (stock_level && stock_level !== 'zero') {
+      lowThreshold = await this.getLowStockThreshold();
+      medThreshold = await this.getMediumStockThreshold();
+    }
+
     const qb = new QueryBuilder('i');
     if (partner_code) qb.eq('partner_code', partner_code);
     if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
@@ -26,9 +35,9 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
     if (fit) qb.raw('p.fit = ?', fit);
     if (stock_level === 'zero') qb.raw('i.qty = 0');
-    else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= 5');
-    else if (stock_level === 'medium') qb.raw('i.qty > 5 AND i.qty <= 15');
-    else if (stock_level === 'good') qb.raw('i.qty > 15');
+    else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
+    else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);
+    else if (stock_level === 'good') qb.raw('i.qty > ?', medThreshold);
     const { whereClause, params, nextIdx } = qb.build();
 
     const baseSql = `
@@ -51,7 +60,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
 
     const dataSql = `
       SELECT i.*, pt.partner_name, pv.sku, pv.color, pv.size,
-             p.product_code, p.product_name, p.category, p.brand, p.season, p.fit, p.base_price
+             p.product_code, p.product_name, p.category, p.brand, p.season, p.fit, p.base_price, p.image_url
       ${baseSql} ORDER BY ${orderCol} ${orderDir}, p.product_name LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, limit, offset]);
     return { data: data.rows, total, sumQty, page, limit, totalPages: Math.ceil(total / limit) };

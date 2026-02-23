@@ -25,10 +25,9 @@ const CodeManagePage = lazy(() => import('../pages/codes/CodeManagePage'));
 
 // Shipment
 const ShipmentRequestPage = lazy(() => import('../pages/shipment/ShipmentRequestPage'));
-const ShipmentProcessPage = lazy(() => import('../pages/shipment/ShipmentProcessPage'));
-const ReturnProcessPage = lazy(() => import('../pages/shipment/ReturnProcessPage'));
+const ReturnManagePage = lazy(() => import('../pages/shipment/ReturnManagePage'));
 const HorizontalTransferPage = lazy(() => import('../pages/shipment/HorizontalTransferPage'));
-const StoreShipmentPage = lazy(() => import('../pages/shipment/StoreShipmentPage'));
+const ShipmentHistoryPage = lazy(() => import('../pages/shipment/ShipmentHistoryPage'));
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
@@ -105,14 +104,13 @@ export const appRoutes: AppRoute[] = [
 
   // Shipment
   { path: '/shipment/request', element: <ShipmentRequestPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/process', element: <ShipmentProcessPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/return', element: <ReturnProcessPage />, roles: ADMIN_HQ_STORE },
+  { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/store', element: <StoreShipmentPage />, roles: ADMIN_HQ_STORE },
+  { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ },
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
   { path: '/inventory/adjust', element: <InventoryAdjustPage />, roles: ADMIN_HQ },
   { path: '/inventory/restock', element: <RestockManagePage />, roles: ADMIN_HQ },

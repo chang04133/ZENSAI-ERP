@@ -19,6 +19,7 @@ class ProductionService extends BaseService<ProductionPlan> {
   }
   async categorySummary() { return productionRepository.categorySummary(); }
   async categorySubStats(category: string) { return productionRepository.categorySubStats(category); }
+  async productVariantDetail(productCode: string) { return productionRepository.productVariantDetail(productCode); }
 
   async updateStatus(id: number, status: string, userId: string): Promise<ProductionPlan | null> {
     const pool = getPool();

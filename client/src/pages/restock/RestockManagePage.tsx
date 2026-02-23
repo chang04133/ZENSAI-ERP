@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
-import { Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker, Input, Space, Card, Row, Col, message } from 'antd';
-import { PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined } from '@ant-design/icons';
+import { useEffect, useState, CSSProperties } from 'react';
+import { Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker, Input, Space, Row, Col, message } from 'antd';
+import { PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined, WarningOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
@@ -10,12 +11,31 @@ import { ROLES } from '../../../../shared/constants/roles';
 import type { RestockSuggestion, SellingVelocity, RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
-const ALERT_COLORS: Record<string, string> = { ZERO: 'red', LOW: 'orange', MEDIUM: 'gold' };
-const ALERT_LABELS: Record<string, string> = { ZERO: '품절', LOW: '부족', MEDIUM: '주의' };
+const URGENCY_COLORS: Record<string, string> = { CRITICAL: 'red', WARNING: 'orange', NORMAL: 'blue' };
+const URGENCY_LABELS: Record<string, string> = { CRITICAL: '위험', WARNING: '주의', NORMAL: '보통' };
 const STATUS_COLORS: Record<string, string> = { DRAFT: 'default', APPROVED: 'blue', ORDERED: 'cyan', RECEIVED: 'green', CANCELLED: 'red' };
 const STATUS_LABELS: Record<string, string> = { DRAFT: '작성중', APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소' };
 
+function SummaryCard({ title, count, icon, bg, color }: {
+  title: string; count: number; icon: React.ReactNode; bg: string; color: string;
+}) {
+  const style: CSSProperties = {
+    background: bg, borderRadius: 12, padding: '14px 18px',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 80, border: 'none',
+  };
+  return (
+    <div style={style}>
+      <div>
+        <div style={{ fontSize: 11, color: color + 'cc' }}>{title}</div>
+        <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.3 }}>{count}건</div>
+      </div>
+      <div style={{ fontSize: 26, color: color + '44' }}>{icon}</div>
+    </div>
+  );
+}
+
 export default function RestockManagePage() {
+  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
@@ -56,7 +76,7 @@ export default function RestockManagePage() {
   const loadSuggestions = async () => {
     setSugLoading(true);
     try {
-      const data = await restockApi.getRestockSuggestions(partnerFilter);
+      const data = await restockApi.getRestockSuggestions();
       setSuggestions(data);
     } catch (e: any) { message.error(e.message); }
     finally { setSugLoading(false); }
@@ -82,7 +102,12 @@ export default function RestockManagePage() {
     if (tab === 'suggestions') loadSuggestions();
     else if (tab === 'velocity') loadVelocity();
     else loadRequests();
-  }, [tab, partnerFilter]);
+  }, [tab]);
+
+  useEffect(() => {
+    if (tab === 'velocity') loadVelocity();
+    else if (tab === 'requests') loadRequests();
+  }, [partnerFilter]);
 
   useEffect(() => { if (tab === 'requests') loadRequests(); }, [reqPage, statusFilter]);
 
@@ -126,39 +151,62 @@ export default function RestockManagePage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  // 제안 요약 통계
+  const criticalCount = suggestions.filter(s => s.urgency === 'CRITICAL').length;
+  const warningCount = suggestions.filter(s => s.urgency === 'WARNING').length;
+  const totalCount = suggestions.length;
+
   const sugColumns = [
-    { title: '상태', dataIndex: 'alert_level', key: 'alert_level', width: 70,
-      render: (v: string) => <Tag color={ALERT_COLORS[v]}>{ALERT_LABELS[v]}</Tag>,
+    { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 70,
+      render: (v: string) => <Tag color={URGENCY_COLORS[v]}>{URGENCY_LABELS[v]}</Tag>,
+      filters: [
+        { text: '위험', value: 'CRITICAL' },
+        { text: '주의', value: 'WARNING' },
+        { text: '보통', value: 'NORMAL' },
+      ],
+      onFilter: (value: any, record: RestockSuggestion) => record.urgency === value,
     },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
-    { title: '상품', dataIndex: 'product_name', key: 'product_name' },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
-    { title: '컬러', dataIndex: 'color', key: 'color', width: 60 },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '현재수량', dataIndex: 'current_qty', key: 'current_qty', width: 80,
-      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'gold'}>{v}</Tag>,
+    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120,
+      render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
     },
-    { title: 'LOW', dataIndex: 'low_threshold', key: 'low_threshold', width: 60 },
-    { title: 'MED', dataIndex: 'medium_threshold', key: 'medium_threshold', width: 60 },
-    { title: '7일판매', dataIndex: 'sold_7d', key: 'sold_7d', width: 80,
-      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 600 }}>{v}</span> : '-',
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
+    { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
+    { title: 'Size', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '판매율', dataIndex: 'sell_through_rate', key: 'sell_through_rate', width: 70,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.sell_through_rate - b.sell_through_rate,
+      render: (v: number) => <span style={{ fontWeight: 600, color: v >= 70 ? '#f5222d' : v >= 50 ? '#fa8c16' : '#1890ff' }}>{v}%</span>,
     },
-    { title: '30일판매', dataIndex: 'sold_30d', key: 'sold_30d', width: 80,
+    { title: '60일판매', dataIndex: 'total_sold', key: 'total_sold', width: 75,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.total_sold - b.total_sold,
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 600 }}>{v}</span> : '-',
     },
-    { title: '일평균', dataIndex: 'avg_daily_7d', key: 'avg_daily_7d', width: 70,
-      render: (v: number) => v > 0 ? v.toFixed(1) : '-',
+    { title: '30일수요', dataIndex: 'demand_30d', key: 'demand_30d', width: 75,
+      render: (v: number) => v > 0 ? v : '-',
     },
-    { title: '추천수량', dataIndex: 'suggested_qty', key: 'suggested_qty', width: 80,
-      render: (v: number) => <Tag color="blue">{v}</Tag>,
+    { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 70,
+      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'default'}>{v}</Tag>,
+    },
+    { title: '생산중', dataIndex: 'in_production_qty', key: 'in_production_qty', width: 65,
+      render: (v: number) => v > 0 ? <span style={{ color: '#722ed1' }}>{v}</span> : '-',
+    },
+    { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage_qty', width: 70,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.shortage_qty - b.shortage_qty,
+      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 700 }}>{v}</span> : '-',
+    },
+    { title: '소진일', dataIndex: 'days_of_stock', key: 'days_of_stock', width: 65,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.days_of_stock - b.days_of_stock,
+      render: (v: number) => <Tag color={v < 7 ? 'red' : v < 14 ? 'orange' : v < 30 ? 'gold' : 'default'}>{v}일</Tag>,
+    },
+    { title: '권장수량', dataIndex: 'suggested_qty', key: 'suggested_qty', width: 80,
+      render: (v: number) => v > 0 ? <Tag color="blue">{v}</Tag> : '-',
     },
   ];
 
   const velColumns = [
-    { title: '상품', dataIndex: 'product_name', key: 'product_name' },
+    { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
-    { title: '컬러', dataIndex: 'color', key: 'color', width: 60 },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
+    { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
+    { title: 'Size', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
     { title: '현재재고', dataIndex: 'current_qty', key: 'current_qty', width: 80 },
     { title: '7일판매', dataIndex: 'sold_7d', key: 'sold_7d', width: 80,
       render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 600 }}>{v}</span> : '-',
@@ -172,12 +220,12 @@ export default function RestockManagePage() {
     { title: '일평균(30일)', dataIndex: 'avg_daily_30d', key: 'avg_daily_30d', width: 90,
       render: (v: number) => v > 0 ? v.toFixed(2) : '-',
     },
-    { title: '소진예상(7일기준)', dataIndex: 'days_until_out_7d', key: 'days_until_out_7d', width: 130,
+    { title: '소진예상(7일)', dataIndex: 'days_until_out_7d', key: 'days_until_out_7d', width: 120,
       render: (v: number | null) => v != null
         ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag>
         : '-',
     },
-    { title: '소진예상(30일기준)', dataIndex: 'days_until_out_30d', key: 'days_until_out_30d', width: 130,
+    { title: '소진예상(30일)', dataIndex: 'days_until_out_30d', key: 'days_until_out_30d', width: 120,
       render: (v: number | null) => v != null
         ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag>
         : '-',
@@ -209,7 +257,7 @@ export default function RestockManagePage() {
         title="재입고 관리"
         extra={
           <Space>
-            {!isStore && (
+            {tab === 'velocity' && !isStore && (
               <Select placeholder="거래처 필터" allowClear value={partnerFilter}
                 onChange={setPartnerFilter} style={{ width: 150 }}
                 options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
@@ -228,25 +276,44 @@ export default function RestockManagePage() {
         {
           key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안</span>,
           children: (
-            <Table
-              dataSource={suggestions}
-              columns={sugColumns}
-              rowKey={(r) => `${r.partner_code}-${r.variant_id}`}
-              loading={sugLoading}
-              size="small"
-              pagination={{ pageSize: 50 }}
-              scroll={{ x: 1200 }}
-              rowSelection={{
-                selectedRowKeys: selectedItems.map(i => `${i.partner_code}-${i.variant_id}`),
-                onChange: (_keys, rows) => setSelectedItems(rows),
-              }}
-              title={() => (
-                <Space>
-                  <span style={{ color: '#888' }}>재고 부족/주의 품목 ({suggestions.length}건)</span>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={loadSuggestions}>새로고침</Button>
-                </Space>
-              )}
-            />
+            <>
+              {/* 요약 카드 */}
+              <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                <Col xs={24} sm={8}>
+                  <SummaryCard title="긴급 보충 (7일 미만)" count={criticalCount}
+                    icon={<ExclamationCircleOutlined />} bg="linear-gradient(135deg, #ff4d4f22 0%, #ff4d4f11 100%)" color="#cf1322" />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <SummaryCard title="주의 품목 (14일 미만)" count={warningCount}
+                    icon={<WarningOutlined />} bg="linear-gradient(135deg, #fa8c1622 0%, #fa8c1611 100%)" color="#d46b08" />
+                </Col>
+                <Col xs={24} sm={8}>
+                  <SummaryCard title="전체 보충 필요" count={totalCount}
+                    icon={<AlertOutlined />} bg="linear-gradient(135deg, #1890ff22 0%, #1890ff11 100%)" color="#096dd9" />
+                </Col>
+              </Row>
+              <Table
+                dataSource={suggestions}
+                columns={sugColumns}
+                rowKey="variant_id"
+                loading={sugLoading}
+                size="small"
+                scroll={{ x: 1200, y: 'calc(100vh - 380px)' }}
+                pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                rowSelection={{
+                  selectedRowKeys: selectedItems.map(i => i.variant_id),
+                  onChange: (_keys, rows) => setSelectedItems(rows),
+                }}
+                title={() => (
+                  <Space>
+                    <span style={{ color: '#888', fontSize: 12 }}>
+                      60일 판매 기반 · 판매율 ≥40% · 계절가중치 적용 · 소진일 오름차순
+                    </span>
+                    <Button size="small" icon={<ReloadOutlined />} onClick={loadSuggestions}>새로고침</Button>
+                  </Space>
+                )}
+              />
+            </>
           ),
         },
         {
@@ -258,8 +325,8 @@ export default function RestockManagePage() {
               rowKey="variant_id"
               loading={velLoading}
               size="small"
-              pagination={{ pageSize: 50 }}
-              scroll={{ x: 1200 }}
+              scroll={{ x: 1200, y: 'calc(100vh - 280px)' }}
+              pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
               title={() => (
                 <Space>
                   <span style={{ color: '#888' }}>판매 실적이 있는 품목 ({velocity.length}건)</span>
@@ -278,6 +345,12 @@ export default function RestockManagePage() {
                   onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
                   options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))}
                 />
+                {!isStore && (
+                  <Select placeholder="거래처" allowClear value={partnerFilter}
+                    onChange={setPartnerFilter} style={{ width: 150 }}
+                    options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+                  />
+                )}
               </Space>
               <Table
                 dataSource={requests}
@@ -285,7 +358,7 @@ export default function RestockManagePage() {
                 rowKey="request_id"
                 loading={reqLoading}
                 size="small"
-                scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+                scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
                 pagination={{ current: reqPage, total, pageSize: 50, onChange: setReqPage, showTotal: (t) => `총 ${t}건` }}
               />
             </>
@@ -326,15 +399,18 @@ export default function RestockManagePage() {
         <div style={{ marginTop: 8, fontWeight: 600, marginBottom: 8 }}>선택 품목 ({selectedItems.length}건)</div>
         <Table
           dataSource={selectedItems}
-          rowKey={(r) => `${r.partner_code}-${r.variant_id}`}
+          rowKey="variant_id"
           size="small"
           pagination={false}
           scroll={{ y: 300 }}
           columns={[
-            { title: '상품', dataIndex: 'product_name', key: 'product_name' },
+            { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
             { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
-            { title: '사이즈', dataIndex: 'size', key: 'size', width: 60 },
-            { title: '현재', dataIndex: 'current_qty', key: 'current_qty', width: 60 },
+            { title: 'Size', dataIndex: 'size', key: 'size', width: 50 },
+            { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 60 },
+            { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage_qty', width: 60,
+              render: (v: number) => <span style={{ color: '#f5222d' }}>{v}</span>,
+            },
             { title: '주문수량', key: 'qty', width: 100,
               render: (_: any, r: RestockSuggestion) => (
                 <InputNumber min={1} value={itemQtys[r.variant_id] || r.suggested_qty}
@@ -372,8 +448,8 @@ export default function RestockManagePage() {
               columns={[
                 { title: '상품', dataIndex: 'product_name', key: 'product_name' },
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
-                { title: '컬러', dataIndex: 'color', key: 'color', width: 60 },
-                { title: '사이즈', dataIndex: 'size', key: 'size', width: 60 },
+                { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
+                { title: 'Size', dataIndex: 'size', key: 'size', width: 60 },
                 { title: '요청수량', dataIndex: 'request_qty', key: 'request_qty', width: 80 },
                 { title: '입고수량', dataIndex: 'received_qty', key: 'received_qty', width: 80,
                   render: (v: number) => v > 0 ? <Tag color="green">{v}</Tag> : '-',

@@ -144,64 +144,166 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
     return (await this.pool.query(sql, params)).rows;
   }
 
-  /** 재입고 제안 목록 */
-  async getRestockSuggestions(partnerCode?: string): Promise<any[]> {
-    const lowR = await this.pool.query(
-      "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'LOW_STOCK_THRESHOLD'",
+  /** 재입고 제안 목록 — 생산기획과 동일한 분석 엔진 (60일 판매, 판매율, 계절가중치) */
+  async getRestockSuggestions(): Promise<any[]> {
+    // 설정값 로드
+    const settingsResult = await this.pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
     );
-    const medR = await this.pool.query(
-      "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'MEDIUM_STOCK_THRESHOLD'",
-    );
-    const lowT = parseInt(lowR.rows[0]?.code_label, 10) || 5;
-    const medT = parseInt(medR.rows[0]?.code_label, 10) || 10;
-
-    const partnerFilter = partnerCode ? 'AND i.partner_code = $3' : '';
-    const params: any[] = [lowT, medT];
-    if (partnerCode) params.push(partnerCode);
+    const settingsMap: Record<string, string> = {};
+    for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
+    const salesPeriodDays = parseInt(settingsMap.PRODUCTION_SALES_PERIOD_DAYS || '60', 10);
+    const sellThroughThreshold = parseFloat(settingsMap.PRODUCTION_SELL_THROUGH_THRESHOLD || '40');
 
     const sql = `
-      WITH sales_7d AS (
-        SELECT t.partner_code, t.variant_id, COALESCE(SUM(-t.qty_change), 0)::int AS sold_7d
-        FROM inventory_transactions t
-        WHERE t.tx_type = 'SALE' AND t.created_at >= NOW() - INTERVAL '7 days'
-        GROUP BY t.partner_code, t.variant_id
+      WITH current_season AS (
+        SELECT CASE
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          ELSE 'WN'
+        END AS season_code
       ),
-      sales_30d AS (
-        SELECT t.partner_code, t.variant_id, COALESCE(SUM(-t.qty_change), 0)::int AS sold_30d
-        FROM inventory_transactions t
-        WHERE t.tx_type = 'SALE' AND t.created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY t.partner_code, t.variant_id
+      season_weights AS (
+        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS weight
+        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_WEIGHT_%'
+      ),
+      variant_count AS (
+        SELECT product_code, COUNT(*)::int AS cnt
+        FROM product_variants WHERE is_active = TRUE GROUP BY product_code
+      ),
+      sales_velocity AS (
+        SELECT
+          pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
+          p.season,
+          CASE
+            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%WN' THEN 'WN'
+            WHEN p.season LIKE '%SS' THEN 'SA'
+            WHEN p.season LIKE '%FW' THEN 'WN'
+            ELSE 'SA'
+          END AS product_season,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric, 2) AS avg_daily,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric * 30)::int AS predicted_30d
+        FROM product_variants pv
+        JOIN products p ON pv.product_code = p.product_code
+        JOIN sales s ON pv.variant_id = s.variant_id
+          AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
+        WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
+      ),
+      current_stock AS (
+        SELECT variant_id, COALESCE(SUM(qty), 0)::int AS total_stock
+        FROM inventory GROUP BY variant_id
+      ),
+      in_production AS (
+        SELECT p.product_code,
+               COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int
+                 / GREATEST(1, COUNT(DISTINCT p.product_code))::int AS pending_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        JOIN products p ON p.category = pi.category
+          AND (pi.fit IS NULL OR p.fit = pi.fit)
+          AND (pi.length IS NULL OR p.length = pi.length)
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
+        GROUP BY p.product_code
+      ),
+      zero_stock AS (
+        SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
+               p.season, 'SA' AS product_season,
+               0 AS total_sold, 0::numeric AS avg_daily, 0 AS predicted_30d
+        FROM product_variants pv
+        JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+          AND COALESCE(i.qty, 0) = 0
+          AND pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
+        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
+      ),
+      combined AS (
+        SELECT * FROM sales_velocity
+        UNION ALL
+        SELECT * FROM zero_stock
       )
       SELECT
-        i.variant_id, i.partner_code, pt.partner_name,
-        pv.sku, p.product_name, pv.color, pv.size,
-        i.qty::int AS current_qty,
-        COALESCE(p.low_stock_threshold, $1)::int AS low_threshold,
-        COALESCE(p.medium_stock_threshold, $2)::int AS medium_threshold,
+        sv.variant_id, sv.product_code, sv.product_name, sv.sku, sv.color, sv.size,
+        sv.season,
+        sv.total_sold,
+        sv.avg_daily::float,
+        COALESCE(sw.weight, 1.0)::float AS season_weight,
+        ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int AS demand_30d,
+        COALESCE(cs.total_stock, 0)::int AS current_stock,
+        COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)::int AS in_production_qty,
+        (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::int AS total_available,
+        GREATEST(0,
+          ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
+          - COALESCE(cs.total_stock, 0)
+          - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+        )::int AS shortage_qty,
+        CEIL(GREATEST(0,
+          ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
+          - COALESCE(cs.total_stock, 0)
+          - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+        ) * 1.2)::int AS suggested_qty,
         CASE
-          WHEN i.qty = 0 THEN 'ZERO'
-          WHEN i.qty <= COALESCE(p.low_stock_threshold, $1) THEN 'LOW'
-          ELSE 'MEDIUM'
-        END AS alert_level,
-        COALESCE(s7.sold_7d, 0)::int AS sold_7d,
-        COALESCE(s30.sold_30d, 0)::int AS sold_30d,
-        ROUND(COALESCE(s7.sold_7d, 0) / 7.0, 2)::float AS avg_daily_7d,
-        GREATEST(5, CEIL((COALESCE(s7.sold_7d, 0) / 7.0) * 30))::int AS suggested_qty
-      FROM inventory i
-      JOIN product_variants pv ON i.variant_id = pv.variant_id
-      JOIN products p ON pv.product_code = p.product_code
-      JOIN partners pt ON i.partner_code = pt.partner_code
-      LEFT JOIN sales_7d s7 ON i.partner_code = s7.partner_code AND i.variant_id = s7.variant_id
-      LEFT JOIN sales_30d s30 ON i.partner_code = s30.partner_code AND i.variant_id = s30.variant_id
-      WHERE p.is_active = TRUE AND pv.is_active = TRUE
-        AND p.low_stock_alert = TRUE
-        AND i.qty <= COALESCE(p.medium_stock_threshold, $2)
-        ${partnerFilter}
+          WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
+            THEN ROUND(
+              (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::numeric
+              / (sv.avg_daily * COALESCE(sw.weight, 1.0))
+            )::int
+          ELSE 0
+        END AS days_of_stock,
+        CASE
+          WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN ROUND(sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100, 1)::float
+          ELSE 0
+        END AS sell_through_rate,
+        CASE
+          WHEN COALESCE(cs.total_stock, 0) = 0 THEN 'CRITICAL'
+          WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
+            AND ROUND(
+              (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::numeric
+              / (sv.avg_daily * COALESCE(sw.weight, 1.0))
+            ) < 7 THEN 'CRITICAL'
+          WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
+            AND ROUND(
+              (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::numeric
+              / (sv.avg_daily * COALESCE(sw.weight, 1.0))
+            ) < 14 THEN 'WARNING'
+          ELSE 'NORMAL'
+        END AS urgency
+      FROM combined sv
+      CROSS JOIN current_season cs2
+      LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' || sv.product_season || '_' || cs2.season_code
+      LEFT JOIN current_stock cs ON sv.variant_id = cs.variant_id
+      LEFT JOIN in_production ip ON sv.product_code = ip.product_code
+      LEFT JOIN variant_count vc ON sv.product_code = vc.product_code
+      WHERE
+        (
+          CASE WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100
+            ELSE 0 END >= ${sellThroughThreshold}
+          AND GREATEST(0,
+            ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
+            - COALESCE(cs.total_stock, 0)
+            - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+          ) > 0
+        )
+        OR COALESCE(cs.total_stock, 0) = 0
       ORDER BY
-        CASE WHEN i.qty = 0 THEN 1 WHEN i.qty <= COALESCE(p.low_stock_threshold, $1) THEN 2 ELSE 3 END,
-        COALESCE(s7.sold_7d, 0) DESC
+        CASE
+          WHEN COALESCE(cs.total_stock, 0) = 0 THEN 0
+          WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
+            THEN ROUND(
+              (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::numeric
+              / (sv.avg_daily * COALESCE(sw.weight, 1.0))
+            )
+          ELSE 9999
+        END ASC,
+        shortage_qty DESC
       LIMIT 200`;
-    return (await this.pool.query(sql, params)).rows;
+    return (await this.pool.query(sql, [salesPeriodDays])).rows;
   }
 
   /** 진행중인 재입고 통계 */

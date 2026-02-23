@@ -22,9 +22,8 @@ export const restockApi = {
     return data.data as SellingVelocity[];
   },
 
-  getRestockSuggestions: async (partnerCode?: string) => {
-    const q = partnerCode ? `?partner_code=${encodeURIComponent(partnerCode)}` : '';
-    const res = await apiFetch(`/api/restocks/suggestions${q}`);
+  getRestockSuggestions: async () => {
+    const res = await apiFetch('/api/restocks/suggestions');
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as RestockSuggestion[];

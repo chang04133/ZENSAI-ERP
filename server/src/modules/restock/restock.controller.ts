@@ -61,9 +61,8 @@ class RestockController extends BaseController<RestockRequest> {
     res.json({ success: true, data });
   });
 
-  getRestockSuggestions = asyncHandler(async (req: Request, res: Response) => {
-    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
-    const data = await restockService.getRestockSuggestions(pc);
+  getRestockSuggestions = asyncHandler(async (_req: Request, res: Response) => {
+    const data = await restockService.getRestockSuggestions();
     res.json({ success: true, data });
   });
 

@@ -17,8 +17,8 @@ class RestockService extends BaseService<RestockRequest> {
   async getSellingVelocity(partnerCode?: string) {
     return restockRepository.getSellingVelocity(partnerCode);
   }
-  async getRestockSuggestions(partnerCode?: string) {
-    return restockRepository.getRestockSuggestions(partnerCode);
+  async getRestockSuggestions() {
+    return restockRepository.getRestockSuggestions();
   }
   async getProgressStats(partnerCode?: string) {
     return restockRepository.getProgressStats(partnerCode);

@@ -46,7 +46,7 @@ const SalesEntryPage = lazy(() => import('../pages/sales/SalesEntryPage'));
 const ProductSalesPage = lazy(() => import('../pages/sales/ProductSalesPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
-const DailySalesPage = lazy(() => import('../pages/sales/DailySalesPage'));
+
 const SellThroughPage = lazy(() => import('../pages/sales/SellThroughPage'));
 
 // Production
@@ -122,7 +122,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
   { path: '/sales/product-sales', element: <ProductSalesPage />, roles: ALL },
-  { path: '/sales/daily', element: <DailySalesPage />, roles: ALL },
+
   { path: '/sales/partner-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
   { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
   { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },

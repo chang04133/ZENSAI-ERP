@@ -49,8 +49,8 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: STORE_ALL },
-      { key: '/sales/product-sales', label: '종합매출', icon: 'BarChartOutlined', roles: STORE_ALL },
-      { key: '/sales/daily', label: '판매리스트', icon: 'UnorderedListOutlined', roles: STORE_ALL },
+      { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: STORE_ALL },
+
       { key: '/sales/partner-sales', label: '거래처별 매출', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/sales/analytics', label: '판매분석', icon: 'LineChartOutlined', roles: STORE_ALL },
       { key: '/sales/sell-through', label: '판매율 분석', icon: 'PercentageOutlined', roles: STORE_ALL },

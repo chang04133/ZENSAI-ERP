@@ -841,9 +841,9 @@ export class SalesRepository {
       ORDER BY sell_through_rate DESC`;
     const byProduct = (await this.pool.query(byProductSql, params)).rows;
 
-    // 사이즈별 판매율 (품번+사이즈)
-    const bySizeSql = `
-      SELECT p.product_code, p.product_name, p.category, pv.size,
+    // 변형별 판매율 (품번+컬러+사이즈, 0개 포함)
+    const byVariantSql = `
+      SELECT p.product_code, p.product_name, p.category, pv.color, pv.size, pv.sku,
              COALESCE(SUM(s.qty), 0)::int AS sold_qty,
              COALESCE(inv_v.current_stock, 0)::int AS current_stock,
              CASE WHEN (COALESCE(SUM(s.qty), 0) + COALESCE(inv_v.current_stock, 0)) > 0
@@ -859,13 +859,12 @@ export class SalesRepository {
         ${pcFilterInv}
       ) inv_v ON inv_v.variant_id = pv.variant_id
       WHERE p.is_active = TRUE ${catFilter}
-      GROUP BY p.product_code, p.product_name, p.category, pv.size, inv_v.current_stock
-      HAVING (COALESCE(SUM(s.qty), 0) + COALESCE(inv_v.current_stock, 0)) > 0
-      ORDER BY p.product_code, CASE pv.size
+      GROUP BY p.product_code, p.product_name, p.category, pv.color, pv.size, pv.sku, inv_v.current_stock
+      ORDER BY p.product_code, pv.color, CASE pv.size
         WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
         WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
         WHEN 'FREE' THEN 7 ELSE 8 END`;
-    const bySize = (await this.pool.query(bySizeSql, params)).rows;
+    const byVariant = (await this.pool.query(byVariantSql, params)).rows;
 
     // 카테고리별 판매율
     const byCategorySql = `
@@ -933,6 +932,49 @@ export class SalesRepository {
       ORDER BY s.sale_date DESC, daily_sold_qty DESC`;
     const dailyByProduct = (await this.pool.query(dailyProductSql, params)).rows;
 
+    // 시즌별 집계
+    const seasonMap: Record<string, { season: string; sold_qty: number; current_stock: number; product_count: number }> = {};
+    for (const p of byProduct) {
+      const season = p.season || '미지정';
+      if (!seasonMap[season]) seasonMap[season] = { season, sold_qty: 0, current_stock: 0, product_count: 0 };
+      seasonMap[season].sold_qty += Number(p.sold_qty);
+      seasonMap[season].current_stock += Number(p.current_stock);
+      seasonMap[season].product_count += 1;
+    }
+    const bySeason = Object.values(seasonMap).map(s => ({
+      ...s,
+      sell_through_rate: (s.sold_qty + s.current_stock) > 0
+        ? Math.round(s.sold_qty / (s.sold_qty + s.current_stock) * 1000) / 10 : 0,
+    })).sort((a, b) => b.season.localeCompare(a.season));
+
+    // 연차별 집계
+    const currentYear = new Date().getFullYear();
+    const getAgeGroup = (season: string | null): string => {
+      if (!season || season.length < 4) return '미지정';
+      const year = parseInt(season.substring(0, 4));
+      if (isNaN(year)) return '미지정';
+      const diff = currentYear - year;
+      if (diff <= 0) return '신상';
+      if (diff === 1) return '1년차';
+      if (diff === 2) return '2년차';
+      if (diff === 3) return '3년차';
+      return '3년이상';
+    };
+    const ageOrder: Record<string, number> = { '신상': 0, '1년차': 1, '2년차': 2, '3년차': 3, '3년이상': 4, '미지정': 5 };
+    const ageMap: Record<string, { age_group: string; sold_qty: number; current_stock: number; product_count: number; order: number }> = {};
+    for (const p of byProduct) {
+      const ag = getAgeGroup(p.season);
+      if (!ageMap[ag]) ageMap[ag] = { age_group: ag, sold_qty: 0, current_stock: 0, product_count: 0, order: ageOrder[ag] ?? 6 };
+      ageMap[ag].sold_qty += Number(p.sold_qty);
+      ageMap[ag].current_stock += Number(p.current_stock);
+      ageMap[ag].product_count += 1;
+    }
+    const byAge = Object.values(ageMap).map(a => ({
+      ...a,
+      sell_through_rate: (a.sold_qty + a.current_stock) > 0
+        ? Math.round(a.sold_qty / (a.sold_qty + a.current_stock) * 1000) / 10 : 0,
+    })).sort((a, b) => a.order - b.order);
+
     // 전체 요약
     const totalSold = byProduct.reduce((s: number, r: any) => s + Number(r.sold_qty), 0);
     const totalStock = byProduct.reduce((s: number, r: any) => s + Number(r.current_stock), 0);
@@ -942,8 +984,171 @@ export class SalesRepository {
     return {
       dateFrom, dateTo,
       totals: { total_sold: totalSold, total_stock: totalStock, overall_rate: overallRate, product_count: byProduct.length },
-      byProduct, bySize, byCategory, daily, dailyByCategory, dailyByProduct,
+      byProduct, byVariant, byCategory, bySeason, byAge, daily, dailyByCategory, dailyByProduct,
     };
+  }
+
+  async dropAnalysis(partnerCode?: string, category?: string) {
+    const params: any[] = [];
+    let pcFilterSales = '';
+    let pcFilterInv = '';
+    let catFilter = '';
+    let nextIdx = 1;
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilterSales = `AND s.partner_code = $${nextIdx}`;
+      pcFilterInv = `WHERE i.partner_code = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (category) {
+      params.push(category);
+      catFilter = `AND p.category = $${nextIdx}`;
+      nextIdx++;
+    }
+    const invWhere = pcFilterInv || '';
+    const catFilterInv = category
+      ? (pcFilterInv ? `AND p2.category = $${nextIdx - 1}` : `WHERE p2.category = $${nextIdx - 1}`)
+      : '';
+
+    // A. 드랍별 소화율 (상품별 마일스톤 판매율)
+    const milestonesSql = `
+      WITH product_launch AS (
+        SELECT p.product_code, p.product_name, p.category, p.season,
+               p.created_at::date AS launch_date,
+               (CURRENT_DATE - p.created_at::date) AS days_since_launch
+        FROM products p
+        WHERE p.is_active = TRUE ${catFilter}
+      ),
+      milestone_sales AS (
+        SELECT pl.product_code,
+          COALESCE(SUM(CASE WHEN s.sale_date <= pl.launch_date + 7 THEN s.qty END), 0)::int AS sold_7d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= pl.launch_date + 14 THEN s.qty END), 0)::int AS sold_14d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= pl.launch_date + 30 THEN s.qty END), 0)::int AS sold_30d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= pl.launch_date + 60 THEN s.qty END), 0)::int AS sold_60d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= pl.launch_date + 90 THEN s.qty END), 0)::int AS sold_90d,
+          COALESCE(SUM(s.qty), 0)::int AS sold_total
+        FROM product_launch pl
+        JOIN product_variants pv ON pl.product_code = pv.product_code AND pv.is_active = TRUE
+        LEFT JOIN sales s ON s.variant_id = pv.variant_id AND s.sale_date >= pl.launch_date ${pcFilterSales}
+        GROUP BY pl.product_code
+      ),
+      product_stock AS (
+        SELECT pv2.product_code, SUM(i.qty)::int AS current_stock
+        FROM inventory i
+        JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+        JOIN products p2 ON pv2.product_code = p2.product_code
+        ${invWhere} ${catFilterInv}
+        GROUP BY pv2.product_code
+      )
+      SELECT pl.product_code, pl.product_name, pl.category, pl.season,
+             pl.launch_date::text, pl.days_since_launch::int,
+             ms.sold_7d, ms.sold_14d, ms.sold_30d, ms.sold_60d, ms.sold_90d, ms.sold_total,
+             COALESCE(ps.current_stock, 0)::int AS current_stock,
+             CASE WHEN pl.days_since_launch >= 7 AND (ms.sold_7d + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_7d::numeric / (ms.sold_7d + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE NULL END AS rate_7d,
+             CASE WHEN pl.days_since_launch >= 14 AND (ms.sold_14d + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_14d::numeric / (ms.sold_14d + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE NULL END AS rate_14d,
+             CASE WHEN pl.days_since_launch >= 30 AND (ms.sold_30d + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_30d::numeric / (ms.sold_30d + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE NULL END AS rate_30d,
+             CASE WHEN pl.days_since_launch >= 60 AND (ms.sold_60d + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_60d::numeric / (ms.sold_60d + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE NULL END AS rate_60d,
+             CASE WHEN pl.days_since_launch >= 90 AND (ms.sold_90d + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_90d::numeric / (ms.sold_90d + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE NULL END AS rate_90d,
+             CASE WHEN (ms.sold_total + COALESCE(ps.current_stock, 0)) > 0
+               THEN ROUND(ms.sold_total::numeric / (ms.sold_total + COALESCE(ps.current_stock, 0)) * 100, 1) ELSE 0 END AS sell_through_rate
+      FROM product_launch pl
+      JOIN milestone_sales ms ON pl.product_code = ms.product_code
+      LEFT JOIN product_stock ps ON pl.product_code = ps.product_code
+      WHERE (ms.sold_total + COALESCE(ps.current_stock, 0)) > 0
+      ORDER BY pl.launch_date DESC, sell_through_rate DESC`;
+    const milestones = (await this.pool.query(milestonesSql, params)).rows;
+
+    // B. 드랍회차 비교 (월별 코호트)
+    const cohortsSql = `
+      WITH cohort_products AS (
+        SELECT p.product_code,
+               TO_CHAR(p.created_at, 'YYYY-MM') AS cohort_month,
+               p.created_at::date AS launch_date
+        FROM products p
+        WHERE p.is_active = TRUE ${catFilter}
+      ),
+      cohort_sales AS (
+        SELECT cp.cohort_month,
+          COUNT(DISTINCT cp.product_code)::int AS product_count,
+          MIN(cp.launch_date)::text AS first_launch,
+          MAX(cp.launch_date)::text AS last_launch,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold,
+          COALESCE(SUM(s.total_price), 0)::bigint AS total_revenue,
+          COALESCE(SUM(CASE WHEN s.sale_date <= cp.launch_date + 7 THEN s.qty END), 0)::int AS sold_7d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= cp.launch_date + 14 THEN s.qty END), 0)::int AS sold_14d,
+          COALESCE(SUM(CASE WHEN s.sale_date <= cp.launch_date + 30 THEN s.qty END), 0)::int AS sold_30d
+        FROM cohort_products cp
+        JOIN product_variants pv ON cp.product_code = pv.product_code AND pv.is_active = TRUE
+        LEFT JOIN sales s ON s.variant_id = pv.variant_id AND s.sale_date >= cp.launch_date ${pcFilterSales}
+        GROUP BY cp.cohort_month
+      ),
+      cohort_stock AS (
+        SELECT TO_CHAR(p2.created_at, 'YYYY-MM') AS cohort_month,
+               SUM(i.qty)::int AS current_stock
+        FROM inventory i
+        JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+        JOIN products p2 ON pv2.product_code = p2.product_code
+        ${invWhere} ${catFilterInv}
+        GROUP BY TO_CHAR(p2.created_at, 'YYYY-MM')
+      )
+      SELECT cs.*,
+             COALESCE(cst.current_stock, 0)::int AS current_stock,
+             CASE WHEN (cs.total_sold + COALESCE(cst.current_stock, 0)) > 0
+               THEN ROUND(cs.total_sold::numeric / (cs.total_sold + COALESCE(cst.current_stock, 0)) * 100, 1) ELSE 0 END AS sell_through_rate,
+             CASE WHEN cs.product_count > 0
+               THEN ROUND(cs.total_sold::numeric / cs.product_count, 1) ELSE 0 END AS avg_sold_per_product
+      FROM cohort_sales cs
+      LEFT JOIN cohort_stock cst ON cs.cohort_month = cst.cohort_month
+      ORDER BY cs.cohort_month DESC`;
+    const cohorts = (await this.pool.query(cohortsSql, params)).rows;
+
+    // C. 판매속도 순위
+    const velocitySql = `
+      WITH product_velocity AS (
+        SELECT p.product_code, p.product_name, p.category, p.season,
+               p.created_at::date AS launch_date,
+               (CURRENT_DATE - p.created_at::date) AS days_since_launch,
+               COALESCE(SUM(s.qty), 0)::int AS total_sold,
+               COALESCE(SUM(s.total_price), 0)::bigint AS total_revenue
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
+        LEFT JOIN sales s ON s.variant_id = pv.variant_id AND s.sale_date >= p.created_at::date ${pcFilterSales}
+        WHERE p.is_active = TRUE ${catFilter}
+        GROUP BY p.product_code, p.product_name, p.category, p.season, p.created_at
+      ),
+      with_stock AS (
+        SELECT pv2.product_code, SUM(i.qty)::int AS current_stock
+        FROM inventory i
+        JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+        JOIN products p2 ON pv2.product_code = p2.product_code
+        ${invWhere} ${catFilterInv}
+        GROUP BY pv2.product_code
+      )
+      SELECT pv.product_code, pv.product_name, pv.category, pv.season,
+             pv.launch_date::text, pv.days_since_launch::int,
+             pv.total_sold, pv.total_revenue,
+             COALESCE(ws.current_stock, 0)::int AS current_stock,
+             CASE WHEN pv.days_since_launch > 0
+               THEN ROUND(pv.total_sold::numeric / pv.days_since_launch, 2) ELSE 0 END AS daily_velocity,
+             CASE WHEN pv.days_since_launch > 0
+               THEN ROUND(pv.total_revenue::numeric / pv.days_since_launch)::bigint ELSE 0 END AS daily_revenue,
+             CASE WHEN (pv.total_sold + COALESCE(ws.current_stock, 0)) > 0
+               THEN ROUND(pv.total_sold::numeric / (pv.total_sold + COALESCE(ws.current_stock, 0)) * 100, 1) ELSE 0 END AS sell_through_rate,
+             CASE WHEN pv.days_since_launch > 0 AND pv.total_sold > 0
+               THEN ROUND(COALESCE(ws.current_stock, 0)::numeric / (pv.total_sold::numeric / pv.days_since_launch))::int
+               ELSE NULL END AS est_days_to_sellout
+      FROM product_velocity pv
+      LEFT JOIN with_stock ws ON pv.product_code = ws.product_code
+      WHERE pv.days_since_launch > 0 AND (pv.total_sold + COALESCE(ws.current_stock, 0)) > 0
+      ORDER BY daily_velocity DESC`;
+    const velocity = (await this.pool.query(velocitySql, params)).rows;
+
+    return { milestones, cohorts, velocity };
   }
 
   async weeklyStyleSales(options: { weeks?: number; category?: string; partner_code?: string } = {}) {

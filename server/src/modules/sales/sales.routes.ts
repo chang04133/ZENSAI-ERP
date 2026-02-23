@@ -138,6 +138,16 @@ router.get('/sell-through', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// 드랍 분석 (출시일 기준 판매율/코호트/판매속도)
+router.get('/drop-analysis', authMiddleware, asyncHandler(async (req, res) => {
+  const { category } = req.query as { category?: string };
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.dropAnalysis(partnerCode, category || undefined);
+  res.json({ success: true, data });
+}));
+
 // 종합 매출조회
 router.get('/comprehensive', authMiddleware, asyncHandler(async (req, res) => {
   const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };

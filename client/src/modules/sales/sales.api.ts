@@ -60,6 +60,14 @@ export const salesApi = {
     return parse(await apiFetch(url));
   },
 
+  // 드랍 분석 (출시일 기준)
+  dropAnalysis: async (category?: string) => {
+    const qp = new URLSearchParams();
+    if (category) qp.set('category', category);
+    const qs = qp.toString();
+    return parse(await apiFetch(`/api/sales/drop-analysis${qs ? '?' + qs : ''}`));
+  },
+
   // 종합 매출조회
   comprehensive: async (dateFrom: string, dateTo: string) => {
     const q = `?date_from=${dateFrom}&date_to=${dateTo}`;

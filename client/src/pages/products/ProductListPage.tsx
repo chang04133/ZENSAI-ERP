@@ -203,7 +203,7 @@ export default function ProductListPage() {
     if (!variants || variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
     const variantCols = [
       { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
-      { title: '컬러', dataIndex: 'color', key: 'color', width: 80 },
+      { title: 'Color', dataIndex: 'color', key: 'color', width: 80 },
       { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
       { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
         render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
@@ -326,7 +326,7 @@ export default function ProductListPage() {
     if (viewMode === 'color') {
       const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
       const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
-      const colorCol = { title: '컬러', dataIndex: '_color', key: '_color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
+      const colorCol = { title: 'Color', dataIndex: '_color', key: '_color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
       const qtyCol = {
         title: '재고', key: 'total_inv_qty', width: 80,
         render: (_: any, record: any) => {
@@ -348,7 +348,7 @@ export default function ProductListPage() {
     // size view
     const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
     const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
-    const colorCol = { title: '컬러', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
+    const colorCol = { title: 'Color', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
     const sizeCol = { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> };
     const skuCol = { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, ellipsis: true };
     const qtyCol = {

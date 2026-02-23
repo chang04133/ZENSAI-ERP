@@ -43,11 +43,11 @@ const RestockProgressPage = lazy(() => import('../pages/restock/RestockProgressP
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
 const SalesEntryPage = lazy(() => import('../pages/sales/SalesEntryPage'));
+const ProductSalesPage = lazy(() => import('../pages/sales/ProductSalesPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
-const WeeklyStyleSalesPage = lazy(() => import('../pages/sales/WeeklyStyleSalesPage'));
 const DailySalesPage = lazy(() => import('../pages/sales/DailySalesPage'));
-const StyleSalesPage = lazy(() => import('../pages/sales/StyleSalesPage'));
+const SellThroughPage = lazy(() => import('../pages/sales/SellThroughPage'));
 
 // Production
 const ProductionDashboardPage = lazy(() => import('../pages/production/ProductionDashboardPage'));
@@ -121,11 +121,11 @@ export const appRoutes: AppRoute[] = [
   // Sales — 매출등록은 STORE_STAFF도 가능
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
-  { path: '/sales/monthly-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
-  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ },
-  { path: '/sales/weekly-style', element: <WeeklyStyleSalesPage />, roles: ADMIN_HQ },
+  { path: '/sales/product-sales', element: <ProductSalesPage />, roles: ALL },
   { path: '/sales/daily', element: <DailySalesPage />, roles: ALL },
-  { path: '/sales/style-status', element: <StyleSalesPage />, roles: ALL },
+  { path: '/sales/partner-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
+  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
+  { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },

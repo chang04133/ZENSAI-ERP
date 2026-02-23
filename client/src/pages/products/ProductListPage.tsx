@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -35,6 +35,8 @@ export default function ProductListPage() {
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [variantsMap, setVariantsMap] = useState<Record<string, any[]>>({});
+  const [variantsLoading, setVariantsLoading] = useState<Record<string, boolean>>({});
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
@@ -146,7 +148,50 @@ export default function ProductListPage() {
     return false;
   };
 
+  const handleExpand = async (expanded: boolean, record: any) => {
+    if (!expanded || variantsMap[record.product_code]) return;
+    setVariantsLoading((prev) => ({ ...prev, [record.product_code]: true }));
+    try {
+      const data = await productApi.get(record.product_code);
+      setVariantsMap((prev) => ({ ...prev, [record.product_code]: (data as any).variants || [] }));
+    } catch (e: any) {
+      message.error('변형 정보 로드 실패');
+    } finally {
+      setVariantsLoading((prev) => ({ ...prev, [record.product_code]: false }));
+    }
+  };
+
+  const expandedRowRender = (record: any) => {
+    const variants = variantsMap[record.product_code];
+    if (variantsLoading[record.product_code]) return <Spin size="small" style={{ padding: 16 }} />;
+    if (!variants || variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
+    const variantCols = [
+      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
+      { title: '컬러', dataIndex: 'color', key: 'color', width: 80 },
+      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+      { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
+        render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
+      },
+      { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+    ];
+    return (
+      <Table
+        columns={variantCols}
+        dataSource={variants}
+        rowKey="variant_id"
+        pagination={false}
+        size="small"
+        style={{ margin: 0 }}
+      />
+    );
+  };
+
   const columns = [
+    { title: '', dataIndex: 'image_url', key: 'image_url', width: 50,
+      render: (v: string) => v
+        ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
+        : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
+    },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code',
       render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
     },
@@ -248,6 +293,7 @@ export default function ProductListPage() {
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        expandable={{ expandedRowRender, onExpand: handleExpand }}
       />
 
       {/* Excel Upload Modal */}

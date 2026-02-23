@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, InputNumber, Button, message, Descriptions, Spin, Typography } from 'antd';
-import { SettingOutlined, ExperimentOutlined } from '@ant-design/icons';
+import { SettingOutlined, ExperimentOutlined, RocketOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
@@ -21,6 +21,8 @@ export default function SystemSettingsPage() {
   const [low, setLow] = useState(1);
   const [med, setMed] = useState(10);
   const [weights, setWeights] = useState<Record<string, number>>({});
+  const [salesPeriod, setSalesPeriod] = useState(60);
+  const [sellThroughThreshold, setSellThroughThreshold] = useState(40);
 
   const currentSeason = getCurrentSeason();
 
@@ -32,6 +34,8 @@ export default function SystemSettingsPage() {
         setSettings(data.data);
         setLow(parseInt(data.data.LOW_STOCK_THRESHOLD || '1', 10));
         setMed(parseInt(data.data.MEDIUM_STOCK_THRESHOLD || '10', 10));
+        setSalesPeriod(parseInt(data.data.PRODUCTION_SALES_PERIOD_DAYS || '60', 10));
+        setSellThroughThreshold(parseInt(data.data.PRODUCTION_SELL_THROUGH_THRESHOLD || '40', 10));
         const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
@@ -57,6 +61,8 @@ export default function SystemSettingsPage() {
       const body: Record<string, string> = {
         LOW_STOCK_THRESHOLD: String(low),
         MEDIUM_STOCK_THRESHOLD: String(med),
+        PRODUCTION_SALES_PERIOD_DAYS: String(salesPeriod),
+        PRODUCTION_SELL_THROUGH_THRESHOLD: String(sellThroughThreshold),
         ...Object.fromEntries(
           Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
@@ -127,6 +133,48 @@ export default function SystemSettingsPage() {
             <span style={{ color: '#f5576c', fontWeight: 600 }}>부족</span> = 1~{low}개 &nbsp;|&nbsp;
             <span style={{ color: '#fa8c16', fontWeight: 600 }}>주의</span> = {low + 1}~{med}개 &nbsp;|&nbsp;
             <span style={{ color: '#10b981', fontWeight: 600 }}>정상</span> = {med + 1}개 이상
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={<span><RocketOutlined style={{ marginRight: 8 }} />생산 권장 설정</span>}
+        style={{ borderRadius: 10, marginTop: 16 }}
+      >
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={7} max={365}
+                value={salesPeriod}
+                onChange={(v) => v !== null && setSalesPeriod(v)}
+                addonAfter="일"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>최근 N일 판매수량으로 수요 예측 (기본 60일 = 2개월)</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매율 임계값</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={100}
+                value={sellThroughThreshold}
+                onChange={(v) => v !== null && setSellThroughThreshold(v)}
+                addonAfter="%"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>판매율이 이 값 이상인 품목만 생산 권장에 표시</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 16, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 13, color: '#666' }}>
+          <div><strong>현재 설정</strong></div>
+          <div style={{ marginTop: 4 }}>
+            최근 <strong>{salesPeriod}일</strong> 판매 기준으로 수요 예측, 판매율 <strong>{sellThroughThreshold}%</strong> 이상 품목만 생산 권장
+          </div>
+          <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
+            판매율 = 판매수량 / (판매수량 + 현재재고) x 100
           </div>
         </div>
       </Card>

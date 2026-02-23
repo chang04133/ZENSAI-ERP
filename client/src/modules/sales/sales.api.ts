@@ -26,20 +26,6 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/dashboard-stats${q}`));
   },
 
-  // 분석
-  monthlySales: async (params?: Record<string, string>) => {
-    const q = params ? '?' + new URLSearchParams(params).toString() : '';
-    return parse(await apiFetch(`/api/sales/monthly-sales${q}`));
-  },
-  monthlyRevenue: async (params?: Record<string, string>) => {
-    const q = params ? '?' + new URLSearchParams(params).toString() : '';
-    return parse(await apiFetch(`/api/sales/monthly-revenue${q}`));
-  },
-  weeklyStyle: async (params?: Record<string, string>) => {
-    const q = params ? '?' + new URLSearchParams(params).toString() : '';
-    return parse(await apiFetch(`/api/sales/weekly-style${q}`));
-  },
-
   // 스타일 판매 분석
   styleAnalytics: async (year: number) => {
     return parse(await apiFetch(`/api/sales/style-analytics?year=${year}`));
@@ -56,8 +42,22 @@ export const salesApi = {
   },
 
   // 스타일별 판매현황 (기간별)
-  styleByRange: async (dateFrom: string, dateTo: string) => {
-    return parse(await apiFetch(`/api/sales/style-by-range?date_from=${dateFrom}&date_to=${dateTo}`));
+  styleByRange: async (dateFrom: string, dateTo: string, category?: string) => {
+    let url = `/api/sales/style-by-range?date_from=${dateFrom}&date_to=${dateTo}`;
+    if (category) url += `&category=${encodeURIComponent(category)}`;
+    return parse(await apiFetch(url));
+  },
+
+  // 상품별 컬러/사이즈 판매 상세
+  productVariantSales: async (productCode: string, dateFrom: string, dateTo: string) => {
+    return parse(await apiFetch(`/api/sales/product-variant-sales?product_code=${encodeURIComponent(productCode)}&date_from=${dateFrom}&date_to=${dateTo}`));
+  },
+
+  // 판매율 분석
+  sellThrough: async (dateFrom: string, dateTo: string, category?: string) => {
+    let url = `/api/sales/sell-through?date_from=${dateFrom}&date_to=${dateTo}`;
+    if (category) url += `&category=${encodeURIComponent(category)}`;
+    return parse(await apiFetch(url));
   },
 
   // 종합 매출조회

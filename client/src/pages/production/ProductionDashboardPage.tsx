@@ -21,7 +21,7 @@ export default function ProductionDashboardPage() {
   const [recommendations, setRecommendations] = useState<any[]>([]);
   const [categoryStats, setCategoryStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [catFilter, setCatFilter] = useState<string | undefined>();
+  const [catFilter, setCatFilter] = useState<string>('');
 
   // 세부 카테고리 드릴다운
   const [subModalOpen, setSubModalOpen] = useState(false);
@@ -29,12 +29,12 @@ export default function ProductionDashboardPage() {
   const [subStats, setSubStats] = useState<any[]>([]);
   const [subLoading, setSubLoading] = useState(false);
 
-  const loadAll = async (category?: string) => {
+  const loadAll = async (category?: string | '') => {
     setLoading(true);
     try {
       const [dashboard, recs, cats] = await Promise.all([
         productionApi.dashboard(),
-        productionApi.recommendations({ limit: 30, category }),
+        productionApi.recommendations({ limit: 30, category: category || undefined }),
         productionApi.categoryStats(),
       ]);
       setData(dashboard);
@@ -46,7 +46,7 @@ export default function ProductionDashboardPage() {
 
   useEffect(() => { loadAll(catFilter); }, []);
 
-  const handleCatChange = (v: string | undefined) => {
+  const handleCatChange = (v: string) => {
     setCatFilter(v);
     loadAll(v);
   };
@@ -249,7 +249,7 @@ export default function ProductionDashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
           <Card
-            title={<><RocketOutlined style={{ marginRight: 8 }} />생산 권장 품목 <span style={{ fontSize: 12, fontWeight: 400, color: '#888' }}>(30일 수요 대비 부족)</span></>}
+            title={<><RocketOutlined style={{ marginRight: 8 }} />생산 권장 품목 <span style={{ fontSize: 12, fontWeight: 400, color: '#888' }}>(판매율 기준, 30일 수요 대비 부족)</span></>}
             size="small" style={{ borderRadius: 10 }}
             extra={
               <Select
@@ -284,8 +284,15 @@ export default function ProductionDashboardPage() {
                       const color = n >= 1 ? '#52c41a' : n >= 0.6 ? '#fa8c16' : '#ff4d4f';
                       return <span style={{ color, fontWeight: 600 }}>{'\u00D7'}{n.toFixed(1)}</span>;
                     } },
-                  { title: '90일 판매', dataIndex: 'total_sold_90d', key: 'sold', width: 85, align: 'right' as const,
+                  { title: '판매수량', dataIndex: 'total_sold', key: 'sold', width: 85, align: 'right' as const,
                     render: (v: number) => Number(v).toLocaleString() },
+                  { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 80, align: 'center' as const,
+                    render: (v: number) => {
+                      const n = Number(v);
+                      const c = n >= 80 ? 'green' : n >= 50 ? 'blue' : n >= 40 ? 'orange' : 'red';
+                      return <Tag color={c} style={{ fontWeight: 700, minWidth: 48, textAlign: 'center' }}>{n}%</Tag>;
+                    },
+                    sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate) },
                   { title: '일평균', dataIndex: 'avg_daily_sales', key: 'daily', width: 70, align: 'right' as const,
                     render: (v: number) => Number(v).toFixed(1) },
                   { title: '현재고', dataIndex: 'current_stock', key: 'stock', width: 70, align: 'right' as const,

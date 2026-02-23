@@ -85,6 +85,7 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'SEASON_WEIGHT_SA_SA', 'SEASON_WEIGHT_SA_SM', 'SEASON_WEIGHT_SA_WN',
     'SEASON_WEIGHT_SM_SA', 'SEASON_WEIGHT_SM_SM', 'SEASON_WEIGHT_SM_WN',
     'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
+    'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD',
   ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;

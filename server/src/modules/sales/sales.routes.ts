@@ -29,24 +29,6 @@ router.get('/monthly-sales', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
-router.get('/monthly-revenue', authMiddleware, asyncHandler(async (req, res) => {
-  const query: any = { ...req.query };
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
-  const data = await salesRepository.monthlyRevenue(query);
-  res.json({ success: true, data });
-}));
-
-router.get('/weekly-style', authMiddleware, asyncHandler(async (req, res) => {
-  const query: any = { ...req.query };
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
-  const data = await salesRepository.weeklyStyleSales(query);
-  res.json({ success: true, data });
-}));
-
 // 스타일 판매 분석 (전년대비 종합)
 router.get('/style-analytics', authMiddleware, asyncHandler(async (req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
@@ -69,7 +51,7 @@ router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => 
 
 // 스타일별 판매현황 (기간별)
 router.get('/style-by-range', authMiddleware, asyncHandler(async (req, res) => {
-  const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };
+  const { date_from, date_to, category } = req.query as { date_from?: string; date_to?: string; category?: string };
   if (!date_from || !date_to) {
     res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
     return;
@@ -77,7 +59,21 @@ router.get('/style-by-range', authMiddleware, asyncHandler(async (req, res) => {
   const role = req.user?.role;
   const pc = req.user?.partnerCode;
   const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.styleSalesByRange(date_from, date_to, partnerCode);
+  const data = await salesRepository.styleSalesByRange(date_from, date_to, partnerCode, category || undefined);
+  res.json({ success: true, data });
+}));
+
+// 상품별 컬러/사이즈 판매 상세
+router.get('/product-variant-sales', authMiddleware, asyncHandler(async (req, res) => {
+  const { product_code, date_from, date_to } = req.query as { product_code?: string; date_from?: string; date_to?: string };
+  if (!product_code || !date_from || !date_to) {
+    res.status(400).json({ success: false, error: 'product_code, date_from, date_to 파라미터가 필요합니다.' });
+    return;
+  }
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.productVariantSales(product_code, date_from, date_to, partnerCode);
   res.json({ success: true, data });
 }));
 
@@ -126,6 +122,20 @@ router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
     return;
   }
   res.json({ success: true, data: result.rows[0] });
+}));
+
+// 판매율 분석 (품번별/사이즈별/카테고리별/일자별)
+router.get('/sell-through', authMiddleware, asyncHandler(async (req, res) => {
+  const { date_from, date_to, category } = req.query as { date_from?: string; date_to?: string; category?: string };
+  if (!date_from || !date_to) {
+    res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
+    return;
+  }
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.sellThroughAnalysis(date_from, date_to, partnerCode, category || undefined);
+  res.json({ success: true, data });
 }));
 
 // 종합 매출조회

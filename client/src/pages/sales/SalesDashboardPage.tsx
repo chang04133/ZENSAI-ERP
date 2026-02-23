@@ -548,7 +548,7 @@ export default function SalesDashboardPage() {
         <Col xs={24} md={12}>
           <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />거래처별 매출 TOP 10 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate('/sales/monthly-sales')}>상세보기</a>}>
+            extra={<a onClick={() => navigate('/sales/partner-sales')}>상세보기</a>}>
             <HBar
               data={(stats?.byPartner || []).map((p: any) => ({
                 label: p.partner_name,
@@ -603,7 +603,7 @@ export default function SalesDashboardPage() {
         <Col xs={24}>
           <Card title={<span><TrophyOutlined style={{ marginRight: 8 }} />인기상품 TOP 10 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate('/sales/weekly-style')}>주간분석</a>}>
+            extra={<a onClick={() => navigate('/sales/analytics')}>판매분석</a>}>
             {(stats?.topProducts || []).length > 0 ? (
               <Table
                 columns={[

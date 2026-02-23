@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Descriptions, Table, Button, Card, Space, Tag, Modal, Form, Input, InputNumber, Select, Popconfirm, message } from 'antd';
+import { Descriptions, Table, Button, Card, Space, Tag, Modal, Form, Input, InputNumber, Select, Popconfirm, Image, message } from 'antd';
 import { PlusOutlined, ArrowLeftOutlined, EditOutlined } from '@ant-design/icons';
 import { useParams, useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -153,6 +153,16 @@ export default function ProductDetailPage() {
 
       {/* 상품 기본 정보 */}
       <Card style={{ marginBottom: 24 }}>
+        {product.image_url && (
+          <div style={{ marginBottom: 16 }}>
+            <Image
+              src={product.image_url}
+              alt={product.product_name}
+              width={200}
+              style={{ borderRadius: 8, border: '1px solid #d9d9d9' }}
+            />
+          </div>
+        )}
         <Descriptions column={3} bordered size="small">
           <Descriptions.Item label="상품코드">{product.product_code}</Descriptions.Item>
           <Descriptions.Item label="카테고리">{product.category || '-'}</Descriptions.Item>

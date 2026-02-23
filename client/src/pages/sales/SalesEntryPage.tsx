@@ -63,7 +63,18 @@ export default function SalesEntryPage() {
   // 택스프리 (전체 토글용)
   const allTaxFree = items.length > 0 && items.every(i => i.tax_free);
   const handleToggleAllTaxFree = (checked: boolean) => {
-    setItems(prev => prev.map(i => ({ ...i, tax_free: checked })));
+    setItems(prev => prev.map(i => {
+      if (i.tax_free === checked) return i;
+      const updated = { ...i, tax_free: checked };
+      if (checked) {
+        // 과세 → 면세: 부가세(10%) 제외
+        updated.unit_price = Math.round(i.unit_price / 1.1);
+      } else {
+        // 면세 → 과세: 원래 가격 복원
+        updated.unit_price = getPrice(i.sale_type, i);
+      }
+      return updated;
+    }));
   };
 
   // 바코드 스캔 모드
@@ -127,13 +138,27 @@ export default function SalesEntryPage() {
           updated.discount_price = v.discount_price;
           updated.event_price = v.event_price;
           updated.variantLabel = `${v.sku} - ${v.product_name} (${v.color}/${v.size})`;
-          // 가격 적용
-          updated.unit_price = getPrice(updated.sale_type, v);
+          // 가격 적용 (택스프리면 부가세 제외)
+          let price = getPrice(updated.sale_type, v);
+          if (updated.tax_free) price = Math.round(price / 1.1);
+          updated.unit_price = price;
         }
       }
       // 매출유형 변경 시 가격 재적용
       if (field === 'sale_type') {
-        updated.unit_price = getPrice(value, updated);
+        let price = getPrice(value, updated);
+        if (updated.tax_free) price = Math.round(price / 1.1);
+        updated.unit_price = price;
+      }
+      // 택스프리 토글 시 부가세(10%) 조정
+      if (field === 'tax_free') {
+        if (value) {
+          // 과세 → 면세: 부가세(10%) 제외
+          updated.unit_price = Math.round(item.unit_price / 1.1);
+        } else {
+          // 면세 → 과세: 원래 가격 복원
+          updated.unit_price = getPrice(item.sale_type, item);
+        }
       }
       return updated;
     }));
@@ -160,7 +185,8 @@ export default function SalesEntryPage() {
         ));
         message.success(`${product.sku} 수량 +1 (총 ${existing.qty + 1}개)`);
       } else {
-        const price = product.base_price || 0;
+        const basePrice = product.base_price || 0;
+        const price = allTaxFree ? Math.round(basePrice / 1.1) : basePrice;
         const item: SaleItem = {
           key: ++itemKey,
           variant_id: product.variant_id,

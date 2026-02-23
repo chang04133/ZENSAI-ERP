@@ -1,4 +1,7 @@
 import { Router } from 'express';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import { authMiddleware } from '../../auth/middleware';
 import { requireRole } from '../../middleware/role-guard';
 import { validateRequired } from '../../middleware/validate';
@@ -9,6 +12,28 @@ import { getPool } from '../../db/connection';
 const router = Router();
 
 const write = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
+
+// 이미지 업로드용 multer 설정
+const uploadsDir = path.join(__dirname, '../../../../uploads/products');
+const imageStorage = multer.diskStorage({
+  destination: (_req, _file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const rawCode = req.params.code;
+    const code = (typeof rawCode === 'string' ? rawCode : 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');
+    cb(null, `${code}_${Date.now()}${ext}`);
+  },
+});
+const imageUpload = multer({
+  storage: imageStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) cb(null, true);
+    else cb(new Error('이미지 파일만 업로드 가능합니다 (jpg, png, webp, gif)'));
+  },
+});
 
 // 바코드 대시보드 (매장용)
 router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) => {
@@ -90,6 +115,33 @@ router.put('/variants/:id/barcode', authMiddleware, asyncHandler(async (req, res
     return;
   }
   res.json({ success: true, data: result.rows[0] });
+}));
+
+// 이미지 업로드
+router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const { code } = req.params;
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ success: false, error: '이미지 파일이 필요합니다.' });
+    return;
+  }
+
+  // 기존 이미지 삭제
+  const prev = await pool.query('SELECT image_url FROM products WHERE product_code = $1', [code]);
+  if (prev.rows.length === 0) {
+    res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
+    return;
+  }
+  const oldUrl = prev.rows[0].image_url;
+  if (oldUrl) {
+    const oldPath = path.join(__dirname, '../../../../', oldUrl);
+    try { fs.unlinkSync(oldPath); } catch { /* ignore */ }
+  }
+
+  const imageUrl = `/uploads/products/${file.filename}`;
+  await pool.query('UPDATE products SET image_url = $1 WHERE product_code = $2', [imageUrl, code]);
+  res.json({ success: true, data: { image_url: imageUrl } });
 }));
 
 // 행사 상품

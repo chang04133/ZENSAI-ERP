@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Form, Input, InputNumber, Select, Switch, Button, Card, Space, Divider, message } from 'antd';
-import { MinusCircleOutlined, PlusOutlined } from '@ant-design/icons';
+import { Form, Input, InputNumber, Select, Switch, Button, Card, Space, Divider, Upload, Image, message } from 'antd';
+import { MinusCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
@@ -32,6 +32,8 @@ export default function ProductFormPage() {
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUploading, setImageUploading] = useState(false);
 
   const updateSubCategories = useCallback((categoryValue: string | undefined, allCats: any[]) => {
     if (!categoryValue) {
@@ -80,6 +82,7 @@ export default function ProductFormPage() {
       productApi.get(code)
         .then((data) => {
           form.setFieldsValue(data);
+          if ((data as any).image_url) setImageUrl((data as any).image_url);
           if (data.category && allCategoryCodes.length > 0) {
             updateSubCategories(data.category, allCategoryCodes);
           }
@@ -88,6 +91,24 @@ export default function ProductFormPage() {
         .finally(() => setFetching(false));
     }
   }, [code, isEdit, form, allCategoryCodes, updateSubCategories]);
+
+  const handleImageUpload = async (file: File) => {
+    if (!isEdit || !code) {
+      message.info('상품 등록 후 이미지를 업로드할 수 있습니다.');
+      return false;
+    }
+    setImageUploading(true);
+    try {
+      const result = await productApi.uploadImage(code, file);
+      setImageUrl(result.image_url);
+      message.success('이미지가 업로드되었습니다.');
+    } catch (e: any) {
+      message.error(e.message || '이미지 업로드 실패');
+    } finally {
+      setImageUploading(false);
+    }
+    return false; // prevent default upload
+  };
 
   const handleCategoryChange = (value: string) => {
     form.setFieldValue('sub_category', undefined);
@@ -125,6 +146,31 @@ export default function ProductFormPage() {
           <Form.Item name="product_name" label="상품명" rules={[{ required: true, message: '상품명을 입력해주세요' }]}>
             <Input />
           </Form.Item>
+
+          {isEdit && (
+            <Form.Item label="상품 이미지">
+              <Space direction="vertical" size="small">
+                {imageUrl && (
+                  <Image
+                    src={imageUrl}
+                    alt="상품 이미지"
+                    width={160}
+                    style={{ borderRadius: 8, border: '1px solid #d9d9d9' }}
+                    fallback="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTYwIiBoZWlnaHQ9IjE2MCIgZmlsbD0iI2YwZjBmMCIvPjx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmaWxsPSIjYmZiZmJmIiBmb250LXNpemU9IjE0Ij5ObyBJbWFnZTwvdGV4dD48L3N2Zz4="
+                  />
+                )}
+                <Upload
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  showUploadList={false}
+                  beforeUpload={handleImageUpload}
+                >
+                  <Button icon={<UploadOutlined />} loading={imageUploading}>
+                    {imageUrl ? '이미지 변경' : '이미지 업로드'}
+                  </Button>
+                </Upload>
+              </Space>
+            </Form.Item>
+          )}
 
           <Space style={{ display: 'flex' }} align="start" wrap>
             <Form.Item name="category" label="카테고리">

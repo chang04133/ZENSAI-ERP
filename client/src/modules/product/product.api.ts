@@ -66,6 +66,19 @@ export const productApi = {
     return data.data;
   },
 
+  // 이미지 업로드
+  uploadImage: async (productCode: string, file: File) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await apiFetch(`/api/products/${encodeURIComponent(productCode)}/image`, {
+      method: 'POST',
+      body: formData,
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { image_url: string };
+  },
+
   // 바코드 등록/수정
   updateBarcode: async (variantId: number, barcode: string | null) => {
     const res = await apiFetch(`/api/products/variants/${variantId}/barcode`, {

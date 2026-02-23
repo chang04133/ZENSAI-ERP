@@ -208,6 +208,22 @@ router.put('/:id/process', authMiddleware, asyncHandler(async (req, res) => {
   }
 }));
 
+// GET /api/notifications/my-pending-requests — 내가 보낸 활성 요청의 variant_id 목록
+router.get('/my-pending-requests', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const pc = req.user?.partnerCode;
+  if (!pc) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+  const result = await pool.query(
+    `SELECT DISTINCT variant_id FROM stock_notifications
+     WHERE from_partner_code = $1 AND status IN ('PENDING', 'READ')`,
+    [pc],
+  );
+  res.json({ success: true, data: result.rows.map((r: any) => r.variant_id) });
+}));
+
 // GET /api/notifications/count — 미읽음 알림 수
 router.get('/count', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();

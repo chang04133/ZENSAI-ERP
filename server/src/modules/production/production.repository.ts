@@ -184,9 +184,19 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
   async recommendations(options: { limit?: number; category?: string } = {}): Promise<any[]> {
     const pool = getPool();
     const limit = options.limit || 30;
+
+    // 설정값 조회: 판매기간(일), 판매율 임계값(%)
+    const settingsResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
+    );
+    const settingsMap: Record<string, string> = {};
+    for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
+    const salesPeriodDays = parseInt(settingsMap.PRODUCTION_SALES_PERIOD_DAYS || '60', 10);
+    const sellThroughThreshold = parseFloat(settingsMap.PRODUCTION_SELL_THROUGH_THRESHOLD || '40');
+
     const conditions: string[] = [];
-    const params: any[] = [];
-    let idx = 1;
+    const params: any[] = [salesPeriodDays];
+    let idx = 2;
 
     if (options.category) {
       conditions.push(`p.category = $${idx++}`);
@@ -217,13 +227,13 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
             WHEN p.season LIKE '%WN' THEN 'WN'
             ELSE 'SA'
           END AS product_season,
-          COALESCE(SUM(s.qty), 0)::int AS total_sold_90d,
-          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90, 2) AS avg_daily_sales,
-          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90 * 30)::int AS predicted_30d
+          COALESCE(SUM(s.qty), 0)::int AS total_sold,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1 * 30)::int AS predicted_30d
         FROM products p
         JOIN product_variants pv ON p.product_code = pv.product_code
         JOIN sales s ON pv.variant_id = s.variant_id
-          AND s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
+          AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
         WHERE p.is_active = TRUE AND p.sale_status = '판매중' ${extraWhere}
         GROUP BY p.product_code, p.product_name, p.category, p.season
       ),
@@ -248,7 +258,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       SELECT
         sv.product_code, sv.product_name, sv.category, sv.season,
         sv.product_season,
-        sv.total_sold_90d,
+        sv.total_sold,
         sv.avg_daily_sales,
         sv.predicted_30d AS raw_predicted_30d,
         COALESCE(sw.weight, 1.0) AS season_weight,
@@ -263,6 +273,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
             THEN ROUND((COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0))::numeric / (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)))::int
           ELSE 9999
         END AS days_of_stock,
+        CASE
+          WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN ROUND(sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100, 1)
+          ELSE 0
+        END AS sell_through_rate,
         cs2.season_code AS current_season_code
       FROM sales_velocity sv
       CROSS JOIN current_season cs2
@@ -271,6 +286,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       LEFT JOIN in_production ip ON sv.product_code = ip.product_code
       WHERE sv.avg_daily_sales > 0
         AND (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) < ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
+        AND CASE
+          WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100
+          ELSE 0
+        END >= ${sellThroughThreshold}
       ORDER BY days_of_stock ASC, shortage_qty DESC
       LIMIT $${idx}`;
 

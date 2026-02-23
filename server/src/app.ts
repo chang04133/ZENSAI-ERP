@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { config } from './config/env';
 import { errorHandler } from './middleware/error-handler';
 
@@ -47,6 +48,11 @@ app.use(cors({
   credentials: true,
 }));
 app.use(express.json());
+
+// Uploads: static file serving
+const uploadsDir = path.join(__dirname, '../../uploads/products');
+fs.mkdirSync(uploadsDir, { recursive: true });
+app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 // Routes
 app.use(healthRoutes);

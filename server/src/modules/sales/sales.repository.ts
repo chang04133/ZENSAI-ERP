@@ -618,14 +618,24 @@ export class SalesRepository {
   }
 
   /** 스타일별 판매현황 (기간별) */
-  async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string) {
+  async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string, category?: string) {
     const params: any[] = [dateFrom, dateTo];
     let pcFilter = '';
     let pcFilterSimple = '';
+    let catFilter = '';
+    let catFilterSimple = '';
+    let nextIdx = 3;
     if (partnerCode) {
       params.push(partnerCode);
-      pcFilter = `AND s.partner_code = $3`;
-      pcFilterSimple = `AND partner_code = $3`;
+      pcFilter = `AND s.partner_code = $${nextIdx}`;
+      pcFilterSimple = `AND partner_code = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (category) {
+      params.push(category);
+      catFilter = `AND p.category = $${nextIdx}`;
+      catFilterSimple = `AND variant_id IN (SELECT pv2.variant_id FROM product_variants pv2 JOIN products p2 ON pv2.product_code = p2.product_code WHERE p2.category = $${nextIdx})`;
+      nextIdx++;
     }
 
     // 총합
@@ -635,7 +645,7 @@ export class SalesRepository {
              COALESCE(SUM(total_price), 0)::bigint AS total_amount,
              COUNT(DISTINCT variant_id)::int AS variant_count
       FROM sales
-      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}`;
+      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple} ${catFilterSimple}`;
     const totals = (await this.pool.query(totalSql, params)).rows[0];
 
     // 카테고리별
@@ -647,7 +657,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY total_amount DESC`;
     const byCategory = (await this.pool.query(catSql, params)).rows;
@@ -662,7 +672,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.category, '미분류'), COALESCE(p.sub_category, '미분류')
       ORDER BY total_amount DESC`;
     const bySubCategory = (await this.pool.query(subCatSql, params)).rows;
@@ -676,7 +686,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY total_amount DESC`;
     const byFit = (await this.pool.query(fitSql, params)).rows;
@@ -690,7 +700,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY total_amount DESC`;
     const byLength = (await this.pool.query(lenSql, params)).rows;
@@ -702,7 +712,8 @@ export class SalesRepository {
              SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY pv.size
       ORDER BY total_qty DESC`;
     const bySize = (await this.pool.query(sizeSql, params)).rows;
@@ -714,7 +725,8 @@ export class SalesRepository {
              SUM(s.total_price)::bigint AS total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY pv.color
       ORDER BY total_qty DESC LIMIT 20`;
     const byColor = (await this.pool.query(colorSql, params)).rows;
@@ -728,7 +740,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
       ORDER BY total_amount DESC LIMIT 15`;
     const topProducts = (await this.pool.query(topSql, params)).rows;
@@ -747,12 +759,191 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY season_type
       ORDER BY total_amount DESC`;
     const bySeason = (await this.pool.query(seasonSql, params)).rows;
 
     return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason };
+  }
+
+  /** 상품별 컬러/사이즈 판매 상세 */
+  async productVariantSales(productCode: string, dateFrom: string, dateTo: string, partnerCode?: string) {
+    const params: any[] = [productCode, dateFrom, dateTo];
+    let pcFilter = '';
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilter = `AND s.partner_code = $4`;
+    }
+
+    const sql = `
+      SELECT pv.color, pv.size, pv.sku,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      WHERE pv.product_code = $1
+        AND s.sale_date >= $2::date AND s.sale_date <= $3::date ${pcFilter}
+      GROUP BY pv.color, pv.size, pv.sku
+      ORDER BY pv.color, CASE pv.size
+        WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
+        WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
+        WHEN 'FREE' THEN 7 ELSE 8 END`;
+    return (await this.pool.query(sql, params)).rows;
+  }
+
+  /** 판매율 분석 (품번별/사이즈별/카테고리별/일자별) */
+  async sellThroughAnalysis(dateFrom: string, dateTo: string, partnerCode?: string, category?: string) {
+    const params: any[] = [dateFrom, dateTo];
+    let pcFilterSales = '';
+    let pcFilterInv = '';
+    let catFilter = '';
+    let catFilterInv = '';
+    let nextIdx = 3;
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilterSales = `AND s.partner_code = $${nextIdx}`;
+      pcFilterInv = `WHERE i.partner_code = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (category) {
+      params.push(category);
+      catFilter = `AND p.category = $${nextIdx}`;
+      catFilterInv = partnerCode
+        ? `AND p2.category = $${nextIdx}`
+        : `WHERE p2.category = $${nextIdx}`;
+      nextIdx++;
+    }
+
+    // 품번별 판매율
+    const byProductSql = `
+      SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, p.season,
+             COALESCE(SUM(s.qty), 0)::int AS sold_qty,
+             COALESCE(inv.current_stock, 0)::int AS current_stock,
+             CASE WHEN (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) > 0
+               THEN ROUND(COALESCE(SUM(s.qty), 0)::numeric / (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) * 100, 1)
+               ELSE 0 END AS sell_through_rate
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
+      LEFT JOIN sales s ON s.variant_id = pv.variant_id
+        AND s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales}
+      LEFT JOIN (
+        SELECT pv2.product_code, SUM(i.qty)::int AS current_stock
+        FROM inventory i
+        JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+        JOIN products p2 ON pv2.product_code = p2.product_code
+        ${pcFilterInv} ${catFilterInv}
+        GROUP BY pv2.product_code
+      ) inv ON inv.product_code = p.product_code
+      WHERE p.is_active = TRUE ${catFilter}
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, p.season, inv.current_stock
+      HAVING (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) > 0
+      ORDER BY sell_through_rate DESC`;
+    const byProduct = (await this.pool.query(byProductSql, params)).rows;
+
+    // 사이즈별 판매율 (품번+사이즈)
+    const bySizeSql = `
+      SELECT p.product_code, p.product_name, p.category, pv.size,
+             COALESCE(SUM(s.qty), 0)::int AS sold_qty,
+             COALESCE(inv_v.current_stock, 0)::int AS current_stock,
+             CASE WHEN (COALESCE(SUM(s.qty), 0) + COALESCE(inv_v.current_stock, 0)) > 0
+               THEN ROUND(COALESCE(SUM(s.qty), 0)::numeric / (COALESCE(SUM(s.qty), 0) + COALESCE(inv_v.current_stock, 0)) * 100, 1)
+               ELSE 0 END AS sell_through_rate
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
+      LEFT JOIN sales s ON s.variant_id = pv.variant_id
+        AND s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales}
+      LEFT JOIN (
+        SELECT i.variant_id, COALESCE(i.qty, 0)::int AS current_stock
+        FROM inventory i
+        ${pcFilterInv}
+      ) inv_v ON inv_v.variant_id = pv.variant_id
+      WHERE p.is_active = TRUE ${catFilter}
+      GROUP BY p.product_code, p.product_name, p.category, pv.size, inv_v.current_stock
+      HAVING (COALESCE(SUM(s.qty), 0) + COALESCE(inv_v.current_stock, 0)) > 0
+      ORDER BY p.product_code, CASE pv.size
+        WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
+        WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
+        WHEN 'FREE' THEN 7 ELSE 8 END`;
+    const bySize = (await this.pool.query(bySizeSql, params)).rows;
+
+    // 카테고리별 판매율
+    const byCategorySql = `
+      SELECT COALESCE(p.category, '미분류') AS category,
+             COALESCE(SUM(s.qty), 0)::int AS sold_qty,
+             COALESCE(inv_c.current_stock, 0)::int AS current_stock,
+             COUNT(DISTINCT p.product_code)::int AS product_count,
+             CASE WHEN (COALESCE(SUM(s.qty), 0) + COALESCE(inv_c.current_stock, 0)) > 0
+               THEN ROUND(COALESCE(SUM(s.qty), 0)::numeric / (COALESCE(SUM(s.qty), 0) + COALESCE(inv_c.current_stock, 0)) * 100, 1)
+               ELSE 0 END AS sell_through_rate
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
+      LEFT JOIN sales s ON s.variant_id = pv.variant_id
+        AND s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales}
+      LEFT JOIN (
+        SELECT COALESCE(p2.category, '미분류') AS category, SUM(i.qty)::int AS current_stock
+        FROM inventory i
+        JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+        JOIN products p2 ON pv2.product_code = p2.product_code
+        ${pcFilterInv}
+        GROUP BY COALESCE(p2.category, '미분류')
+      ) inv_c ON inv_c.category = COALESCE(p.category, '미분류')
+      WHERE p.is_active = TRUE ${catFilter}
+      GROUP BY COALESCE(p.category, '미분류'), inv_c.current_stock
+      HAVING (COALESCE(SUM(s.qty), 0) + COALESCE(inv_c.current_stock, 0)) > 0
+      ORDER BY sell_through_rate DESC`;
+    const byCategory = (await this.pool.query(byCategorySql, params)).rows;
+
+    // 일자별 판매 수량 + 판매율
+    const dailySql = `
+      SELECT s.sale_date::text AS date,
+             SUM(s.qty)::int AS daily_sold_qty,
+             COUNT(DISTINCT pv.product_code)::int AS product_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales} ${catFilter}
+      GROUP BY s.sale_date
+      ORDER BY s.sale_date`;
+    const daily = (await this.pool.query(dailySql, params)).rows;
+
+    // 일자별 카테고리별
+    const dailyCategorySql = `
+      SELECT s.sale_date::text AS date,
+             COALESCE(p.category, '미분류') AS category,
+             SUM(s.qty)::int AS daily_sold_qty
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales} ${catFilter}
+      GROUP BY s.sale_date, COALESCE(p.category, '미분류')
+      ORDER BY s.sale_date, category`;
+    const dailyByCategory = (await this.pool.query(dailyCategorySql, params)).rows;
+
+    // 일자별 아이템별
+    const dailyProductSql = `
+      SELECT s.sale_date::text AS date,
+             p.product_code, p.product_name, p.category,
+             SUM(s.qty)::int AS daily_sold_qty
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilterSales} ${catFilter}
+      GROUP BY s.sale_date, p.product_code, p.product_name, p.category
+      ORDER BY s.sale_date DESC, daily_sold_qty DESC`;
+    const dailyByProduct = (await this.pool.query(dailyProductSql, params)).rows;
+
+    // 전체 요약
+    const totalSold = byProduct.reduce((s: number, r: any) => s + Number(r.sold_qty), 0);
+    const totalStock = byProduct.reduce((s: number, r: any) => s + Number(r.current_stock), 0);
+    const overallRate = (totalSold + totalStock) > 0
+      ? Math.round(totalSold / (totalSold + totalStock) * 1000) / 10 : 0;
+
+    return {
+      dateFrom, dateTo,
+      totals: { total_sold: totalSold, total_stock: totalStock, overall_rate: overallRate, product_count: byProduct.length },
+      byProduct, bySize, byCategory, daily, dailyByCategory, dailyByProduct,
+    };
   }
 
   async weeklyStyleSales(options: { weeks?: number; category?: string; partner_code?: string } = {}) {

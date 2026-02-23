@@ -28,5 +28,6 @@ import m026 from './026_production_sub_category';
 import m027 from './027_sales_memo_updated';
 import m028 from './028_sales_tax_free';
 import m029 from './029_shipment_status_simplify';
+import m030 from './030_product_image';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030];

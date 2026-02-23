@@ -145,6 +145,21 @@ export default function InventoryStatusPage() {
     finally { setSearchLoading(false); }
   };
 
+  // 재고 요청 보내기 (매장용)
+  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+
+  // 이미 보낸 요청 로드
+  const loadMyPendingRequests = useCallback(async () => {
+    try {
+      const res = await apiFetch('/api/notifications/my-pending-requests');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setSentIds(new Set(data.data.map((vid: number) => String(vid))));
+      }
+    } catch { /* ignore */ }
+  }, []);
+
   // 리오더 데이터 로드 (디바운스)
   const loadReorder = useCallback((urgent: number, recommend: number, scope?: 'all') => {
     if (reorderDebounceRef.current) clearTimeout(reorderDebounceRef.current);
@@ -165,7 +180,8 @@ export default function InventoryStatusPage() {
       .catch((e: any) => message.error(e.message))
       .finally(() => setStatsLoading(false));
     loadReorder(urgentThreshold, recommendThreshold);
-  }, [urgentThreshold, recommendThreshold, loadReorder]);
+    if (isStore) loadMyPendingRequests();
+  }, [urgentThreshold, recommendThreshold, loadReorder, isStore, loadMyPendingRequests]);
 
   useEffect(() => { loadAll(); }, []);
 
@@ -181,11 +197,9 @@ export default function InventoryStatusPage() {
     loadReorder(urgentThreshold, v);
   };
 
-  // 재고 요청 보내기 (매장용)
-  const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
   const handleStockRequest = async (item: any) => {
     const key = `${item.variant_id}`;
-    if (requestingIds.has(key)) return;
+    if (requestingIds.has(key) || sentIds.has(key)) return;
     const allTargets = (item.other_locations || []).filter((loc: any) => loc.qty >= 1);
     if (allTargets.length === 0) {
       message.warning('다른 매장에 재고가 없습니다.');
@@ -207,10 +221,11 @@ export default function InventoryStatusPage() {
       const data = await res.json();
       if (data.success) {
         message.success(`${targets.length}개 매장/본사에 재고 요청 완료 (최다재고 ${maxQty}개)`);
+        setSentIds((prev) => new Set(prev).add(key));
       } else { message.error(data.error); }
     } catch (e: any) { message.error(e.message); }
     finally {
-      setTimeout(() => setRequestingIds((prev) => { const s = new Set(prev); s.delete(key); return s; }), 3000);
+      setRequestingIds((prev) => { const s = new Set(prev); s.delete(key); return s; });
     }
   };
 
@@ -266,17 +281,21 @@ export default function InventoryStatusPage() {
       },
     },
     {
-      title: '', key: 'request', width: 70,
+      title: '', key: 'request', width: 80,
       render: (_: any, record: any) => {
         const k = `${record.variant_id}`;
-        const sent = requestingIds.has(k);
+        const loading = requestingIds.has(k);
+        const alreadySent = sentIds.has(k);
         const hasTargets = (record.other_locations || []).length > 0;
+        if (alreadySent) {
+          return <Button size="small" disabled style={{ fontSize: 12, color: '#52c41a', borderColor: '#b7eb8f' }}>요청완료</Button>;
+        }
         return hasTargets ? (
           <Button type="primary" size="small" icon={<SendOutlined />}
-            loading={sent} disabled={sent}
+            loading={loading} disabled={loading}
             onClick={() => handleStockRequest(record)}
             style={{ fontSize: 12 }}>
-            {sent ? '전송됨' : '요청'}
+            요청
           </Button>
         ) : null;
       },

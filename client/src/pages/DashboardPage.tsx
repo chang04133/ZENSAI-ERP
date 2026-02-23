@@ -144,7 +144,7 @@ export default function DashboardPage() {
     } catch (e: any) { message.error('처리 실패: ' + e.message); }
   };
 
-  useEffect(() => { loadStats(); loadNotifications(); }, []);
+  useEffect(() => { loadStats(); loadNotifications(); if (isStore) loadMyPendingRequests(); }, []);
 
   const handleApprove = async (requestId: number) => {
     try {
@@ -176,9 +176,23 @@ export default function DashboardPage() {
 
   // 재고 요청 (매장 매니저용)
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+
+  // 이미 보낸 요청 로드
+  const loadMyPendingRequests = async () => {
+    try {
+      const res = await apiFetch('/api/notifications/my-pending-requests');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setSentIds(new Set(data.data.map((vid: number) => String(vid))));
+      }
+    } catch { /* ignore */ }
+  };
+
   const handleStockRequest = async (item: any) => {
     const key = `${item.partner_code}-${item.variant_id}`;
-    if (requestingIds.has(key)) return;
+    const variantKey = String(item.variant_id);
+    if (requestingIds.has(key) || sentIds.has(variantKey)) return;
     const allTargets = (item.other_locations || []).filter((loc: any) => loc.qty >= 1);
     if (allTargets.length === 0) { message.warning('다른 매장에 재고가 없습니다.'); return; }
     // 가장 수량 많은 지점만 요청 (동일 수량이면 전부)
@@ -195,11 +209,14 @@ export default function DashboardPage() {
         }),
       });
       const data = await res.json();
-      if (data.success) message.success(`${targets.length}개 매장/본사에 재고 요청 완료 (최다재고 ${maxQty}개)`);
+      if (data.success) {
+        message.success(`${targets.length}개 매장/본사에 재고 요청 완료 (최다재고 ${maxQty}개)`);
+        setSentIds((prev) => new Set(prev).add(variantKey));
+      }
       else message.error(data.error);
     } catch (e: any) { message.error(e.message); }
     finally {
-      setTimeout(() => setRequestingIds((prev) => { const s = new Set(prev); s.delete(key); return s; }), 3000);
+      setRequestingIds((prev) => { const s = new Set(prev); s.delete(key); return s; });
     }
   };
 
@@ -323,16 +340,21 @@ export default function DashboardPage() {
       },
     },
     ...(isStore ? [{
-      title: '' as const, key: 'req', width: 65,
+      title: '' as const, key: 'req', width: 75,
       render: (_: any, record: any) => {
         const k = `${record.partner_code}-${record.variant_id}`;
-        const sent = requestingIds.has(k);
+        const variantKey = String(record.variant_id);
+        const loading = requestingIds.has(k);
+        const alreadySent = sentIds.has(variantKey);
         const hasTargets = (record.other_locations || []).length > 0;
+        if (alreadySent) {
+          return <Button size="small" disabled style={{ fontSize: 11, padding: '0 6px', color: '#52c41a', borderColor: '#b7eb8f' }}>요청완료</Button>;
+        }
         return hasTargets ? (
           <Button type="primary" size="small" icon={<SendOutlined />}
-            loading={sent} disabled={sent} onClick={() => handleStockRequest(record)}
+            loading={loading} disabled={loading} onClick={() => handleStockRequest(record)}
             style={{ fontSize: 11, padding: '0 6px' }}>
-            {sent ? '완료' : '요청'}
+            요청
           </Button>
         ) : null;
       },

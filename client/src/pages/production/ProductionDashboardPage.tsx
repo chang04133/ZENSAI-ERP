@@ -253,13 +253,12 @@ export default function ProductionDashboardPage() {
             size="small" style={{ borderRadius: 10 }}
             extra={
               <Select
-                placeholder="카테고리"
-                allowClear
                 size="small"
                 style={{ width: 110 }}
                 value={catFilter}
                 onChange={handleCatChange}
                 options={[
+                  { label: '전체', value: '' },
                   { label: 'TOP', value: 'TOP' },
                   { label: 'BOTTOM', value: 'BOTTOM' },
                   { label: 'OUTER', value: 'OUTER' },

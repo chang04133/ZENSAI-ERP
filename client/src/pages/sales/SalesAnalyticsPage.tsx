@@ -365,7 +365,7 @@ function PeriodTab() {
                     render: (v: string, record: any) => (
                       <a onClick={() => handleProductClick(record)}>{v}</a>
                     ) },
-                  { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                  { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
                   { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
                     render: (v: string) => <Tag style={CAT_COLORS[v] ? { color: CAT_COLORS[v], borderColor: CAT_COLORS[v] } : {}}>{v}</Tag>,
                     filters: [...new Set(topProducts.map((p: any) => p.category))].map((v: any) => ({ text: v, value: v })),
@@ -699,7 +699,7 @@ function YoYTab() {
                 <Card size="small" title="전체 제품 증감률">
                   <Table columns={[
                     { title: '코드', dataIndex: 'product_code', key: 'code', width: 100 },
-                    { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                    { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
                     { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80 },
                     { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
                     { title: '기장', dataIndex: 'length', key: 'len', width: 70, render: (v: string) => v || '-' },

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Select, Modal } from 'antd';
+import { Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Select, Modal, Popover } from 'antd';
 import {
   ExperimentOutlined, CheckCircleOutlined, SyncOutlined,
   FileDoneOutlined, ClockCircleOutlined, WarningOutlined,
-  RocketOutlined, BarChartOutlined, RightOutlined,
+  RocketOutlined, BarChartOutlined, RightOutlined, LoadingOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { productionApi } from '../../modules/production/production.api';
@@ -28,6 +28,83 @@ export default function ProductionDashboardPage() {
   const [subCategory, setSubCategory] = useState<string>('');
   const [subStats, setSubStats] = useState<any[]>([]);
   const [subLoading, setSubLoading] = useState(false);
+
+  // 상품코드 호버 - 변형 상세
+  const [variantCache, setVariantCache] = useState<Record<string, any[]>>({});
+  const [variantLoading, setVariantLoading] = useState<Record<string, boolean>>({});
+
+  const loadVariants = async (productCode: string) => {
+    if (variantCache[productCode] || variantLoading[productCode]) return;
+    setVariantLoading((p) => ({ ...p, [productCode]: true }));
+    try {
+      const data = await productionApi.productVariantDetail(productCode);
+      setVariantCache((p) => ({ ...p, [productCode]: data }));
+    } catch { /* ignore */ }
+    finally { setVariantLoading((p) => ({ ...p, [productCode]: false })); }
+  };
+
+  const rateBg = (rate: number) =>
+    rate >= 80 ? '#f6ffed' : rate >= 50 ? '#e6f7ff' : rate >= 30 ? '#fff7e6' : '#fff1f0';
+  const rateColor = (rate: number) =>
+    rate >= 80 ? '#52c41a' : rate >= 50 ? '#1890ff' : rate >= 30 ? '#fa8c16' : '#ff4d4f';
+
+  const renderVariantPopover = (productCode: string) => {
+    const variants = variantCache[productCode];
+    const isLoading = variantLoading[productCode];
+    if (isLoading || !variants) {
+      return <div style={{ padding: '12px 16px' }}><LoadingOutlined spin /> 로딩중...</div>;
+    }
+    if (variants.length === 0) {
+      return <div style={{ padding: '12px 16px', color: '#aaa' }}>변형 정보가 없습니다</div>;
+    }
+    // 칼라별 그룹핑
+    const colorMap: Record<string, any[]> = {};
+    variants.forEach((v: any) => {
+      const c = v.color || '미지정';
+      if (!colorMap[c]) colorMap[c] = [];
+      colorMap[c].push(v);
+    });
+    return (
+      <div style={{ maxWidth: 420, maxHeight: 400, overflow: 'auto' }}>
+        {Object.entries(colorMap).map(([color, items]) => {
+          const colorTotal = items.reduce((s: number, v: any) => s + Number(v.sold_qty), 0);
+          const colorStock = items.reduce((s: number, v: any) => s + Number(v.current_stock), 0);
+          const colorRate = (colorTotal + colorStock) > 0
+            ? Math.round(colorTotal / (colorTotal + colorStock) * 100) : 0;
+          return (
+            <div key={color} style={{ marginBottom: 10 }}>
+              <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                padding: '4px 8px', background: '#fafafa', borderRadius: 4, marginBottom: 4,
+                borderLeft: `3px solid ${rateColor(colorRate)}`,
+              }}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>{color}</span>
+                <span style={{ fontSize: 11, color: '#888' }}>
+                  판매 <strong>{colorTotal}</strong> · 재고 <strong>{colorStock}</strong> · <span style={{ color: rateColor(colorRate), fontWeight: 700 }}>{colorRate}%</span>
+                </span>
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, paddingLeft: 4 }}>
+                {items.map((v: any) => {
+                  const r = Number(v.sell_through_rate);
+                  return (
+                    <div key={v.sku || `${color}-${v.size}`} style={{
+                      padding: '3px 8px', borderRadius: 4, fontSize: 11,
+                      background: rateBg(r), border: `1px solid ${rateColor(r)}33`,
+                      minWidth: 70, textAlign: 'center',
+                    }}>
+                      <div style={{ fontWeight: 700 }}>{v.size}</div>
+                      <div style={{ color: '#555' }}>판매 {v.sold_qty} · 재고 {v.current_stock}</div>
+                      <div style={{ color: rateColor(r), fontWeight: 600 }}>{r}%</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
 
   const loadAll = async (category?: string | '') => {
     setLoading(true);
@@ -271,8 +348,20 @@ export default function ProductionDashboardPage() {
             {recommendations.length > 0 ? (
               <Table
                 columns={[
-                  { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110 },
-                  { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                  { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110,
+                    render: (v: string) => (
+                      <Popover
+                        content={renderVariantPopover(v)}
+                        title={<span style={{ fontSize: 13 }}>{v} 칼라/사이즈별 상세</span>}
+                        trigger="hover"
+                        placement="rightTop"
+                        mouseEnterDelay={0.3}
+                        onOpenChange={(open) => { if (open) loadVariants(v); }}
+                      >
+                        <span style={{ color: '#1890ff', cursor: 'pointer', fontWeight: 600, borderBottom: '1px dashed #1890ff' }}>{v}</span>
+                      </Popover>
+                    ) },
+                  { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
                   { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
                     render: (v: string) => <Tag color="blue">{v}</Tag> },
                   { title: '시즌', dataIndex: 'product_season', key: 'season', width: 75, align: 'center' as const,
@@ -321,7 +410,7 @@ export default function ProductionDashboardPage() {
                 pagination={{ pageSize: 10, size: 'small' }}
                 size="small"
                 loading={loading}
-                scroll={{ x: 900 }}
+                scroll={{ x: 1060 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: 30, color: '#52c41a' }}>

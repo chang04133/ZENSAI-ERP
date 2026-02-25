@@ -19,7 +19,7 @@ export interface Inventory {
   warning?: string;
 }
 
-export type TxType = 'SHIPMENT' | 'RETURN' | 'TRANSFER' | 'ADJUST' | 'SALE' | 'RESTOCK' | 'PRODUCTION';
+export type TxType = 'SHIPMENT' | 'RETURN' | 'TRANSFER' | 'ADJUST' | 'SALE' | 'SALE_EDIT' | 'SALE_DELETE' | 'RESTOCK' | 'PRODUCTION';
 
 export interface InventoryTransaction {
   tx_id: number;

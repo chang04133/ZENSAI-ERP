@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Modal, Form, InputNumber, DatePicker, message } from 'antd';
-import { PlusOutlined, SearchOutlined, EyeOutlined, DeleteOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { Table, Button, Input, Select, Space, Tag, Modal, Form, Popconfirm, InputNumber, DatePicker, message } from 'antd';
+import { PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined, DeleteOutlined, SendOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { STATUS_COLORS, STATUS_LABELS } from '../../components/shipment/ShipmentConstants';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
@@ -69,6 +69,7 @@ export default function HorizontalTransferPage() {
 
   useEffect(() => { load(); }, [page]);
   useEffect(() => { setPage(1); load(1); }, [statusFilter]);
+  useEffect(() => { if (dateRange) { setPage(1); load(1); } }, [dateRange]);
   useEffect(() => {
     (async () => {
       try {
@@ -108,6 +109,14 @@ export default function HorizontalTransferPage() {
 
   const handleViewDetail = async (id: number) => {
     try { setDetail(await shipmentApi.get(id)); setDetailOpen(true); } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleCancel = async (id: number) => {
+    try {
+      await shipmentApi.update(id, { status: 'CANCELLED' });
+      message.success('취소되었습니다.');
+      load();
+    } catch (e: any) { message.error(e.message); }
   };
 
   // ── 출고확인 (sender) ──
@@ -188,8 +197,9 @@ export default function HorizontalTransferPage() {
     { title: '상태', dataIndex: 'status', key: 'status', width: 90,
       render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v] || v}</Tag> },
     { title: '메모', dataIndex: 'memo', key: 'memo', render: (v: string) => v || '-', ellipsis: true },
-    { title: '관리', key: 'action', width: 200, render: (_: any, record: any) => {
+    { title: '관리', key: 'action', width: 260, render: (_: any, record: any) => {
       const dir = getDirection(record);
+      const canCancelRow = record.status === 'PENDING' && (isAdmin || dir === 'send');
       return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
@@ -199,6 +209,11 @@ export default function HorizontalTransferPage() {
           {record.status === 'SHIPPED' && (dir === 'receive' || isAdmin) && (
             <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2' }}
               onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>
+          )}
+          {canCancelRow && (
+            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}>
+              <Button size="small" danger icon={<CloseOutlined />}>취소</Button>
+            </Popconfirm>
           )}
         </Space>
       );

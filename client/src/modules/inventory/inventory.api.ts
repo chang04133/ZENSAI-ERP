@@ -16,6 +16,15 @@ export const inventoryApi = {
     return data.data as { data: Inventory[]; total: number; sumQty: number; page: number; limit: number; totalPages: number };
   },
 
+  /** 창고(본사) 재고 조회 */
+  warehouseList: async (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/inventory/warehouse${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { data: Inventory[]; total: number; sumQty: number; page: number; limit: number; totalPages: number };
+  },
+
   dashboardStats: async (scope?: 'all') => {
     const q = scope ? `?scope=${scope}` : '';
     const res = await apiFetch(`/api/inventory/dashboard-stats${q}`);

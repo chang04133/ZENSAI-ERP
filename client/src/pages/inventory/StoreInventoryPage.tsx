@@ -35,10 +35,12 @@ export default function StoreInventoryPage() {
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
   const [variantSearching, setVariantSearching] = useState(false);
 
+  const [searchTrigger, setSearchTrigger] = useState(0);
+
   const load = async () => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '5000' };
+      const params: Record<string, string> = { page: String(page), limit: '50' };
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       const result = await inventoryApi.list(params);
@@ -55,7 +57,7 @@ export default function StoreInventoryPage() {
     } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter]);
+  useEffect(() => { load(); }, [page, partnerFilter, searchTrigger]);
   useEffect(() => { loadPartners(); }, []);
 
   // 조정
@@ -73,6 +75,7 @@ export default function StoreInventoryPage() {
         partner_code: adjustTarget.partner_code,
         variant_id: adjustTarget.variant_id,
         qty_change: values.qty_change,
+        memo: values.memo,
       });
       message.success(`재고 조정 완료 (${values.qty_change > 0 ? '+' : ''}${values.qty_change} → 현재: ${result.qty}개)`);
       setAdjustModalOpen(false);
@@ -118,7 +121,8 @@ export default function StoreInventoryPage() {
   // --- Render qty ---
   const renderQty = (qty: number) => {
     const n = Number(qty);
-    return <Tag color={n > 10 ? 'blue' : n > 0 ? 'orange' : 'red'}>{n.toLocaleString()}</Tag>;
+    const color = n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333';
+    return <strong style={{ color, fontSize: 14 }}>{n.toLocaleString()}</strong>;
   };
 
   // --- 뷰모드별 데이터 변환 ---
@@ -303,10 +307,10 @@ export default function StoreInventoryPage() {
           prefix={<SearchOutlined />}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={load}
+          onPressEnter={() => { setPage(1); setSearchTrigger(t => t + 1); }}
           style={{ width: 220 }}
         />
-        <Button size="small" onClick={load}>조회</Button>
+        <Button size="small" onClick={() => { setPage(1); setSearchTrigger(t => t + 1); }}>조회</Button>
       </Space>
 
       {/* 거래처별 요약 */}
@@ -363,6 +367,9 @@ export default function StoreInventoryPage() {
         <Form form={adjustForm} layout="vertical" onFinish={handleAdjust}>
           <Form.Item name="qty_change" label="변동 수량 (양수: 입고, 음수: 출고)" rules={[{ required: true, message: '수량을 입력해주세요' }]}>
             <InputNumber style={{ width: '100%' }} placeholder="예: +10 또는 -5" />
+          </Form.Item>
+          <Form.Item name="memo" label="조정 사유">
+            <Input.TextArea rows={2} placeholder="예: 재고실사 차이 보정, 파손 폐기 등" />
           </Form.Item>
         </Form>
       </Modal>

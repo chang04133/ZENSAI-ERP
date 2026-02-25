@@ -183,7 +183,7 @@ export default function CodeManagePage() {
       <Modal
         title={editItem ? '코드 수정' : '코드 추가'}
         open={modalOpen}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => { setModalOpen(false); setEditItem(null); form.resetFields(); }}
         onOk={() => form.submit()}
         okText={editItem ? '수정' : '추가'}
         cancelText="취소"

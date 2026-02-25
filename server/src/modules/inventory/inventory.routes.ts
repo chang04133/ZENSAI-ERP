@@ -11,6 +11,7 @@ router.get('/search-item', authMiddleware, inventoryController.searchItem);
 router.get('/search-suggest', authMiddleware, inventoryController.searchSuggest);
 router.get('/summary/by-season', authMiddleware, inventoryController.summaryBySeason);
 router.get('/by-season/:season', authMiddleware, inventoryController.listBySeason);
+router.get('/warehouse', authMiddleware, inventoryController.warehouseList);
 router.get('/transactions', authMiddleware, inventoryController.transactions);
 router.get('/', authMiddleware, inventoryController.list);
 router.get('/by-product/:code', authMiddleware, inventoryController.byProduct);

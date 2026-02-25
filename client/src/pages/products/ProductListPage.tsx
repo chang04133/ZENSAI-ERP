@@ -486,7 +486,7 @@ export default function ProductListPage() {
         rowKey={viewMode === 'product' ? 'product_code' : '_rowKey'}
         loading={loading || bulkLoading}
         size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={viewMode === 'product'
           ? { current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }
           : { pageSize: 50, showTotal: (t: number) => `총 ${t}건` }
@@ -503,7 +503,7 @@ export default function ProductListPage() {
         title={`상품 일괄 상태변경 (${selectedRowKeys.length}개)`}
         open={bulkStatusModalOpen}
         onOk={handleBulkStatusChange}
-        onCancel={() => setBulkStatusModalOpen(false)}
+        onCancel={() => { setBulkStatusModalOpen(false); setBulkStatus(undefined); }}
         okText="변경"
         cancelText="취소"
         confirmLoading={bulkLoading}

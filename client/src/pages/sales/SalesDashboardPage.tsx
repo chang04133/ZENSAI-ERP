@@ -175,7 +175,7 @@ function MonthlyChart({ data }: { data: Array<{ month: string; revenue: number; 
 
 /* ── Rank Bar (평균 매출 기준, 1등 강조 — '미지정' 제외) ── */
 function RankBar({ data, history }: {
-  data: Array<{ label: string; avg: number; total: number; qty: number; count: number }>;
+  data: Array<{ label: string; avg: number; total: number; qty: number; count: number; activeCount: number }>;
   history?: Array<{ year: number; label: string; total_amount: number }>;
 }) {
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
@@ -200,7 +200,9 @@ function RankBar({ data, history }: {
               <span style={{ fontSize: 13, fontWeight: isTop ? 700 : 500 }}>
                 {isTop && <CrownOutlined style={{ color: '#f59e0b', marginRight: 4 }} />}
                 {d.label}
-                <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>{d.count}개 상품</span>
+                <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>
+                  {d.activeCount}종{d.count > d.activeCount && <span style={{ color: '#ccc' }}> ({d.count - d.activeCount}종 일부품절)</span>}
+                </span>
               </span>
               <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
                 평균 {fmtWon(d.avg)}
@@ -574,15 +576,16 @@ export default function SalesDashboardPage() {
       {/* ── 핏별 / 기장별 매출 (아이템 평균) ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={12}>
-          <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 매출 — 아이템 평균 ({periodLabel})</span>}
+          <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 매출 — 스타일 평균 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
             <RankBar
               data={(stats?.byFit || []).map((f: any) => ({
                 label: f.fit,
-                avg: Number(f.avg_per_item),
+                avg: Number(f.avg_per_style || f.avg_per_item || 0),
                 total: Number(f.total_amount),
                 qty: Number(f.total_qty),
                 count: Number(f.product_count),
+                activeCount: Number(f.active_style_count ?? f.product_count),
               }))}
               history={period === 'month' ? (stats?.sameMonthHistory?.byFit || []).map((r: any) => ({
                 year: Number(r.year), label: r.fit, total_amount: Number(r.total_amount),
@@ -591,15 +594,16 @@ export default function SalesDashboardPage() {
           </Card>
         </Col>
         <Col xs={24} md={12}>
-          <Card title={<span><ColumnHeightOutlined style={{ marginRight: 8 }} />기장별 매출 — 아이템 평균 ({periodLabel})</span>}
+          <Card title={<span><ColumnHeightOutlined style={{ marginRight: 8 }} />기장별 매출 — 스타일 평균 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
             <RankBar
               data={(stats?.byLength || []).map((l: any) => ({
                 label: l.length,
-                avg: Number(l.avg_per_item),
+                avg: Number(l.avg_per_style || l.avg_per_item || 0),
                 total: Number(l.total_amount),
                 qty: Number(l.total_qty),
                 count: Number(l.product_count),
+                activeCount: Number(l.active_style_count ?? l.product_count),
               }))}
               history={period === 'month' ? (stats?.sameMonthHistory?.byLength || []).map((r: any) => ({
                 year: Number(r.year), label: r.length, total_amount: Number(r.total_amount),
@@ -646,6 +650,7 @@ export default function SalesDashboardPage() {
                 rowKey="product_code"
                 pagination={false}
                 size="small"
+                scroll={{ x: 800 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>매출 데이터가 없습니다</div>
@@ -662,6 +667,7 @@ export default function SalesDashboardPage() {
             rowKey="partner_code"
             size="small"
             pagination={false}
+            scroll={{ x: 800 }}
             columns={[
               { title: '순위', key: 'rank', width: 50, render: (_: any, __: any, i: number) => {
                 if (i === 0) return <Tag color="gold"><CrownOutlined /> 1</Tag>;

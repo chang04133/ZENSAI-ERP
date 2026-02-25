@@ -176,36 +176,50 @@ export class SalesRepository {
       ORDER BY month`;
     const monthlyTrend = (await this.pool.query(monthlyTrendSql, pcOnlyParams)).rows;
 
-    // 핏별 매출 — 아이템수 대비 평균
+    // 핏별 매출 — 전체재고 보유 스타일 기준 평균 (일부 품절 스타일 제외)
     const byFitSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.fit, '미지정') AS fit,
              COUNT(DISTINCT p.product_code)::int AS product_count,
+             COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             CASE WHEN COUNT(DISTINCT p.product_code) > 0
-               THEN (SUM(s.total_price) / COUNT(DISTINCT p.product_code))::bigint ELSE 0 END AS avg_per_item
+             CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
+               THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY COALESCE(p.fit, '미지정')
-      ORDER BY avg_per_item DESC`;
+      ORDER BY avg_per_style DESC`;
     const byFit = (await this.pool.query(byFitSql, baseParams)).rows;
 
-    // 기장별 매출 — 아이템수 대비 평균
+    // 기장별 매출 — 전체재고 보유 스타일 기준 평균 (일부 품절 스타일 제외)
     const byLengthSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.length, '미지정') AS length,
              COUNT(DISTINCT p.product_code)::int AS product_count,
+             COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             CASE WHEN COUNT(DISTINCT p.product_code) > 0
-               THEN (SUM(s.total_price) / COUNT(DISTINCT p.product_code))::bigint ELSE 0 END AS avg_per_item
+             CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
+               THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY COALESCE(p.length, '미지정')
-      ORDER BY avg_per_item DESC`;
+      ORDER BY avg_per_style DESC`;
     const byLength = (await this.pool.query(byLengthSql, baseParams)).rows;
 
     // 시즌별 매출 빈도 (SA=봄/가을, SM=여름, WN=겨울)
@@ -420,9 +434,16 @@ export class SalesRepository {
       ORDER BY cur_amount DESC`;
     const byCategory = (await this.pool.query(byCategorySql, dateParams)).rows;
 
-    // 2. 핏별 전년대비
+    // 2. 핏별 전년대비 — 전체재고 보유 스타일 기준
     const byFitSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.fit, '미지정') AS fit,
+        COUNT(DISTINCT p.product_code)::int AS product_count,
+        COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
         COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
         COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
         COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
@@ -430,14 +451,22 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY cur_amount DESC`;
     const byFit = (await this.pool.query(byFitSql, dateParams)).rows;
 
-    // 3. 기장별 전년대비
+    // 3. 기장별 전년대비 — 전체재고 보유 스타일 기준
     const byLengthSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.length, '미지정') AS length,
+        COUNT(DISTINCT p.product_code)::int AS product_count,
+        COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
         COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.qty END), 0)::int AS cur_qty,
         COALESCE(SUM(CASE WHEN s.sale_date >= $1::date AND s.sale_date <= $2::date THEN s.total_price END), 0)::bigint AS cur_amount,
         COALESCE(SUM(CASE WHEN s.sale_date >= $3::date AND s.sale_date <= $4::date THEN s.qty END), 0)::int AS prev_qty,
@@ -445,6 +474,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE s.sale_date >= $3::date AND s.sale_date <= $2::date ${pcFilter}
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY cur_amount DESC`;
@@ -677,32 +707,50 @@ export class SalesRepository {
       ORDER BY total_amount DESC`;
     const bySubCategory = (await this.pool.query(subCatSql, params)).rows;
 
-    // 핏별
+    // 핏별 — 전체재고 보유 스타일 기준 평균
     const fitSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.fit, '미지정') AS fit,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             COUNT(DISTINCT p.product_code)::int AS product_count
+             COUNT(DISTINCT p.product_code)::int AS product_count,
+             COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
+             CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
+               THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.fit, '미지정')
-      ORDER BY total_amount DESC`;
+      ORDER BY avg_per_style DESC`;
     const byFit = (await this.pool.query(fitSql, params)).rows;
 
-    // 기장별
+    // 기장별 — 전체재고 보유 스타일 기준 평균
     const lenSql = `
+      WITH full_stock AS (
+        SELECT pv2.product_code FROM product_variants pv2
+        LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
+        GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
+      )
       SELECT COALESCE(p.length, '미지정') AS length,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             COUNT(DISTINCT p.product_code)::int AS product_count
+             COUNT(DISTINCT p.product_code)::int AS product_count,
+             COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
+             CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
+               THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
+      LEFT JOIN full_stock fs ON p.product_code = fs.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
       GROUP BY COALESCE(p.length, '미지정')
-      ORDER BY total_amount DESC`;
+      ORDER BY avg_per_style DESC`;
     const byLength = (await this.pool.query(lenSql, params)).rows;
 
     // 사이즈별

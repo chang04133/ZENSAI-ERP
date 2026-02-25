@@ -80,6 +80,7 @@ export default function ShipmentRequestPage() {
 
   useEffect(() => { load(); }, [page]);
   useEffect(() => { setPage(1); load(1); }, [statusFilter]);
+  useEffect(() => { if (dateRange) { setPage(1); load(1); } }, [dateRange]);
   useEffect(() => {
     (async () => {
       try {

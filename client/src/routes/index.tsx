@@ -28,12 +28,14 @@ const ShipmentRequestPage = lazy(() => import('../pages/shipment/ShipmentRequest
 const ReturnManagePage = lazy(() => import('../pages/shipment/ReturnManagePage'));
 const HorizontalTransferPage = lazy(() => import('../pages/shipment/HorizontalTransferPage'));
 const ShipmentHistoryPage = lazy(() => import('../pages/shipment/ShipmentHistoryPage'));
+const ShipmentViewPage = lazy(() => import('../pages/shipment/ShipmentViewPage'));
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
 const StoreInventoryPage = lazy(() => import('../pages/inventory/StoreInventoryPage'));
 const InventoryAdjustPage = lazy(() => import('../pages/inventory/InventoryAdjustPage'));
 const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
+const WarehouseInventoryPage = lazy(() => import('../pages/inventory/WarehouseInventoryPage'));
 
 // Restock
 const RestockManagePage = lazy(() => import('../pages/restock/RestockManagePage'));
@@ -64,6 +66,7 @@ const BarcodeDashboardPage = lazy(() => import('../pages/barcode/BarcodeDashboar
 const DataUploadPage = lazy(() => import('../pages/system/DataUploadPage'));
 const DeletedDataPage = lazy(() => import('../pages/system/DeletedDataPage'));
 const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage'));
+const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
 
 // ── Route Definition ──
 export interface AppRoute {
@@ -106,11 +109,13 @@ export const appRoutes: AppRoute[] = [
   { path: '/shipment/request', element: <ShipmentRequestPage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ },
+  { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ_STORE },
+  { path: '/shipment/view', element: <ShipmentViewPage />, roles: [ROLES.STORE_MANAGER] },
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
+  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
   { path: '/inventory/adjust', element: <InventoryAdjustPage />, roles: ADMIN_HQ },
   { path: '/inventory/restock', element: <RestockManagePage />, roles: ADMIN_HQ },
@@ -141,6 +146,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/system/settings', element: <SystemSettingsPage />, roles: ADMIN_SYS },
   { path: '/system/data-upload', element: <DataUploadPage />, roles: ADMIN_SYS },
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
+  { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
 ];
 
 export { LoginPage };

@@ -235,7 +235,7 @@ const managerRoles = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANA
 router.post('/batch',
   ...writeRoles,
   asyncHandler(async (req: Request, res: Response) => {
-    const { sale_date, partner_code, items, tax_free } = req.body;
+    const { sale_date, partner_code, items, tax_free, memo } = req.body;
     if (!sale_date || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: 'sale_date, items 필수' });
       return;
@@ -272,9 +272,9 @@ router.post('/batch',
         const total_price = qty * unit_price;
         const itemTaxFree = item.tax_free !== undefined ? !!item.tax_free : globalTaxFree;
         const sale = await client.query(
-          `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree],
+          `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree, memo || null],
         );
         await inventoryRepository.applyChange(
           pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
@@ -340,7 +340,7 @@ router.put('/:id',
   ...managerRoles,
   asyncHandler(async (req: Request, res: Response) => {
     const saleId = Number(req.params.id);
-    const { qty, unit_price, sale_type } = req.body;
+    const { qty, unit_price, sale_type, memo } = req.body;
     if (!qty || !unit_price) {
       res.status(400).json({ success: false, error: 'qty, unit_price 필수' });
       return;
@@ -357,14 +357,27 @@ router.put('/:id',
         return;
       }
       const old = orig.rows[0];
+
+      // 매장 매니저: 하루 지난 매출 수정 불가
+      if (req.user?.role === 'STORE_MANAGER') {
+        const saleDate = new Date(old.sale_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        saleDate.setHours(0, 0, 0, 0);
+        if (saleDate.getTime() < today.getTime()) {
+          await client.query('ROLLBACK');
+          res.status(403).json({ success: false, error: '당일 매출만 수정할 수 있습니다.' });
+          return;
+        }
+      }
       const qtyDiff = old.qty - qty; // 양수면 줄어듬→재고 복원, 음수면 늘어남→재고 차감
       const total_price = qty * unit_price;
 
       // 매출 업데이트
       const updated = await client.query(
-        `UPDATE sales SET qty = $1, unit_price = $2, total_price = $3, sale_type = $4, updated_at = NOW()
-         WHERE sale_id = $5 RETURNING *`,
-        [qty, unit_price, total_price, sale_type || old.sale_type, saleId],
+        `UPDATE sales SET qty = $1, unit_price = $2, total_price = $3, sale_type = $4, memo = $5, updated_at = NOW()
+         WHERE sale_id = $6 RETURNING *`,
+        [qty, unit_price, total_price, sale_type || old.sale_type, memo !== undefined ? (memo || null) : old.memo, saleId],
       );
 
       // 수량 차이만큼 재고 조정
@@ -401,6 +414,19 @@ router.delete('/:id',
       }
       const old = orig.rows[0];
 
+      // 매장 매니저: 하루 지난 매출 삭제 불가
+      if (req.user?.role === 'STORE_MANAGER') {
+        const saleDate = new Date(old.sale_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        saleDate.setHours(0, 0, 0, 0);
+        if (saleDate.getTime() < today.getTime()) {
+          await client.query('ROLLBACK');
+          res.status(403).json({ success: false, error: '당일 매출만 삭제할 수 있습니다.' });
+          return;
+        }
+      }
+
       // 반품 건이 아닌 경우에만 재고 복원
       if (old.sale_type !== '반품') {
         await inventoryRepository.applyChange(
@@ -416,6 +442,51 @@ router.delete('/:id',
       await client.query('DELETE FROM sales WHERE sale_id = $1', [saleId]);
       await client.query('COMMIT');
       res.json({ success: true, data: { sale_id: saleId } });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+// 직접 반품 등록 (원본 매출 없이 - 매장 고객 반품용)
+router.post('/direct-return',
+  ...managerRoles,
+  asyncHandler(async (req: Request, res: Response) => {
+    const { variant_id, qty, unit_price, reason } = req.body;
+    if (!variant_id || !qty || !unit_price) {
+      res.status(400).json({ success: false, error: 'variant_id, qty, unit_price 필수' });
+      return;
+    }
+
+    const role = req.user?.role;
+    const pc = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') ? req.user!.partnerCode : req.body.partner_code;
+    if (!pc) {
+      res.status(400).json({ success: false, error: 'partner_code 필수' });
+      return;
+    }
+
+    const total_price = qty * unit_price;
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const returnSale = await client.query(
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, memo)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6) RETURNING *`,
+        [pc, variant_id, qty, unit_price, -total_price, reason || '매장 고객 반품'],
+      );
+
+      // 재고 복원 (+qty)
+      await inventoryRepository.applyChange(
+        pc, variant_id, qty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json({ success: true, data: returnSale.rows[0] });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -443,6 +514,20 @@ router.post('/:id/return',
         return;
       }
       const old = orig.rows[0];
+
+      // 매장 매니저: 하루 지난 매출 반품 불가
+      if (req.user?.role === 'STORE_MANAGER') {
+        const saleDate = new Date(old.sale_date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        saleDate.setHours(0, 0, 0, 0);
+        if (saleDate.getTime() < today.getTime()) {
+          await client.query('ROLLBACK');
+          res.status(403).json({ success: false, error: '당일 매출만 반품 처리할 수 있습니다.' });
+          return;
+        }
+      }
+
       const returnQty = qty || old.qty;
       if (returnQty > old.qty) {
         await client.query('ROLLBACK');

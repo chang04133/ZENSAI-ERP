@@ -5,6 +5,9 @@ import { QueryBuilder } from '../../core/query-builder';
 import { audit } from '../../core/audit';
 
 export class InventoryRepository extends BaseRepository<Inventory> {
+  private thresholdCache: { low?: number; med?: number; ts: number } = { ts: 0 };
+  private readonly CACHE_TTL = 60_000; // 1분 캐시
+
   constructor() {
     super({
       tableName: 'inventory',
@@ -150,20 +153,34 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     return (await this.pool.query(sql, params)).rows;
   }
 
-  /** 전역 재고부족 임계값 조회 */
+  /** 전역 재고부족 임계값 조회 (1분 캐시) */
   async getLowStockThreshold(): Promise<number> {
+    const now = Date.now();
+    if (this.thresholdCache.low !== undefined && now - this.thresholdCache.ts < this.CACHE_TTL) {
+      return this.thresholdCache.low;
+    }
     const r = await this.pool.query(
       "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'LOW_STOCK_THRESHOLD'",
     );
-    return r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 5 : 5;
+    const val = r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 5 : 5;
+    this.thresholdCache.low = val;
+    this.thresholdCache.ts = now;
+    return val;
   }
 
-  /** 전역 중간재고 임계값 조회 */
+  /** 전역 중간재고 임계값 조회 (1분 캐시) */
   async getMediumStockThreshold(): Promise<number> {
+    const now = Date.now();
+    if (this.thresholdCache.med !== undefined && now - this.thresholdCache.ts < this.CACHE_TTL) {
+      return this.thresholdCache.med;
+    }
     const r = await this.pool.query(
       "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'MEDIUM_STOCK_THRESHOLD'",
     );
-    return r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 10 : 10;
+    const val = r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 10 : 10;
+    this.thresholdCache.med = val;
+    this.thresholdCache.ts = now;
+    return val;
   }
 
   /** 매장별 임계값 조회 (없으면 전역 값 사용) */

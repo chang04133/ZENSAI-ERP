@@ -19,6 +19,23 @@ class InventoryController extends BaseController<Inventory> {
     res.json({ success: true, data: result });
   });
 
+  /** 창고(본사) 재고 조회 — 매장매니저도 읽기 가능 */
+  warehouseList = asyncHandler(async (req: Request, res: Response) => {
+    const pool = getPool();
+    // 본사 파트너코드 조회
+    const hqResult = await pool.query(
+      "SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE LIMIT 1",
+    );
+    if (hqResult.rows.length === 0) {
+      res.json({ success: true, data: { data: [], total: 0, sumQty: 0, page: 1, limit: 50, totalPages: 0 } });
+      return;
+    }
+    const hqCode = hqResult.rows[0].partner_code;
+    const query: any = { ...req.query, partner_code: hqCode };
+    const result = await inventoryService.listWithDetails(query);
+    res.json({ success: true, data: result });
+  });
+
   /** 상품코드 기준 매장별 재고 조회 */
   byProduct = asyncHandler(async (req: Request, res: Response) => {
     const productCode = req.params.code;
@@ -75,6 +92,7 @@ class InventoryController extends BaseController<Inventory> {
     const defaultRecommend = partnerCode ? 3 : 10;
     const urgentThreshold = parseInt(req.query.urgent as string) || defaultUrgent;
     const recommendThreshold = parseInt(req.query.recommend as string) || defaultRecommend;
+    const alertLimit = Math.min(parseInt(req.query.limit as string) || 500, 1000);
 
     const params: any[] = [];
     let paramIdx = 1;
@@ -144,7 +162,7 @@ class InventoryController extends BaseController<Inventory> {
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
         AND iv.total_qty <= $${recIdx}
       ORDER BY iv.total_qty ASC, p.product_name
-      LIMIT 200
+      LIMIT ${alertLimit}
     `;
 
     const result = await pool.query(sql, params);

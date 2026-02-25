@@ -28,6 +28,7 @@ export async function seedDummyData(pool: Pool): Promise<void> {
 async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> }): Promise<void> {
 
   // 기존 데이터 정리 (역순 - FK 제약 고려)
+  await client.query('DELETE FROM general_notifications');
   await client.query('DELETE FROM audit_logs');
   await client.query('DELETE FROM fund_plans');
   await client.query('DELETE FROM production_material_usage');
@@ -571,6 +572,47 @@ async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> 
   }
   console.log(`  재고 데이터 ${inventoryData.length}건 삽입`);
 
+  // ── 인기상품 재고 감소 (판매 반영 → 낮은 재고 → 재입고/재고조정 테스트용) ──
+  // Group A (40-60% 판매): 본사재고 60% 유지, 매장재고 40%로 감소
+  await client.query(`
+    UPDATE inventory SET qty = GREATEST(ROUND(qty * 0.4), 1)
+    WHERE partner_code != 'P001' AND variant_id IN (
+      SELECT variant_id FROM product_variants
+      WHERE product_code IN ('ZS26SS-T001', 'ZS26SS-B001', 'ZS26SA-T004', 'ZS25FW-T001')
+    )
+  `);
+  await client.query(`
+    UPDATE inventory SET qty = GREATEST(ROUND(qty * 0.6), 2)
+    WHERE partner_code = 'P001' AND variant_id IN (
+      SELECT variant_id FROM product_variants
+      WHERE product_code IN ('ZS26SS-T001', 'ZS26SS-B001', 'ZS26SA-T004', 'ZS25FW-T001')
+    )
+  `);
+  // Group B (60-80% 판매): 매장재고 20%, 본사도 적게
+  await client.query(`
+    UPDATE inventory SET qty = GREATEST(ROUND(qty * 0.2), 1)
+    WHERE partner_code != 'P001' AND variant_id IN (
+      SELECT variant_id FROM product_variants
+      WHERE product_code IN ('ZS26SA-T005', 'ZS26SA-A002', 'ZS26SS-D001', 'ZS25SA-T003')
+    )
+  `);
+  await client.query(`
+    UPDATE inventory SET qty = GREATEST(ROUND(qty * 0.3), 1)
+    WHERE partner_code = 'P001' AND variant_id IN (
+      SELECT variant_id FROM product_variants
+      WHERE product_code IN ('ZS26SA-T005', 'ZS26SA-A002', 'ZS26SS-D001', 'ZS25SA-T003')
+    )
+  `);
+  // Group C (80%+ 판매): 재고 거의 소진
+  await client.query(`
+    UPDATE inventory SET qty = CASE WHEN partner_code = 'P001' THEN GREATEST(ROUND(qty * 0.1), 1) ELSE 0 END
+    WHERE variant_id IN (
+      SELECT variant_id FROM product_variants
+      WHERE product_code IN ('ZS26SS-A001', 'ZS26SS-T003')
+    )
+  `);
+  console.log('  인기상품 재고 감소 (40-80%+ 판매 반영)');
+
   // ──────────────── 6. 출고의뢰 데이터 ────────────────
   const shipments: [string, string, string | null, string, string, string | null][] = [
     ['SR260201001', 'P001', 'P002', '출고', 'SHIPPED', '2월 초 강남점 물량'],
@@ -771,6 +813,79 @@ async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> 
     }
   }
 
+  // ── 인기상품 집중판매 (출시일 이후 판매, 높은 판매율 달성) ──
+  const hotLaunchDates: Record<string, string> = {
+    'ZS26SS-T001': '2026-01-10', 'ZS26SS-B001': '2026-01-10', 'ZS26SS-A001': '2026-01-10',
+    'ZS26SA-T004': '2026-02-01', 'ZS26SA-T005': '2026-02-01', 'ZS26SA-A002': '2026-02-01',
+    'ZS26SS-T003': '2026-02-15', 'ZS26SS-D001': '2026-02-15',
+    'ZS25FW-T001': '2025-09-20', 'ZS25SA-T003': '2025-03-01',
+  };
+  const hotSaleDate = (productCode: string) => {
+    const launch = hotLaunchDates[productCode];
+    const launchMs = launch ? new Date(launch).getTime() : new Date('2026-01-01').getTime();
+    const nowMs = new Date('2026-02-23').getTime();
+    const randomMs = launchMs + Math.floor(rand() * (nowMs - launchMs));
+    const d = new Date(randomMs);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  // [SKU, 추가판매횟수] - 각 판매당 qty 2~5 (avg 3.5)
+  // 공급 기준: 인기상품 3매장 * 4~7개/SKU ≈ 16.5/SKU → 12SKU≈198, 9SKU≈149, 4SKU≈66
+  // 날짜가 출시일 이후로 보장되므로 모든 판매가 유효
+  const hotSalesSkus: [string, number][] = [
+    // Group A: 45-55% 목표 (supply~200, target~100, main~5 → entries≈28)
+    ['ZS26SS-T001-BK-M', 6], ['ZS26SS-T001-WH-M', 6], ['ZS26SS-T001-NV-M', 5],
+    ['ZS26SS-T001-BK-L', 4], ['ZS26SS-T001-WH-L', 4], ['ZS26SS-T001-NV-L', 3],
+    ['ZS26SS-B001-BL-M', 6], ['ZS26SS-B001-BK-M', 6], ['ZS26SS-B001-GR-M', 5],
+    ['ZS26SS-B001-BL-L', 4], ['ZS26SS-B001-BK-L', 4], ['ZS26SS-B001-GR-L', 3],
+    ['ZS26SA-T004-BK-M', 6], ['ZS26SA-T004-GR-M', 6], ['ZS26SA-T004-NV-M', 5],
+    ['ZS26SA-T004-BK-L', 4], ['ZS26SA-T004-GR-L', 4], ['ZS26SA-T004-NV-L', 3],
+    // ZS25FW-T001: supply~196, main≈33 → entries≈19
+    ['ZS25FW-T001-BK-M', 4], ['ZS25FW-T001-GR-M', 4], ['ZS25FW-T001-BG-M', 3],
+    ['ZS25FW-T001-BK-L', 3], ['ZS25FW-T001-GR-L', 3], ['ZS25FW-T001-BG-L', 2],
+    // Group B: 65-75% 목표
+    // ZS26SA-T005: supply~197, target~138, main~3 → entries≈39
+    ['ZS26SA-T005-BK-M', 8], ['ZS26SA-T005-WH-M', 8], ['ZS26SA-T005-GR-M', 7],
+    ['ZS26SA-T005-BK-L', 6], ['ZS26SA-T005-WH-L', 5], ['ZS26SA-T005-GR-L', 5],
+    // ZS26SA-A002: supply~71, target~50, main~2 → entries≈14
+    ['ZS26SA-A002-BK-FREE', 4], ['ZS26SA-A002-BG-FREE', 4],
+    ['ZS26SA-A002-NV-FREE', 3], ['ZS26SA-A002-WH-FREE', 3],
+    // ZS26SS-D001: supply~147, target~103, main~3 → entries≈29
+    ['ZS26SS-D001-BL-M', 6], ['ZS26SS-D001-RD-M', 6], ['ZS26SS-D001-BG-M', 5],
+    ['ZS26SS-D001-BL-S', 5], ['ZS26SS-D001-RD-S', 4], ['ZS26SS-D001-BG-S', 3],
+    // ZS25SA-T003: supply~196, main≈80, target~137 → entries≈16
+    ['ZS25SA-T003-WH-M', 4], ['ZS25SA-T003-NV-M', 4], ['ZS25SA-T003-BK-M', 3],
+    ['ZS25SA-T003-WH-L', 3], ['ZS25SA-T003-NV-L', 2],
+    // Group C: 82-90% 목표 (소진 임박)
+    // ZS26SS-A001: supply~58, target~49, main~3 → entries≈13
+    ['ZS26SS-A001-BK-FREE', 4], ['ZS26SS-A001-BG-FREE', 4],
+    ['ZS26SS-A001-RD-FREE', 3], ['ZS26SS-A001-BR-FREE', 2],
+    // ZS26SS-T003: supply~190, target~162, main~3 → entries≈45
+    ['ZS26SS-T003-BG-M', 9], ['ZS26SS-T003-BK-M', 9], ['ZS26SS-T003-WH-M', 8],
+    ['ZS26SS-T003-BG-S', 7], ['ZS26SS-T003-BK-S', 7], ['ZS26SS-T003-WH-S', 5],
+  ];
+
+  for (const [sku, count] of hotSalesSkus) {
+    const vid = skuMap[sku];
+    if (!vid) continue;
+    const productCode = sku.replace(/-[A-Z]{2,3}-[A-Z0-9]+$/, '');
+    const pp = productPrices[productCode];
+    if (!pp) continue;
+
+    for (let h = 0; h < count; h++) {
+      const date = hotSaleDate(productCode);
+      const partner = salesPartners[Math.floor(rand() * salesPartners.length)];
+      const qty = 2 + Math.floor(rand() * 4); // 2~5
+      const st = saleTypes[Math.floor(rand() * saleTypes.length)];
+      const unitPrice = st === '할인' ? pp.discount : st === '행사' ? pp.event : pp.base;
+      salesBatch.push(
+        `('${date}', '${partner}', ${vid}, ${qty}, ${unitPrice}, ${qty * unitPrice}, '${st}')`,
+      );
+      totalSales++;
+    }
+  }
+  console.log(`    (인기상품 집중판매 ${hotSalesSkus.reduce((a, b) => a + b[1], 0)}건 포함)`);
+
   // 배치 INSERT (100건씩)
   for (let i = 0; i < salesBatch.length; i += 100) {
     const batch = salesBatch.slice(i, i + 100);
@@ -780,29 +895,105 @@ async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> 
   }
   console.log(`  판매 데이터 ${totalSales}건 삽입 (2023~2026, 정상/할인/행사 포함)`);
 
-  // ──────────────── 8. 재고 트랜잭션 이력 ────────────────
-  const txSamples: [string, string, string, number, number][] = [
-    ['SHIPMENT', 'P002', 'ZS26SS-T001-BK-M', 15, 12],
-    ['SHIPMENT', 'P003', 'ZS26SS-T001-BK-S', 10, 10],
-    ['SALE', 'P002', 'ZS26SS-T001-BK-M', -3, 9],
-    ['SALE', 'P003', 'ZS26SS-T001-BK-S', -2, 8],
-    ['ADJUST', 'P001', 'ZS26SS-T001-BK-M', -5, 75],
-    ['RETURN', 'P002', 'ZS26SS-T001-WH-M', -2, 8],
-    ['TRANSFER', 'P002', 'ZS26SS-T001-BK-L', -3, 7],
-    ['TRANSFER', 'P003', 'ZS26SS-T001-BK-L', 3, 13],
-  ];
+  // ──────────────── 8. 재고 트랜잭션 이력 (드랍 분석용) ────────────────
+  const addDays = (dateStr: string, days: number): string => {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().split('T')[0];
+  };
 
-  for (const [txType, partner, sku, change, after] of txSamples) {
-    const vid = skuMap[sku];
-    if (vid) {
-      await client.query(
-        `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by)
-         VALUES ($1, $2, $3, $4, $5, 'admin')`,
-        [txType, partner, vid, change, after],
-      );
+  // 드랍별 출시일 (오늘 2026-02-23 기준 경과일 계산)
+  const dropDates: Record<string, string> = {
+    // Drop 1: 2025SA (경과 ~358일 → 7/14/30/60/90 마일스톤 전부)
+    'ZS25SA-T003': '2025-03-01', 'ZS25SA-B002': '2025-03-05', 'ZS25SA-D001': '2025-03-05',
+    // Drop 2: 2025WN (경과 ~155일 → 7/14/30/60/90 마일스톤 전부)
+    'ZS25FW-T001': '2025-09-20', 'ZS25FW-T002': '2025-09-20', 'ZS25FW-O001': '2025-10-01',
+    'ZS25FW-O002': '2025-10-01', 'ZS25WN-O003': '2025-09-20', 'ZS25FW-B001': '2025-10-01',
+    // Drop 3: 2026SA 1차 (경과 ~44일 → 7/14/30일 마일스톤)
+    'ZS26SS-T001': '2026-01-10', 'ZS26SS-T002': '2026-01-10', 'ZS26SS-B001': '2026-01-10',
+    'ZS26SS-B002': '2026-01-10', 'ZS26SS-O002': '2026-01-15', 'ZS26SS-A001': '2026-01-10',
+    // Drop 4: 2026SA 2차 (경과 ~22일 → 7/14일 마일스톤)
+    'ZS26SA-T004': '2026-02-01', 'ZS26SA-T005': '2026-02-01', 'ZS26SA-B004': '2026-02-01',
+    'ZS26SA-A002': '2026-02-01', 'ZS26SA-A003': '2026-02-01',
+    // Drop 5: 2026SM (경과 ~8일 → 7일 마일스톤만)
+    'ZS26SS-T003': '2026-02-15', 'ZS26SS-B003': '2026-02-15', 'ZS26SS-O001': '2026-02-15',
+    'ZS26SS-D001': '2026-02-15', 'ZS26SS-D002': '2026-02-15', 'ZS26SM-D003': '2026-02-15',
+  };
+
+  // products.created_at 업데이트 (드랍 분석 fallback용)
+  for (const [pc, dd] of Object.entries(dropDates)) {
+    await client.query(
+      `UPDATE products SET created_at = $1::timestamp WHERE product_code = $2`,
+      [dd + ' 09:00:00', pc],
+    );
+  }
+  console.log('  상품 출시일(created_at) 드랍 기준 업데이트');
+
+  // 트랜잭션 배치 생성
+  const txStores = ['P002', 'P003', 'P004', 'P005'];
+  const txBatch: string[] = [];
+  let txCount = 0;
+
+  // 인기상품 = 초도 물량 적게 → 높은 판매율 → 재입고 필요 상태
+  const hotSellerProducts = new Set([
+    'ZS26SS-T001', 'ZS26SS-B001', 'ZS26SA-T004', 'ZS25FW-T001',  // 목표 40-60%
+    'ZS26SA-T005', 'ZS26SA-A002', 'ZS26SS-D001', 'ZS25SA-T003',  // 목표 60-80%
+    'ZS26SS-A001', 'ZS26SS-T003',  // 목표 80%+ (소진 임박)
+  ]);
+
+  // 모든 SKU에 대해 초도 SHIPMENT 생성 (매장 배송)
+  for (const [sku, vid] of Object.entries(skuMap)) {
+    const pc = sku.replace(/-[A-Z]{2,3}-[A-Z0-9]+$/, '');
+    const dd = dropDates[pc];
+    if (!dd) continue;
+
+    const isHot = hotSellerProducts.has(pc);
+    // 인기상품: 3매장 적당량 / 일반: 2~4매장 다량
+    const nStores = isHot ? 3 : (2 + Math.floor(rand() * 3));
+    for (let s = 0; s < nStores && s < txStores.length; s++) {
+      const sq = isHot ? (4 + Math.floor(rand() * 4)) : (5 + Math.floor(rand() * 15));
+      txBatch.push(`('SHIPMENT', '${txStores[s]}', ${vid}, ${sq}, ${sq}, 'admin', '${dd} 10:00:00')`);
+      txCount++;
     }
   }
-  console.log(`  재고 트랜잭션 ${txSamples.length}건 삽입`);
+
+  // 일반상품만 RESTOCK (인기상품은 재입고 안 된 상태로 유지 → 재입고관리에서 처리)
+  const restockList = [
+    'ZS26SS-B002-BK-M', 'ZS26SS-O002-BG-M',
+    'ZS25FW-T002-BK-M', 'ZS25FW-O001-BK-M', 'ZS25FW-O002-BK-M',
+    'ZS25WN-O003-BK-M', 'ZS25SA-B002-BG-M', 'ZS25SA-D001-BL-M',
+  ];
+  for (const sku of restockList) {
+    const vid = skuMap[sku];
+    if (!vid) continue;
+    const pc = sku.replace(/-[A-Z]{2,3}-[A-Z0-9]+$/, '');
+    const dd = dropDates[pc];
+    if (!dd) continue;
+
+    const rDate = addDays(dd, 14 + Math.floor(rand() * 14));
+    if (rDate > '2026-02-23') continue;
+
+    const rQty = 20 + Math.floor(rand() * 30);
+    txBatch.push(`('RESTOCK', 'P001', ${vid}, ${rQty}, ${rQty + 50}, 'admin', '${rDate} 09:00:00')`);
+    txCount++;
+
+    // 리스톡 후 매장 추가 출고
+    for (let s = 0; s < 2; s++) {
+      const sq2 = 3 + Math.floor(rand() * 6);
+      txBatch.push(`('SHIPMENT', '${txStores[s]}', ${vid}, ${sq2}, ${sq2 + 5}, 'admin', '${rDate} 14:00:00')`);
+      txCount++;
+    }
+  }
+
+  // 배치 INSERT (100건씩)
+  for (let i = 0; i < txBatch.length; i += 100) {
+    const batch = txBatch.slice(i, i + 100);
+    await client.query(
+      `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by, created_at)
+       VALUES ${batch.join(',\n')}`,
+    );
+  }
+  console.log(`  재고 트랜잭션 ${txCount}건 삽입 (SHIPMENT/RESTOCK + 드랍별 날짜)`);
 
   // ──────────────── 9. 감사 로그 ────────────────
   await client.query(`

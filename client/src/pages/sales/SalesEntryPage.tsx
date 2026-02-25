@@ -33,13 +33,13 @@ interface SaleItem {
   tax_free: boolean;
 }
 
-let itemKey = 0;
-const newItem = (): SaleItem => ({ key: ++itemKey, sale_type: '정상', qty: 1, unit_price: 0, tax_free: false });
-
 export default function SalesEntryPage() {
+  const itemKeyRef = useRef(0);
+  const newItem = (): SaleItem => ({ key: ++itemKeyRef.current, sale_type: '정상', qty: 1, unit_price: 0, tax_free: false });
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const isManager = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER || user?.role === ROLES.STORE_MANAGER;
+  const isStoreManager = user?.role === ROLES.STORE_MANAGER;
 
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -59,6 +59,7 @@ export default function SalesEntryPage() {
   const [saleDate, setSaleDate] = useState(dayjs());
   const [partnerCode, setPartnerCode] = useState<string | undefined>();
   const [items, setItems] = useState<SaleItem[]>([newItem()]);
+  const [memo, setMemo] = useState('');
 
   // 택스프리 (전체 토글용)
   const allTaxFree = items.length > 0 && items.every(i => i.tax_free);
@@ -89,14 +90,26 @@ export default function SalesEntryPage() {
   const [editQty, setEditQty] = useState(1);
   const [editUnitPrice, setEditUnitPrice] = useState(0);
   const [editSaleType, setEditSaleType] = useState('정상');
+  const [editMemo, setEditMemo] = useState('');
   const [editSubmitting, setEditSubmitting] = useState(false);
 
-  // 반품 모달 상태
+  // 반품 모달 상태 (원본 매출 기반)
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [returnRecord, setReturnRecord] = useState<any>(null);
   const [returnQty, setReturnQty] = useState(1);
   const [returnReason, setReturnReason] = useState('');
   const [returnSubmitting, setReturnSubmitting] = useState(false);
+
+  // 직접 반품 모달 상태 (매장 고객 반품용)
+  const [directReturnOpen, setDirectReturnOpen] = useState(false);
+  const [directReturnProduct, setDirectReturnProduct] = useState<any>(null);
+  const [directReturnQty, setDirectReturnQty] = useState(1);
+  const [directReturnReason, setDirectReturnReason] = useState('');
+  const [directReturnSubmitting, setDirectReturnSubmitting] = useState(false);
+  const [directReturnBarcode, setDirectReturnBarcode] = useState('');
+  const [directReturnScanning, setDirectReturnScanning] = useState(false);
+  const [directReturnSearchResults, setDirectReturnSearchResults] = useState<any[]>([]);
+  const directReturnBarcodeRef = useRef<InputRef>(null);
 
   const load = async (p?: number) => {
     const currentPage = p ?? page;
@@ -188,7 +201,7 @@ export default function SalesEntryPage() {
         const basePrice = product.base_price || 0;
         const price = allTaxFree ? Math.round(basePrice / 1.1) : basePrice;
         const item: SaleItem = {
-          key: ++itemKey,
+          key: ++itemKeyRef.current,
           variant_id: product.variant_id,
           variantLabel: `${product.sku} - ${product.product_name} (${product.color}/${product.size})`,
           sale_type: '정상',
@@ -233,6 +246,7 @@ export default function SalesEntryPage() {
       await salesApi.createBatch({
         sale_date: saleDate.format('YYYY-MM-DD'),
         partner_code: isStore ? undefined : partnerCode,
+        memo: memo.trim() || undefined,
         items: validItems.map(i => ({
           variant_id: i.variant_id,
           qty: i.qty,
@@ -249,10 +263,11 @@ export default function SalesEntryPage() {
   };
 
   const openModal = () => {
-    itemKey = 0;
+    itemKeyRef.current = 0;
     setSaleDate(dayjs());
     setPartnerCode(undefined);
     setItems([newItem()]);
+    setMemo('');
     setVariantSearchMap({});
     setEntryMode('manual');
     setBarcodeInput('');
@@ -265,6 +280,7 @@ export default function SalesEntryPage() {
     setEditQty(Number(record.qty));
     setEditUnitPrice(Number(record.unit_price));
     setEditSaleType(record.sale_type || '정상');
+    setEditMemo(record.memo || '');
     setEditModalOpen(true);
   };
 
@@ -273,7 +289,7 @@ export default function SalesEntryPage() {
     if (!editRecord) return;
     setEditSubmitting(true);
     try {
-      await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType });
+      await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType, memo: editMemo.trim() || undefined });
       message.success('매출이 수정되었습니다.');
       setEditModalOpen(false);
       load();
@@ -319,6 +335,65 @@ export default function SalesEntryPage() {
       load();
     } catch (e: any) { message.error(e.message); }
     finally { setReturnSubmitting(false); }
+  };
+
+  // 직접 반품 모달 열기
+  const openDirectReturn = () => {
+    setDirectReturnProduct(null);
+    setDirectReturnQty(1);
+    setDirectReturnReason('');
+    setDirectReturnBarcode('');
+    setDirectReturnSearchResults([]);
+    setDirectReturnOpen(true);
+    setTimeout(() => directReturnBarcodeRef.current?.focus(), 100);
+  };
+
+  // 직접 반품 바코드 스캔
+  const handleDirectReturnScan = async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setDirectReturnScanning(true);
+    try {
+      const product = await salesApi.scanProduct(trimmed);
+      setDirectReturnProduct(product);
+      setDirectReturnQty(1);
+      message.success(`${product.sku} - ${product.product_name} 선택됨`);
+    } catch {
+      message.error('상품을 찾을 수 없습니다');
+    } finally {
+      setDirectReturnBarcode('');
+      setDirectReturnScanning(false);
+      setTimeout(() => directReturnBarcodeRef.current?.focus(), 50);
+    }
+  };
+
+  // 직접 반품 수동 검색
+  const handleDirectReturnSearch = async (value: string) => {
+    if (value.length >= 2) {
+      try {
+        const results = await productApi.searchVariants(value);
+        setDirectReturnSearchResults(results);
+      } catch (e: any) { message.error('검색 실패: ' + e.message); }
+    }
+  };
+
+  // 직접 반품 저장
+  const handleDirectReturnSubmit = async () => {
+    if (!directReturnProduct) { message.error('반품할 상품을 선택해주세요'); return; }
+    if (directReturnQty <= 0) { message.error('반품 수량을 입력해주세요'); return; }
+    setDirectReturnSubmitting(true);
+    try {
+      await salesApi.createDirectReturn({
+        variant_id: directReturnProduct.variant_id,
+        qty: directReturnQty,
+        unit_price: directReturnProduct.base_price || 0,
+        reason: directReturnReason || undefined,
+      });
+      message.success(`${directReturnQty}개 반품이 등록되었습니다.`);
+      setDirectReturnOpen(false);
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setDirectReturnSubmitting(false); }
   };
 
   const handleExcelUpload = async (file: File) => {
@@ -373,6 +448,9 @@ export default function SalesEntryPage() {
     { title: '면세', dataIndex: 'tax_free', key: 'tax_free', width: 50,
       render: (v: boolean) => v ? <span style={{ color: '#389e0d', fontSize: 12 }}>면세</span> : null,
     },
+    { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, ellipsis: true,
+      render: (v: string | null) => v ? <span style={{ fontSize: 12, color: '#888' }}>{v}</span> : null,
+    },
     { title: '수량', dataIndex: 'qty', key: 'qty', width: 70, render: (v: number) => Number(v).toLocaleString() },
     { title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 100, render: (v: number) => Number(v).toLocaleString() },
     { title: '합계', dataIndex: 'total_price', key: 'total_price', width: 120,
@@ -380,15 +458,21 @@ export default function SalesEntryPage() {
     },
     ...(isManager ? [{
       title: '관리', key: 'actions', width: 130, fixed: 'right' as const,
-      render: (_: any, record: any) => record.sale_type === '반품' ? (
-        <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>삭제</Button>
-      ) : (
-        <Space size={4}>
-          <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} />
-          <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: '#722ed1' }} />
-          <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
-        </Space>
-      ),
+      render: (_: any, record: any) => {
+        // 매장 매니저: 하루 지난 매출은 수정/삭제/반품 불가
+        const isExpired = isStoreManager && record.sale_date &&
+          dayjs(record.sale_date).startOf('day').isBefore(dayjs().startOf('day'));
+        if (record.sale_type === '반품') {
+          return <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} disabled={isExpired}>{isExpired ? '기간만료' : '삭제'}</Button>;
+        }
+        return (
+          <Space size={4}>
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={isExpired} />
+            <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: isExpired ? undefined : '#722ed1' }} disabled={isExpired} />
+            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} disabled={isExpired} />
+          </Space>
+        );
+      },
     }] : []),
   ];
 
@@ -523,6 +607,9 @@ export default function SalesEntryPage() {
       <PageHeader title="매출등록" extra={
         <Space>
           <Button icon={<UploadOutlined />} onClick={() => { setUploadResult(null); setUploadModalOpen(true); }}>엑셀 업로드</Button>
+          {isManager && (
+            <Button icon={<RollbackOutlined />} onClick={openDirectReturn} style={{ color: '#722ed1', borderColor: '#722ed1' }}>반품 등록</Button>
+          )}
           <Button type="primary" icon={<PlusOutlined />} onClick={openModal}>매출 등록</Button>
         </Space>
       } />
@@ -549,6 +636,10 @@ export default function SalesEntryPage() {
           <div>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
             <Switch checked={allTaxFree} onChange={handleToggleAllTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
+          </div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>메모</div>
+            <Input placeholder="택스프리, 현금결제 등" value={memo} onChange={(e) => setMemo(e.target.value)} allowClear />
           </div>
         </Space>
 
@@ -645,6 +736,10 @@ export default function SalesEntryPage() {
                   onChange={(v) => setEditUnitPrice(v || 0)} />
               </div>
             </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>메모</div>
+              <Input placeholder="택스프리, 현금결제 등" value={editMemo} onChange={(e) => setEditMemo(e.target.value)} allowClear />
+            </div>
             <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600 }}>
               합계: {(editQty * editUnitPrice).toLocaleString()}원
             </div>
@@ -683,6 +778,89 @@ export default function SalesEntryPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 직접 반품 등록 모달 */}
+      <Modal
+        title="반품 등록 (고객 반품)"
+        open={directReturnOpen}
+        onCancel={() => setDirectReturnOpen(false)}
+        onOk={handleDirectReturnSubmit}
+        confirmLoading={directReturnSubmitting}
+        okText="반품 등록"
+        cancelText="취소"
+        width={520}
+        okButtonProps={{ danger: true, disabled: !directReturnProduct }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Alert type="info" message="바코드 스캔 또는 상품 검색으로 반품할 상품을 선택하세요" showIcon style={{ marginBottom: 0 }} />
+
+          <Input
+            ref={directReturnBarcodeRef}
+            placeholder="바코드/SKU 스캔 또는 입력 후 Enter"
+            prefix={<BarcodeOutlined />}
+            value={directReturnBarcode}
+            onChange={(e) => setDirectReturnBarcode(e.target.value)}
+            onPressEnter={() => handleDirectReturnScan(directReturnBarcode)}
+            disabled={directReturnScanning}
+            allowClear
+            size="large"
+          />
+
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>또는 상품 검색</div>
+            <Select
+              showSearch
+              placeholder="SKU/상품명 검색 (2자 이상)"
+              filterOption={false}
+              style={{ width: '100%' }}
+              value={directReturnProduct?.variant_id}
+              onSearch={handleDirectReturnSearch}
+              onChange={(v) => {
+                const found = directReturnSearchResults.find((r: any) => r.variant_id === v);
+                if (found) {
+                  setDirectReturnProduct(found);
+                  setDirectReturnQty(1);
+                }
+              }}
+              notFoundContent="2자 이상 입력"
+            >
+              {directReturnSearchResults.map((v: any) => (
+                <Select.Option key={v.variant_id} value={v.variant_id}>
+                  {v.sku} - {v.product_name} ({v.color}/{v.size})
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+
+          {directReturnProduct && (
+            <>
+              <div style={{ background: '#f9f0ff', padding: 12, borderRadius: 6, border: '1px solid #d3adf7' }}>
+                <div style={{ fontWeight: 600 }}>{directReturnProduct.product_name}</div>
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  {directReturnProduct.sku} ({directReturnProduct.color}/{directReturnProduct.size})
+                </div>
+                <div style={{ fontSize: 12, color: '#666' }}>
+                  정가: {Number(directReturnProduct.base_price || 0).toLocaleString()}원
+                  {directReturnProduct.current_stock !== undefined && ` | 현재 재고: ${directReturnProduct.current_stock}개`}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 수량</div>
+                <InputNumber min={1} value={directReturnQty} style={{ width: '100%' }}
+                  onChange={(v) => setDirectReturnQty(v || 1)} />
+              </div>
+              <div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유</div>
+                <Input.TextArea rows={2} value={directReturnReason} onChange={(e) => setDirectReturnReason(e.target.value)}
+                  placeholder="불량, 사이즈 교환, 고객 변심 등" />
+              </div>
+              <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600, color: '#cf1322' }}>
+                반품 금액: -{(directReturnQty * Number(directReturnProduct.base_price || 0)).toLocaleString()}원
+              </div>
+            </>
+          )}
+        </div>
       </Modal>
 
       {/* 엑셀 업로드 모달 */}

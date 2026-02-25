@@ -102,13 +102,17 @@ export default function InventoryStatusPage() {
   const [searchResult, setSearchResult] = useState<any>(null);
   const [searchLoading, setSearchLoading] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const abortRef = useRef<AbortController | null>(null);
 
   // 매장용 재고 요청
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, []);
 
   const onSearchChange = (value: string) => {
@@ -182,7 +186,7 @@ export default function InventoryStatusPage() {
     }
   }, [effectiveStore, loadMyPendingRequests]);
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); }, [loadAll]);
 
   const handleStockRequest = async (item: any) => {
     const key = `${item.variant_id}`;
@@ -413,7 +417,7 @@ export default function InventoryStatusPage() {
             <Table
               dataSource={searchResult.variants}
               rowKey="variant_id"
-              pagination={false}
+              pagination={{ pageSize: 20, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
               size="small"
               columns={[
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },

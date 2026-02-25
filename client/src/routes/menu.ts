@@ -28,6 +28,7 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/my-store', label: '내 매장 재고', icon: 'ShopOutlined', roles: [ROLES.STORE_MANAGER] },
+      { key: '/inventory/warehouse', label: '창고 재고', icon: 'HomeOutlined', roles: [ROLES.STORE_MANAGER] },
       { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
       { key: '/inventory/restock', label: '재입고 관리', icon: 'PlusSquareOutlined', roles: ADMIN_HQ },
@@ -40,7 +41,8 @@ export const menuItems: MenuItem[] = [
       { key: '/shipment/request', label: '출고의뢰', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ },
+      { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: [ROLES.STORE_MANAGER] },
+      { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
   {
@@ -72,6 +74,7 @@ export const menuItems: MenuItem[] = [
       { key: '/system/settings', label: '시스템 설정', icon: 'SettingOutlined', roles: ADMIN_SYS },
       { key: '/system/data-upload', label: '데이터 올리기', icon: 'UploadOutlined', roles: ADMIN_SYS },
       { key: '/system/deleted-data', label: '삭제데이터 조회', icon: 'DeleteOutlined', roles: ADMIN_SYS },
+      { key: '/system/overview', label: '시스템 현황', icon: 'FileTextOutlined', roles: ADMIN_SYS },
     ],
   },
 ];

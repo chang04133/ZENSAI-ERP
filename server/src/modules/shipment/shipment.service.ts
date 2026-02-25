@@ -17,6 +17,14 @@ class ShipmentService extends BaseService<ShipmentRequest> {
     return shipmentRepository.createWithItems(headerData, items);
   }
 
+  /** 허용되는 상태 전환 정의 */
+  private static ALLOWED_TRANSITIONS: Record<string, string[]> = {
+    PENDING: ['SHIPPED', 'CANCELLED'],
+    SHIPPED: ['RECEIVED', 'CANCELLED'],
+    RECEIVED: ['CANCELLED'],
+    CANCELLED: [],
+  };
+
   /** 상태 변경 시 재고 자동 연동 */
   async updateWithInventory(id: number, data: Record<string, any>, userId: string): Promise<ShipmentRequest | null> {
     const pool = getPool();
@@ -31,6 +39,14 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       const current = currentResult.rows[0];
       const oldStatus = current.status;
       const newStatus = data.status || oldStatus;
+
+      // 상태 전환 검증
+      if (oldStatus !== newStatus) {
+        const allowed = ShipmentService.ALLOWED_TRANSITIONS[oldStatus] || [];
+        if (!allowed.includes(newStatus)) {
+          throw new Error(`상태를 ${oldStatus}에서 ${newStatus}(으)로 변경할 수 없습니다.`);
+        }
+      }
 
       const approvedBy = data.approved_by;
 

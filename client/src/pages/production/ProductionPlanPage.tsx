@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, Collapse, Divider, message, Typography } from 'antd';
 import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
@@ -38,10 +38,9 @@ interface CategoryGroup {
   items: SubItem[];
 }
 
-let keySeq = 0;
-const newSubItem = (): SubItem => ({ key: ++keySeq, sub_category: null, fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null });
-
 export default function ProductionPlanPage() {
+  const keySeqRef = useRef(0);
+  const newSubItem = (): SubItem => ({ key: ++keySeqRef.current, sub_category: null, fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null });
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -111,7 +110,7 @@ export default function ProductionPlanPage() {
 
   // --- 카테고리 그룹 조작 ---
   const addCategoryGroup = () => {
-    setCatGroups(prev => [...prev, { key: ++keySeq, category: '', items: [newSubItem()] }]);
+    setCatGroups(prev => [...prev, { key: ++keySeqRef.current, category: '', items: [newSubItem()] }]);
   };
 
   const removeCategoryGroup = (gKey: number) => {
@@ -146,9 +145,9 @@ export default function ProductionPlanPage() {
   const grandTotalCost = catGroups.reduce((sum, g) => sum + g.items.reduce((s, i) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0), 0);
 
   const openCreateModal = () => {
-    keySeq = 0;
+    keySeqRef.current = 0;
     form.resetFields();
-    setCatGroups([{ key: ++keySeq, category: '', items: [newSubItem()] }]);
+    setCatGroups([{ key: ++keySeqRef.current, category: '', items: [newSubItem()] }]);
     setCreateOpen(true);
   };
 
@@ -270,7 +269,7 @@ export default function ProductionPlanPage() {
         </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
-          size="small" scroll={{ x: 1200, y: 'calc(100vh - 240px)' }}
+          size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
           pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
       </Card>
 

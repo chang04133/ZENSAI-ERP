@@ -155,8 +155,10 @@ function PeriodTab() {
 
   const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
   const maxCatAmt = Math.max(1, ...byCategory.map((c: any) => Number(c.total_amount)));
-  const maxFitAmt = Math.max(1, ...byFit.map((f: any) => Number(f.total_amount)));
-  const maxLenAmt = Math.max(1, ...byLength.map((l: any) => Number(l.total_amount)));
+  const fitAvgPerStyle = (r: any) => { const ac = Number(r.active_style_count ?? r.product_count); return ac > 0 ? Number(r.total_amount) / ac : 0; };
+  const lenAvgPerStyle = (r: any) => { const ac = Number(r.active_style_count ?? r.product_count); return ac > 0 ? Number(r.total_amount) / ac : 0; };
+  const maxFitAmt = Math.max(1, ...byFit.map(fitAvgPerStyle));
+  const maxLenAmt = Math.max(1, ...byLength.map(lenAvgPerStyle));
   const totalSizeQty = bySize.reduce((s: number, r: any) => s + Number(r.total_qty), 0);
   const totalColorQty = byColor.reduce((s: number, r: any) => s + Number(r.total_qty), 0);
   const grandSeasonAmt = bySeason.reduce((s: number, r: any) => s + Number(r.total_amount), 0);
@@ -247,21 +249,31 @@ function PeriodTab() {
           {/* 핏별 + 기장별 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24} md={12}>
-              <Card size="small" title={<><SkinOutlined style={{ marginRight: 6 }} />핏별 매출</>} style={{ height: '100%' }}>
-                {byFit.length > 0 ? byFit.map((f: any, i: number) => (
-                  <StyleBar key={f.fit} label={f.fit} value={Number(f.total_amount)}
-                    maxValue={maxFitAmt} color={COLORS[i % COLORS.length]}
-                    sub={`${fmt(Number(f.total_qty))}개 / ${f.product_count}종`} />
-                )) : <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>}
+              <Card size="small" title={<><SkinOutlined style={{ marginRight: 6 }} />핏별 매출 — 스타일 평균</>} style={{ height: '100%' }}>
+                {byFit.length > 0 ? byFit.map((f: any, i: number) => {
+                  const ac = Number(f.active_style_count ?? f.product_count);
+                  const pc = Number(f.product_count);
+                  const avg = fitAvgPerStyle(f);
+                  return (
+                    <StyleBar key={f.fit} label={f.fit} value={avg}
+                      maxValue={maxFitAmt} color={COLORS[i % COLORS.length]}
+                      sub={`${fmt(Number(f.total_qty))}개 / ${ac}종${pc > ac ? ` (${pc - ac}종 일부품절)` : ''} / 평균 ${fmtW(avg)}`} />
+                  );
+                }) : <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>}
               </Card>
             </Col>
             <Col xs={24} md={12}>
-              <Card size="small" title={<><ColumnHeightOutlined style={{ marginRight: 6 }} />기장별 매출</>} style={{ height: '100%' }}>
-                {byLength.length > 0 ? byLength.map((l: any, i: number) => (
-                  <StyleBar key={l.length} label={l.length} value={Number(l.total_amount)}
-                    maxValue={maxLenAmt} color={COLORS[(i + 3) % COLORS.length]}
-                    sub={`${fmt(Number(l.total_qty))}개 / ${l.product_count}종`} />
-                )) : <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>}
+              <Card size="small" title={<><ColumnHeightOutlined style={{ marginRight: 6 }} />기장별 매출 — 스타일 평균</>} style={{ height: '100%' }}>
+                {byLength.length > 0 ? byLength.map((l: any, i: number) => {
+                  const ac = Number(l.active_style_count ?? l.product_count);
+                  const pc = Number(l.product_count);
+                  const avg = lenAvgPerStyle(l);
+                  return (
+                    <StyleBar key={l.length} label={l.length} value={avg}
+                      maxValue={maxLenAmt} color={COLORS[(i + 3) % COLORS.length]}
+                      sub={`${fmt(Number(l.total_qty))}개 / ${ac}종${pc > ac ? ` (${pc - ac}종 일부품절)` : ''} / 평균 ${fmtW(avg)}`} />
+                  );
+                }) : <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>}
               </Card>
             </Col>
           </Row>
@@ -608,7 +620,7 @@ function YoYTab() {
                     ]}
                     dataSource={data?.bySubCategory || []}
                     rowKey={(r) => `${r.category}-${r.sub_category}`}
-                    pagination={false} size="small" scroll={{ y: 400 }}
+                    pagination={false} size="small" scroll={{ x: 500, y: 400 }}
                   />
                 </Card>
               </Col>
@@ -621,25 +633,29 @@ function YoYTab() {
           children: (
             <Row gutter={[16, 16]}>
               <Col xs={24} md={8}>
-                <Card size="small" title="핏별 전년대비">
+                <Card size="small" title="핏별 전년대비 — 스타일 평균">
                   <Table columns={[
-                    { title: '핏', dataIndex: 'fit', key: 'fit', width: 90 },
+                    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70 },
+                    { title: '스타일', key: 'sc', width: 55, align: 'center' as const,
+                      render: (_: any, r: any) => { const ac = Number(r.active_style_count ?? r.product_count); const pc = Number(r.product_count); return <>{ac}종{pc > ac && <span style={{ color: '#ccc', fontSize: 10 }}> (-{pc - ac})</span>}</>; } },
                     { title: `${year}`, key: 'cur', width: 100, align: 'right' as const,
                       render: (_: any, r: any) => <><div style={{ fontWeight: 600 }}>{fmtW(Number(r.cur_amount))}</div><div style={{ fontSize: 10, color: '#999' }}>{fmt(Number(r.cur_qty))}개</div></> },
                     { title: '증감', key: 'g', width: 80, align: 'center' as const,
                       render: (_: any, r: any) => growthTag(Number(r.cur_amount), Number(r.prev_amount)) },
-                  ]} dataSource={data?.byFit || []} rowKey="fit" pagination={false} size="small" />
+                  ]} dataSource={data?.byFit || []} rowKey="fit" pagination={false} size="small" scroll={{ x: 400 }} />
                 </Card>
               </Col>
               <Col xs={24} md={8}>
-                <Card size="small" title={<><ColumnHeightOutlined /> 기장별 전년대비</>}>
+                <Card size="small" title={<><ColumnHeightOutlined /> 기장별 전년대비 — 스타일 평균</>}>
                   <Table columns={[
-                    { title: '기장', dataIndex: 'length', key: 'len', width: 80 },
+                    { title: '기장', dataIndex: 'length', key: 'len', width: 60 },
+                    { title: '스타일', key: 'sc', width: 55, align: 'center' as const,
+                      render: (_: any, r: any) => { const ac = Number(r.active_style_count ?? r.product_count); const pc = Number(r.product_count); return <>{ac}종{pc > ac && <span style={{ color: '#ccc', fontSize: 10 }}> (-{pc - ac})</span>}</>; } },
                     { title: `${year}`, key: 'cur', width: 100, align: 'right' as const,
                       render: (_: any, r: any) => <><div style={{ fontWeight: 600 }}>{fmtW(Number(r.cur_amount))}</div><div style={{ fontSize: 10, color: '#999' }}>{fmt(Number(r.cur_qty))}개</div></> },
                     { title: '증감', key: 'g', width: 80, align: 'center' as const,
                       render: (_: any, r: any) => growthTag(Number(r.cur_amount), Number(r.prev_amount)) },
-                  ]} dataSource={data?.byLength || []} rowKey="length" pagination={false} size="small" />
+                  ]} dataSource={data?.byLength || []} rowKey="length" pagination={false} size="small" scroll={{ x: 400 }} />
                 </Card>
               </Col>
               <Col xs={24} md={8}>
@@ -650,7 +666,7 @@ function YoYTab() {
                       render: (_: any, r: any) => <><div style={{ fontWeight: 600 }}>{fmtW(Number(r.cur_amount))}</div><div style={{ fontSize: 10, color: '#999' }}>{fmt(Number(r.cur_qty))}개</div></> },
                     { title: '증감', key: 'g', width: 80, align: 'center' as const,
                       render: (_: any, r: any) => growthTag(Number(r.cur_amount), Number(r.prev_amount)) },
-                  ]} dataSource={data?.bySeason || []} rowKey="season_type" pagination={false} size="small" />
+                  ]} dataSource={data?.bySeason || []} rowKey="season_type" pagination={false} size="small" scroll={{ x: 350 }} />
                 </Card>
               </Col>
             </Row>
@@ -675,7 +691,7 @@ function YoYTab() {
                   ]}
                   dataSource={(data?.productGrowth || []).filter((r: any) => Number(r.cur_amount) > Number(r.prev_amount))
                     .sort((a: any, b: any) => Number(b.cur_amount) - Number(b.prev_amount) - (Number(a.cur_amount) - Number(a.prev_amount))).slice(0, 15)}
-                  rowKey="product_code" pagination={false} size="small" />
+                  rowKey="product_code" pagination={false} size="small" scroll={{ x: 500 }} />
                 </Card>
               </Col>
               <Col xs={24} lg={12}>
@@ -692,7 +708,7 @@ function YoYTab() {
                   ]}
                   dataSource={(data?.productGrowth || []).filter((r: any) => Number(r.prev_amount) > 0 && Number(r.cur_amount) < Number(r.prev_amount))
                     .sort((a: any, b: any) => (Number(a.cur_amount) - Number(a.prev_amount)) - (Number(b.cur_amount) - Number(b.prev_amount))).slice(0, 15)}
-                  rowKey="product_code" pagination={false} size="small" />
+                  rowKey="product_code" pagination={false} size="small" scroll={{ x: 500 }} />
                 </Card>
               </Col>
               <Col xs={24}>

@@ -71,8 +71,13 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
       }
       await client.query('COMMIT');
       return this.getWithItems(requestId);
-    } catch (e) {
+    } catch (e: any) {
       await client.query('ROLLBACK');
+      if (e.code === '23503') {
+        if (e.constraint?.includes('variant')) throw new Error('존재하지 않는 상품(variant_id)이 포함되어 있습니다.');
+        if (e.constraint?.includes('partner')) throw new Error('존재하지 않는 거래처 코드입니다.');
+        throw new Error('참조 데이터가 존재하지 않습니다.');
+      }
       throw e;
     } finally {
       client.release();

@@ -215,7 +215,7 @@ export default function ProductDetailPage() {
           dataSource={product.variants}
           rowKey="variant_id"
           pagination={false}
-          scroll={{ x: 1000 }}
+          scroll={{ x: 1100 }}
           summary={() => (
             <Table.Summary.Row>
               <Table.Summary.Cell index={0} colSpan={6} align="right"><strong>총 재고합계</strong></Table.Summary.Cell>
@@ -239,6 +239,7 @@ export default function ProductDetailPage() {
                 rowKey="sale_id"
                 size="small"
                 loading={salesLoading}
+                scroll={{ x: 800 }}
                 pagination={{ pageSize: 10, showTotal: (t) => `총 ${t}건` }}
                 columns={[
                   { title: '판매일', dataIndex: 'sale_date', key: 'sale_date', width: 100, render: (v: string) => dayjs(v).format('YYYY-MM-DD') },
@@ -258,7 +259,7 @@ export default function ProductDetailPage() {
       </Card>
 
       {/* 변형 추가 모달 */}
-      <Modal title="변형 추가" open={addModalOpen} onCancel={() => setAddModalOpen(false)} onOk={() => addForm.submit()} okText="추가" cancelText="취소">
+      <Modal title="변형 추가" open={addModalOpen} onCancel={() => { setAddModalOpen(false); addForm.resetFields(); }} onOk={() => addForm.submit()} okText="추가" cancelText="취소">
         <Form form={addForm} layout="vertical" onFinish={handleAddVariant} initialValues={{ stock_qty: 0 }}>
           <Space style={{ display: 'flex' }} align="start">
             <Form.Item name="color" label="컬러" rules={[{ required: true, message: '컬러를 입력해주세요' }]}>

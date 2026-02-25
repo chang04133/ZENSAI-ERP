@@ -285,7 +285,7 @@ export default function ProductionDashboardPage() {
       <Modal
         title={<><BarChartOutlined style={{ marginRight: 8 }} />{CAT_LABELS[subCategory] || subCategory} - 세부 카테고리별 재고 현황</>}
         open={subModalOpen}
-        onCancel={() => setSubModalOpen(false)}
+        onCancel={() => { setSubModalOpen(false); setSubStats([]); }}
         footer={null}
         width={900}
       >
@@ -359,6 +359,7 @@ export default function ProductionDashboardPage() {
               rowKey="sub_category"
               pagination={false}
               size="small"
+              scroll={{ x: 800 }}
             />
           </>
         ) : (
@@ -453,10 +454,10 @@ export default function ProductionDashboardPage() {
                 ]}
                 dataSource={recommendations}
                 rowKey="product_code"
-                pagination={{ pageSize: 10, size: 'small' }}
+                pagination={{ pageSize: 10, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
                 size="small"
                 loading={loading}
-                scroll={{ x: 1060 }}
+                scroll={{ x: 1100 }}
               />
             ) : (
               <div style={{ textAlign: 'center', padding: 30, color: '#52c41a' }}>
@@ -490,8 +491,9 @@ export default function ProductionDashboardPage() {
                 ]}
                 dataSource={data?.progressItems || []}
                 rowKey="item_id"
-                pagination={false}
+                pagination={{ pageSize: 20, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
                 size="small"
+                scroll={{ x: 800 }}
               />
             ) : <div style={{ textAlign: 'center', padding: 30, color: '#aaa' }}>생산중 품목이 없습니다</div>}
           </Card>
@@ -502,7 +504,7 @@ export default function ProductionDashboardPage() {
       <Modal
         title={<><ThunderboltOutlined style={{ marginRight: 8, color: '#764ba2' }} />자동 생산기획 미리보기</>}
         open={autoModalOpen}
-        onCancel={() => setAutoModalOpen(false)}
+        onCancel={() => { setAutoModalOpen(false); setAutoPreview(null); }}
         width={900}
         footer={autoPreview && autoPreview.totalProducts > 0 ? [
           <Button key="cancel" onClick={() => setAutoModalOpen(false)}>취소</Button>,

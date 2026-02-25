@@ -6,21 +6,17 @@ import { STATUS_COLORS, STATUS_LABELS } from '../../components/shipment/Shipment
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
-import { ROLES } from '../../../../shared/constants/roles';
-
 import { datePresets } from '../../utils/date-presets';
 
 const { RangePicker } = DatePicker;
 
-export default function ShipmentHistoryPage() {
+export default function ShipmentViewPage() {
   const user = useAuthStore((s) => s.user);
-  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string | undefined>();
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
@@ -33,9 +29,8 @@ export default function ShipmentHistoryPage() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
-      if (typeFilter) params.request_type = typeFilter;
       if (statusFilter) params.status = statusFilter;
-      if (isStore && user?.partnerCode) params.partner = user.partnerCode;
+      if (user?.partnerCode) params.partner = user.partnerCode;
       if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
       if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
       const result = await shipmentApi.list(params);
@@ -46,7 +41,7 @@ export default function ShipmentHistoryPage() {
   };
 
   useEffect(() => { load(); }, [page]);
-  useEffect(() => { setPage(1); load(1); }, [typeFilter, statusFilter]);
+  useEffect(() => { setPage(1); load(1); }, [statusFilter]);
   useEffect(() => { if (dateRange) { setPage(1); load(1); } }, [dateRange]);
 
   const handleViewDetail = async (id: number) => {
@@ -75,17 +70,10 @@ export default function ShipmentHistoryPage() {
 
   return (
     <div>
-      <PageHeader title="출고내역" />
+      <PageHeader title="출고조회" />
       <Space style={{ marginBottom: 16 }} wrap>
         <Input size="small" placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
           onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }} />
-        <Select size="small" placeholder="유형" allowClear value={typeFilter}
-          onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[
-            { label: '출고', value: '출고' },
-            { label: '반품', value: '반품' },
-            { label: '수평이동', value: '수평이동' },
-          ]} />
         <Select size="small" placeholder="상태" allowClear value={statusFilter}
           onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
           options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />

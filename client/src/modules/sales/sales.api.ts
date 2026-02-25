@@ -16,7 +16,7 @@ export const salesApi = {
   create: async (body: any) => {
     return parse(await apiFetch('/api/sales', { method: 'POST', body: JSON.stringify(body) }));
   },
-  createBatch: async (body: { sale_date: string; partner_code?: string; items: any[] }) => {
+  createBatch: async (body: { sale_date: string; partner_code?: string; memo?: string; items: any[] }) => {
     return parse(await apiFetch('/api/sales/batch', { method: 'POST', body: JSON.stringify(body) }));
   },
 
@@ -75,16 +75,20 @@ export const salesApi = {
   },
 
   // 매출 수정
-  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string }) => {
+  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string }) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(body) }));
   },
   // 매출 삭제
   remove: async (id: number) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'DELETE' }));
   },
-  // 반품 등록
+  // 반품 등록 (원본 매출 기반)
   createReturn: async (id: number, body: { qty: number; reason?: string }) => {
     return parse(await apiFetch(`/api/sales/${id}/return`, { method: 'POST', body: JSON.stringify(body) }));
+  },
+  // 직접 반품 등록 (매장 고객 반품용)
+  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string }) => {
+    return parse(await apiFetch('/api/sales/direct-return', { method: 'POST', body: JSON.stringify(body) }));
   },
 
   // 바코드/SKU 스캔 조회

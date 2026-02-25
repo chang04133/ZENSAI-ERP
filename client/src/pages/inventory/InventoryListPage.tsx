@@ -10,6 +10,7 @@ export default function InventoryListPage() {
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
@@ -54,15 +55,27 @@ export default function InventoryListPage() {
     },
   ];
 
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params: Record<string, string> = { page: '1', limit: '10000' };
+      if (search) params.search = search;
+      if (partnerFilter) params.partner_code = partnerFilter;
+      const result = await inventoryApi.list(params);
+      exportToExcel(result.data, [
+        { title: '거래처', key: 'partner_name' }, { title: '상품코드', key: 'product_code' },
+        { title: '상품명', key: 'product_name' }, { title: 'SKU', key: 'sku' },
+        { title: '색상', key: 'color' }, { title: '사이즈', key: 'size' },
+        { title: '수량', key: 'qty' },
+      ], `재고현황_${new Date().toISOString().slice(0, 10)}`);
+    } catch (e: any) { message.error('엑셀 다운로드 실패: ' + e.message); }
+    finally { setExporting(false); }
+  };
+
   return (
     <div>
       <PageHeader title="전체 재고현황" extra={
-        <Button icon={<DownloadOutlined />} size="small" onClick={() => exportToExcel(data, [
-          { title: '거래처', key: 'partner_name' }, { title: '상품코드', key: 'product_code' },
-          { title: '상품명', key: 'product_name' }, { title: 'SKU', key: 'sku' },
-          { title: '색상', key: 'color' }, { title: '사이즈', key: 'size' },
-          { title: '수량', key: 'qty' },
-        ], `재고현황_${new Date().toISOString().slice(0, 10)}`)}>엑셀 다운로드</Button>
+        <Button icon={<DownloadOutlined />} size="small" loading={exporting} onClick={handleExport}>엑셀 다운로드</Button>
       } />
       <Space style={{ marginBottom: 16 }} wrap>
         <Select

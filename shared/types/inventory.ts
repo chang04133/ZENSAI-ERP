@@ -9,6 +9,14 @@ export interface Inventory {
   product_name?: string;
   color?: string;
   size?: string;
+  product_code?: string;
+  category?: string;
+  brand?: string;
+  season?: string;
+  fit?: string;
+  base_price?: number;
+  image_url?: string;
+  warning?: string;
 }
 
 export type TxType = 'SHIPMENT' | 'RETURN' | 'TRANSFER' | 'ADJUST' | 'SALE' | 'RESTOCK' | 'PRODUCTION';
@@ -23,4 +31,5 @@ export interface InventoryTransaction {
   qty_after: number;
   created_by: string | null;
   created_at: string;
+  memo?: string | null;
 }

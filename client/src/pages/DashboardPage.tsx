@@ -983,14 +983,14 @@ export default function DashboardPage() {
         <Col xs={24} md={9}>
           <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/request')}>전체보기</a>}>
-            <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" />
+            <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" scroll={{ x: 500 }} />
           </Card>
         </Col>
         <Col xs={24} md={7}>
           <Card title={isStore ? '내 매장 인기상품 TOP 5' : '인기상품 TOP 5'} size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<span style={{ fontSize: 11, color: '#888' }}>최근 30일</span>}>
             {(stats?.topProducts || []).length > 0 ? (
-              <Table columns={productColumns} dataSource={stats?.topProducts || []} rowKey="product_code" pagination={false} size="small" />
+              <Table columns={productColumns} dataSource={stats?.topProducts || []} rowKey="product_code" pagination={false} size="small" scroll={{ x: 400 }} />
             ) : (
               <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>판매 데이터가 없습니다</div>
             )}
@@ -1042,7 +1042,7 @@ export default function DashboardPage() {
       <Modal
         title="수령 확인"
         open={receiveModalOpen}
-        onCancel={() => { setReceiveModalOpen(false); setReceiveTarget(null); }}
+        onCancel={() => { setReceiveModalOpen(false); setReceiveTarget(null); setReceivedQtys({}); }}
         onOk={handleConfirmReceive}
         confirmLoading={receiveLoading}
         okText="수령 확인"

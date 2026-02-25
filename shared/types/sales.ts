@@ -6,10 +6,17 @@ export interface Sale {
   qty: number;
   unit_price: number;
   total_price: number;
+  sale_type?: string;
+  tax_free?: boolean;
+  memo?: string | null;
   created_at: string;
+  updated_at?: string;
   partner_name?: string;
   sku?: string;
   product_name?: string;
+  color?: string;
+  size?: string;
+  category?: string;
 }
 
 export interface MonthlySalesSummary {

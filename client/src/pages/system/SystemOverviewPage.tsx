@@ -39,6 +39,7 @@ const ROLE_MATRIX = [
   { module: '행사 상품', path: '/products/events', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '재고현황', path: '/inventory/status', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '내 매장 재고', path: '/inventory/my-store', admin: false, sys: false, hq: false, store: true, staff: false },
+  { module: '창고 재고', path: '/inventory/warehouse', admin: false, sys: false, hq: false, store: true, staff: false },
   { module: '매장별 재고', path: '/inventory/store', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '재고조정', path: '/inventory/adjust', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '재입고 관리', path: '/inventory/restock', admin: true, sys: true, hq: true, store: false, staff: false },
@@ -54,8 +55,8 @@ const ROLE_MATRIX = [
   { module: '판매분석', path: '/sales/analytics', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '판매율 분석', path: '/sales/sell-through', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '거래처별 매출', path: '/sales/partner-sales', admin: true, sys: true, hq: true, store: false, staff: false },
-  { module: '생산기획', path: '/production', admin: true, sys: true, hq: true, store: false, staff: false },
-  { module: '원단/자재', path: '/production/materials', admin: true, sys: true, hq: true, store: false, staff: false },
+  { module: '생산기획 (전체)', path: '/production', admin: true, sys: true, hq: '조회만', store: false, staff: false },
+  { module: '원단/자재', path: '/production/materials', admin: true, sys: true, hq: '조회만', store: false, staff: false },
   { module: '자금계획', path: '/fund', admin: true, sys: false, hq: false, store: false, staff: false },
   { module: '직원 관리', path: '/users', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '바코드 관리', path: '/barcode', admin: true, sys: true, hq: true, store: true, staff: true },
@@ -94,29 +95,29 @@ const WORKFLOWS = [
       { status: 'ADJUST', label: '수동 조정', desc: '관리자 직접 조정. ADJUST 트랜잭션' },
       { status: 'PRODUCTION', label: '생산 완료', desc: '생산 완료 시 본사 +qty. PRODUCTION 트랜잭션' },
     ],
-    note: '모든 변동은 inventory_transactions 테이블에 이력 기록. 마이너스 재고 허용(경고 표시)',
+    note: '모든 변동은 inventory_transactions 테이블에 이력 기록. 재고 0 미만 불가(GREATEST(0, qty)). 부족 시 경고 표시',
   },
   {
     title: '생산기획 워크플로우',
     icon: <ExperimentOutlined />,
     steps: [
-      { status: 'DRAFT', label: '초안 작성', desc: '카테고리/품번별 생산수량, 단가 지정' },
-      { status: 'CONFIRMED', label: '확정', desc: '계획 확정, 자재 배정' },
-      { status: 'IN_PRODUCTION', label: '생산 중', desc: '생산 진행, 생산수량 업데이트' },
-      { status: 'COMPLETED', label: '완료', desc: '자재 차감 + 완제품 본사 재고 추가' },
+      { status: 'DRAFT', label: '초안 작성', desc: '수동 or 자동생성(판매율→S/A/B등급→배수×안전버퍼). CANCELLED 가능' },
+      { status: 'CONFIRMED', label: '확정', desc: 'ADMIN 전용. approved_by 기록, 자재BOM 연결. CANCELLED 가능' },
+      { status: 'IN_PRODUCTION', label: '생산 중', desc: 'start_date 자동설정. produced_qty/used_qty 실시간 업데이트' },
+      { status: 'COMPLETED', label: '완료', desc: 'end_date 자동. used_qty>0 자재차감 + variant_id NOT NULL인 아이템 HQ재고 입고' },
     ],
-    note: '판매율 기반 자동 생산기획 생성 기능 (60일 판매 분석, 시즌 가중치 적용)',
+    note: '권한: ADMIN=전체, HQ=조회만. 자동추천: 60일판매→시즌가중치→Grade S(≥80%,×1.5)/A(≥50%,×1.2)/B(≥30%,×1.0)→안전버퍼1.2×. 설정값 9개(master_codes)',
   },
   {
     title: '재입고 워크플로우',
     icon: <SyncOutlined />,
     steps: [
-      { status: 'DRAFT', label: '요청 작성', desc: '매장별 재입고 요청 생성' },
-      { status: 'APPROVED', label: '승인', desc: '본사 승인' },
-      { status: 'ORDERED', label: '발주', desc: '공급처 발주 완료' },
-      { status: 'RECEIVED', label: '입고', desc: '수령 확인 → 해당 매장 재고 +qty' },
+      { status: 'DRAFT', label: '요청 작성', desc: 'ADMIN/HQ만 생성 (STORE_MANAGER는 조회만). 매장별 재입고 요청. 취소 가능' },
+      { status: 'APPROVED', label: '승인', desc: '본사 승인. approved_by 기록. 취소 가능' },
+      { status: 'ORDERED', label: '발주', desc: '공급처 발주 완료. ORDERED 상태에서만 수령확인 가능' },
+      { status: 'RECEIVED', label: '입고', desc: '수령수량 입력(요청의 150%까지) → 매장 재고 +received_qty. received_date 자동. 입고 후 취소해도 재고 롤백 안됨' },
     ],
-    note: 'AI 추천: 60일 판매속도 분석, 판매율/시즌가중치 기반 적정 수량 자동 제안',
+    note: 'AI 추천: 60일 판매 + 시즌가중치 + (현재고+생산중+진행중재입고) 차감 후 20% 버퍼. 긴급도: CRITICAL(재고0 또는 7일이내), WARNING(14일이내), NORMAL',
   },
 ];
 
@@ -161,21 +162,28 @@ const API_ENDPOINTS = [
     { method: 'GET', path: '/api/sales', desc: '목록 조회' },
     { method: 'POST', path: '/api/sales/batch', desc: '다건 등록' },
     { method: 'PUT', path: '/api/sales/:id', desc: '수정 (매장:당일만)' },
-    { method: 'DELETE', path: '/api/sales/:id', desc: '삭제 (매장:당일만)' },
-    { method: 'POST', path: '/api/sales/:id/return', desc: '반품' },
+    { method: 'DELETE', path: '/api/sales/:id', desc: '삭제 (반품 검증, 매장:당일만)' },
+    { method: 'POST', path: '/api/sales/:id/return', desc: '반품 (원본 기반)' },
+    { method: 'POST', path: '/api/sales/direct-return', desc: '직접 반품 (매장 고객용)' },
     { method: 'GET', path: '/api/sales/dashboard-stats', desc: '매출 KPI' },
+    { method: 'GET', path: '/api/sales/store-comparison', desc: '매장별 성과 비교 (매장필터)' },
     { method: 'GET', path: '/api/sales/sell-through', desc: '판매율 분석' },
     { method: 'GET', path: '/api/sales/style-analytics', desc: '전년대비 분석' },
     { method: 'GET', path: '/api/sales/drop-analysis', desc: '드랍 분석' },
   ]},
   { module: '생산', endpoints: [
-    { method: 'GET', path: '/api/productions', desc: '계획 목록' },
-    { method: 'POST', path: '/api/productions', desc: '계획 생성' },
-    { method: 'PUT', path: '/api/productions/:id/status', desc: '상태 변경' },
+    { method: 'GET', path: '/api/productions', desc: '계획 목록 (ADMIN+HQ)' },
+    { method: 'POST', path: '/api/productions', desc: '계획 생성 (ADMIN)' },
+    { method: 'GET', path: '/api/productions/dashboard', desc: '대시보드 KPI' },
+    { method: 'GET', path: '/api/productions/recommendations', desc: '권장 품목 (60일+시즌가중치)' },
+    { method: 'GET', path: '/api/productions/category-stats', desc: '카테고리별 수요-공급 현황' },
+    { method: 'GET', path: '/api/productions/category-stats/:cat/sub', desc: '세부 카테고리 통계' },
+    { method: 'GET', path: '/api/productions/product-variants/:code', desc: '상품별 변형 판매상세' },
+    { method: 'GET', path: '/api/productions/auto-generate/preview', desc: '자동생성 미리보기' },
+    { method: 'POST', path: '/api/productions/auto-generate', desc: '자동 생성 (ADMIN)' },
+    { method: 'PUT', path: '/api/productions/:id/status', desc: '상태 변경 (ADMIN)' },
     { method: 'PUT', path: '/api/productions/:id/produced-qty', desc: '생산수량 업데이트' },
-    { method: 'PUT', path: '/api/productions/:id/materials', desc: '자재 사용량' },
-    { method: 'POST', path: '/api/productions/auto-generate', desc: '자동 생성' },
-    { method: 'GET', path: '/api/productions/recommendations', desc: '추천' },
+    { method: 'PUT', path: '/api/productions/:id/materials', desc: '자재 소요량 저장' },
   ]},
   { module: '재입고', endpoints: [
     { method: 'GET', path: '/api/restocks', desc: '요청 목록' },
@@ -479,9 +487,12 @@ export default function SystemOverviewPage() {
                 <li><Text strong>매장 매니저 수정 제한:</Text> 매출일 기준 당일만 수정/삭제/반품 가능. 하루 지나면 서버에서 403 차단</li>
                 <li><Text strong>ADMIN/HQ_MANAGER:</Text> 날짜 제한 없이 수정/삭제 가능</li>
                 <li><Text strong>STORE_STAFF:</Text> 매출 등록만 가능, 수정/삭제/반품 불가</li>
-                <li><Text strong>재고 부족 시:</Text> 경고 표시하되 판매 차단하지 않음 (마이너스 재고 허용)</li>
+                <li><Text strong>재고 부족 시:</Text> 경고 표시하되 판매 차단하지 않음. 재고는 0 미만 불가(GREATEST(0, qty))</li>
                 <li><Text strong>Tax Free:</Text> 면세 시 단가에서 부가세(10%) 자동 제외</li>
-                <li><Text strong>반품:</Text> 원본 매출 수량 이하만 반품 가능. total_price는 음수로 기록</li>
+                <li><Text strong>반품:</Text> 원본 매출 수량 이하만 반품 가능. total_price는 음수로 기록. 직접반품(direct-return)도 지원</li>
+                <li><Text strong>삭제 보호:</Text> 연결된 반품이 있으면 삭제 차단 (반품 먼저 삭제 필요)</li>
+                <li><Text strong>금액 정밀도:</Text> total_price = Math.round(qty × unit_price)로 부동소수점 오차 방지</li>
+                <li><Text strong>당일 판단:</Text> DB CURRENT_DATE 기준 비교 (서버 타임존 일관성)</li>
               </ul>
 
               <Divider />
@@ -497,17 +508,26 @@ export default function SystemOverviewPage() {
               <Divider />
               <Title level={5}>생산 관련</Title>
               <ul style={{ fontSize: 13 }}>
-                <li><Text strong>완료 시 자동 처리:</Text> 자재 차감 + 완제품 본사 재고 추가</li>
-                <li><Text strong>자동 생성:</Text> 60일 판매 데이터 기반, 시즌 가중치(SA/SM/WN) 적용</li>
-                <li><Text strong>등급:</Text> S(고판매), A(중), B(저) - 등급별 생산 배수 설정 가능</li>
+                <li><Text strong>권한 구분:</Text> ADMIN=생성/수정/삭제/상태변경, HQ_MANAGER=조회만</li>
+                <li><Text strong>완료 시 자동 처리:</Text> ①used_qty{'>'} 0인 자재만 차감(GREATEST(0)) ②variant_id NOT NULL + produced_qty{'>'} 0인 아이템만 HQ 재고 입고 ③알림 자동 생성</li>
+                <li><Text strong>본사 파트너:</Text> partner_type IN ('HQ','본사','직영')으로 자동 조회, 없으면 'HQ' 기본값</li>
+                <li><Text strong>자동 생성:</Text> 60일 판매→판매율→Grade S(≥80%,×1.5)/A(≥50%,×1.2)/B(≥30%,×1.0)→안전버퍼1.2×→카테고리별 DRAFT 생성</li>
+                <li><Text strong>미리보기:</Text> auto-generate/preview API로 저장 없이 결과 확인 가능</li>
+                <li><Text strong>설정값 9개:</Text> AUTO_PROD_GRADE_S/A/B_MIN, _MULT, SAFETY_BUFFER (master_codes SETTING 타입)</li>
+                <li><Text strong>상태 전이:</Text> DRAFT→CONFIRMED→IN_PRODUCTION→COMPLETED. DRAFT/CONFIRMED에서 CANCELLED 가능. COMPLETED/CANCELLED는 변경 불가</li>
               </ul>
 
               <Divider />
               <Title level={5}>재입고 관련</Title>
               <ul style={{ fontSize: 13 }}>
                 <li><Text strong>AI 추천:</Text> 60일 판매속도, 판매율, 시즌가중치 분석하여 적정 수량 제안</li>
-                <li><Text strong>긴급도:</Text> CRITICAL (3일 이내 소진), WARNING (7일 이내), NORMAL</li>
-                <li><Text strong>입고 시:</Text> 해당 매장 재고에 즉시 반영</li>
+                <li><Text strong>중복 방지:</Text> 진행중(DRAFT/APPROVED/ORDERED) 재입고 수량을 자동 차감하여 중복 제안 방지</li>
+                <li><Text strong>수량 검증:</Text> 수령 수량 음수 불가, 요청수량 150% 초과 불가</li>
+                <li><Text strong>이중 재고 방지:</Text> 재고 증가는 receive() 메서드에서만 처리 (updateWithInventory와 이중 적용 방지)</li>
+                <li><Text strong>긴급도:</Text> CRITICAL (재고 0 또는 7일 이내 소진), WARNING (14일 이내), NORMAL</li>
+                <li><Text strong>입고 시:</Text> ORDERED→RECEIVED 전환 + 해당 매장 재고 즉시 반영. 입고 후 취소해도 재고 롤백 안됨</li>
+                <li><Text strong>권한:</Text> ADMIN/HQ만 생성·수정·수령. STORE_MANAGER는 조회만 가능</li>
+                <li><Text strong>제안 공식:</Text> suggested_qty = (30일수요 × 시즌가중치 - 현재고 - 생산중 - 진행중재입고) × 1.2</li>
               </ul>
 
               <Divider />
@@ -515,8 +535,8 @@ export default function SystemOverviewPage() {
               <ul style={{ fontSize: 13 }}>
                 <li><Text strong>소프트 삭제:</Text> 대부분의 데이터는 is_active=false로 처리 (복원 가능)</li>
                 <li><Text strong>감사 로그:</Text> 모든 INSERT/UPDATE/DELETE 이력 기록 (old_data, new_data)</li>
-                <li><Text strong>인증:</Text> JWT Access Token + Refresh Token (단일 사용, 해시 저장)</li>
-                <li><Text strong>Rate Limit:</Text> 전역 200req/min, 로그인 10회/15분</li>
+                <li><Text strong>인증:</Text> JWT Access Token(2시간) + Refresh Token(7일, SHA256 해시 저장, 단일 사용)</li>
+                <li><Text strong>Rate Limit:</Text> 전역 200req/min, 로그인 10회/15분, 토큰갱신 30회/15분</li>
                 <li><Text strong>페이지네이션:</Text> 기본 50건/페이지, 테이블 size="small"</li>
               </ul>
             </div>

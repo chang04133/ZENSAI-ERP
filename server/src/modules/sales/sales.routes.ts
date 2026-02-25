@@ -168,6 +168,14 @@ router.get('/store-comparison', authMiddleware, asyncHandler(async (req: Request
   const from = date_from || new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   const to = date_to || new Date().toISOString().slice(0, 10);
 
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  // 매장 사용자는 자기 매장 데이터만 조회 가능
+  const partnerFilter = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc
+    ? 'AND s.partner_code = $3' : '';
+  const params: any[] = [from, to];
+  if (partnerFilter) params.push(pc);
+
   const pool = getPool();
   const result = await pool.query(
     `SELECT s.partner_code, pa.partner_name,
@@ -177,10 +185,10 @@ router.get('/store-comparison', authMiddleware, asyncHandler(async (req: Request
             COUNT(DISTINCT s.sale_date)::int AS active_days
      FROM sales s
      JOIN partners pa ON s.partner_code = pa.partner_code
-     WHERE s.sale_date BETWEEN $1 AND $2
+     WHERE s.sale_date BETWEEN $1 AND $2 ${partnerFilter}
      GROUP BY s.partner_code, pa.partner_name
      ORDER BY total_revenue DESC`,
-    [from, to],
+    params,
   );
   res.json({ success: true, data: result.rows });
 }));
@@ -269,7 +277,7 @@ router.post('/batch',
       for (const item of items) {
         const { variant_id, qty, unit_price, sale_type } = item;
         if (!variant_id || !qty || !unit_price) continue;
-        const total_price = qty * unit_price;
+        const total_price = Math.round(qty * unit_price);
         const itemTaxFree = item.tax_free !== undefined ? !!item.tax_free : globalTaxFree;
         const sale = await client.query(
           `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
@@ -299,7 +307,7 @@ router.post('/',
   asyncHandler(async (req: Request, res: Response) => {
     const { sale_date, partner_code, variant_id, qty, unit_price, sale_type, tax_free } = req.body;
     const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user.partnerCode : partner_code;
-    const total_price = qty * unit_price;
+    const total_price = Math.round(qty * unit_price);
     const pool = getPool();
 
     // 재고 부족 경고
@@ -358,20 +366,19 @@ router.put('/:id',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 하루 지난 매출 수정 불가
+      // 매장 매니저: 당일 매출만 수정 가능
       if (req.user?.role === 'STORE_MANAGER') {
-        const saleDate = new Date(old.sale_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        saleDate.setHours(0, 0, 0, 0);
-        if (saleDate.getTime() < today.getTime()) {
+        const dayCheck = await client.query(
+          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
+        );
+        if (!dayCheck.rows[0]?.is_today) {
           await client.query('ROLLBACK');
           res.status(403).json({ success: false, error: '당일 매출만 수정할 수 있습니다.' });
           return;
         }
       }
       const qtyDiff = old.qty - qty; // 양수면 줄어듬→재고 복원, 음수면 늘어남→재고 차감
-      const total_price = qty * unit_price;
+      const total_price = Math.round(qty * unit_price);
 
       // 매출 업데이트
       const updated = await client.query(
@@ -414,15 +421,27 @@ router.delete('/:id',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 하루 지난 매출 삭제 불가
+      // 매장 매니저: 당일 매출만 삭제 가능
       if (req.user?.role === 'STORE_MANAGER') {
-        const saleDate = new Date(old.sale_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        saleDate.setHours(0, 0, 0, 0);
-        if (saleDate.getTime() < today.getTime()) {
+        const dayCheck = await client.query(
+          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
+        );
+        if (!dayCheck.rows[0]?.is_today) {
           await client.query('ROLLBACK');
           res.status(403).json({ success: false, error: '당일 매출만 삭제할 수 있습니다.' });
+          return;
+        }
+      }
+
+      // 연결된 반품이 있는지 확인 (memo에 '원본#' 패턴으로 연결)
+      if (old.sale_type !== '반품') {
+        const linkedReturns = await client.query(
+          `SELECT COUNT(*)::int AS cnt FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
+          [`%원본#${saleId}%`],
+        );
+        if (linkedReturns.rows[0].cnt > 0) {
+          await client.query('ROLLBACK');
+          res.status(400).json({ success: false, error: `이 매출에 연결된 반품 ${linkedReturns.rows[0].cnt}건이 있어 삭제할 수 없습니다. 반품을 먼저 삭제해주세요.` });
           return;
         }
       }
@@ -468,7 +487,7 @@ router.post('/direct-return',
       return;
     }
 
-    const total_price = qty * unit_price;
+    const total_price = Math.round(qty * unit_price);
     const pool = getPool();
     const client = await pool.connect();
     try {
@@ -515,13 +534,12 @@ router.post('/:id/return',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 하루 지난 매출 반품 불가
+      // 매장 매니저: 당일 매출만 반품 가능
       if (req.user?.role === 'STORE_MANAGER') {
-        const saleDate = new Date(old.sale_date);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        saleDate.setHours(0, 0, 0, 0);
-        if (saleDate.getTime() < today.getTime()) {
+        const dayCheck = await client.query(
+          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
+        );
+        if (!dayCheck.rows[0]?.is_today) {
           await client.query('ROLLBACK');
           res.status(403).json({ success: false, error: '당일 매출만 반품 처리할 수 있습니다.' });
           return;
@@ -529,12 +547,27 @@ router.post('/:id/return',
       }
 
       const returnQty = qty || old.qty;
-      if (returnQty > old.qty) {
+
+      // 이전 반품 누적 수량 조회 (원본#saleId 패턴으로 연결된 반품 건)
+      const prevReturns = await client.query(
+        `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
+         FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
+        [`반품(원본#${saleId})`],
+      );
+      const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
+      const remainingQty = old.qty - alreadyReturned;
+
+      if (returnQty > remainingQty) {
         await client.query('ROLLBACK');
-        res.status(400).json({ success: false, error: `반품 수량(${returnQty})이 원본 수량(${old.qty})을 초과합니다.` });
+        res.status(400).json({
+          success: false,
+          error: remainingQty <= 0
+            ? `이미 전량 반품 처리되었습니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개)`
+            : `반품 가능 수량을 초과합니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개, 남은 ${remainingQty}개)`,
+        });
         return;
       }
-      const total_price = returnQty * old.unit_price;
+      const total_price = Math.round(returnQty * old.unit_price);
 
       // 반품 매출 레코드 생성
       const returnSale = await client.query(

@@ -68,6 +68,9 @@ const DeletedDataPage = lazy(() => import('../pages/system/DeletedDataPage'));
 const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage'));
 const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
 
+// Test
+const Test1Page = lazy(() => import('../pages/test/Test1Page'));
+
 // ── Route Definition ──
 export interface AppRoute {
   path: string;
@@ -147,6 +150,9 @@ export const appRoutes: AppRoute[] = [
   { path: '/system/data-upload', element: <DataUploadPage />, roles: ADMIN_SYS },
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
   { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
+
+  // Test
+  { path: '/test1', element: <Test1Page />, roles: ADMIN_SYS },
 ];
 
 export { LoginPage };

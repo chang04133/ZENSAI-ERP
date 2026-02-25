@@ -616,8 +616,8 @@ export default function SystemOverviewPage() {
               <Divider />
               <Title level={5}>시스템 공통</Title>
               <ul style={{ fontSize: 13 }}>
-                <li><Text strong>소프트 삭제:</Text> 대부분의 데이터는 is_active=false로 처리 (복원 가능)</li>
-                <li><Text strong>감사 로그:</Text> 모든 INSERT/UPDATE/DELETE 이력 기록 (old_data, new_data)</li>
+                <li><Text strong>삭제 방식:</Text> Hard DELETE 수행 (is_active 필드는 목록 필터용). 시스템관리 &gt; 삭제데이터 조회에서 audit_logs 기반 복원 가능</li>
+                <li><Text strong>감사 로그:</Text> 주요 변경사항 수동 기록 (행사가 변경, 재고 조정 등). 전체 자동 기록은 미구현</li>
                 <li><Text strong>인증:</Text> JWT Access Token(2시간) + Refresh Token(7일, SHA256 해시 저장, 단일 사용)</li>
                 <li><Text strong>Rate Limit:</Text> 전역 200req/min, 로그인 10회/15분, 토큰갱신 30회/15분</li>
                 <li><Text strong>페이지네이션:</Text> 기본 50건/페이지, 테이블 size="small"</li>

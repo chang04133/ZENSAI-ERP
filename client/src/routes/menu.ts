@@ -75,6 +75,7 @@ export const menuItems: MenuItem[] = [
       { key: '/system/data-upload', label: '데이터 올리기', icon: 'UploadOutlined', roles: ADMIN_SYS },
       { key: '/system/deleted-data', label: '삭제데이터 조회', icon: 'DeleteOutlined', roles: ADMIN_SYS },
       { key: '/system/overview', label: '시스템 현황', icon: 'FileTextOutlined', roles: ADMIN_SYS },
+      { key: '/test1', label: 'ERP 로직 정리', icon: 'BookOutlined', roles: ADMIN_SYS },
     ],
   },
 ];

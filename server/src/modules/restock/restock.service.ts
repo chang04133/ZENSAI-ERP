@@ -51,20 +51,9 @@ class RestockService extends BaseService<RestockRequest> {
       vals.push(id);
       await client.query(`UPDATE restock_requests SET ${sets.join(', ')} WHERE request_id = $${idx}`, vals);
 
-      // RECEIVED 전환 시: 재고 자동 증가
+      // RECEIVED 전환 시: received_date 자동 설정만 수행
+      // (재고 증가는 receive() 메서드에서만 처리 — 이중 재고증가 방지)
       if (oldStatus !== 'RECEIVED' && newStatus === 'RECEIVED') {
-        const items = await client.query(
-          'SELECT variant_id, received_qty FROM restock_request_items WHERE request_id = $1', [id],
-        );
-        for (const item of items.rows) {
-          if (item.received_qty > 0) {
-            await inventoryRepository.applyChange(
-              current.partner_code, item.variant_id, item.received_qty,
-              'RESTOCK', id, userId, client,
-            );
-          }
-        }
-        // received_date 자동 설정
         if (!data.received_date) {
           await client.query(
             'UPDATE restock_requests SET received_date = CURRENT_DATE WHERE request_id = $1', [id],
@@ -97,8 +86,18 @@ class RestockService extends BaseService<RestockRequest> {
       const current = currentResult.rows[0];
       if (current.status !== 'ORDERED') throw new Error('발주(ORDERED) 상태에서만 수령확인이 가능합니다');
 
-      // 1) received_qty 업데이트
+      // 1) received_qty 검증 및 업데이트
       for (const item of items) {
+        if (item.received_qty < 0) throw new Error('수령 수량은 0 이상이어야 합니다');
+        // request_qty 초과 검증
+        const reqItem = await client.query(
+          'SELECT request_qty FROM restock_request_items WHERE item_id = $1 AND request_id = $2',
+          [item.item_id, id],
+        );
+        if (reqItem.rows.length === 0) throw new Error(`아이템을 찾을 수 없습니다 (item_id: ${item.item_id})`);
+        if (item.received_qty > reqItem.rows[0].request_qty * 1.5) {
+          throw new Error(`수령 수량(${item.received_qty})이 요청 수량(${reqItem.rows[0].request_qty})의 150%를 초과합니다`);
+        }
         await client.query(
           'UPDATE restock_request_items SET received_qty = $1 WHERE item_id = $2 AND request_id = $3',
           [item.received_qty, item.item_id, id],

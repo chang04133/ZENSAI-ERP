@@ -65,8 +65,16 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   message: { success: false, error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.' },
 });
+const refreshLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: '토큰 갱신 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
+});
 app.use('/api', apiLimiter);
 app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/refresh', refreshLimiter);
 
 // Uploads: static file serving
 const uploadsDir = path.join(__dirname, '../../uploads/products');

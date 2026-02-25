@@ -79,20 +79,28 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const lockKey = Buffer.from(`${partnerCode}:${variantId}`).reduce((h, b) => (h * 31 + b) | 0, 0);
     await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
 
+    // 음수 재고 허용 — GREATEST(0,...) 제거하여 정확한 재고 추적
     await client.query(
       `INSERT INTO inventory (partner_code, variant_id, qty)
-       VALUES ($1, $2, GREATEST(0, $3))
-       ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = GREATEST(0, inventory.qty + $3), updated_at = NOW()`,
+       VALUES ($1, $2, $3)
+       ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = inventory.qty + $3, updated_at = NOW()`,
       [partnerCode, variantId, qtyChange],
     );
     const inv = await client.query(
       'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
       [partnerCode, variantId],
     );
+    const qtyAfter = inv.rows[0].qty;
+
+    // 음수 재고 경고 로깅
+    if (qtyAfter < 0) {
+      console.warn(`[재고 경고] ${partnerCode}:${variantId} 재고 음수 (${qtyAfter}), txType=${txType}, refId=${refId}`);
+    }
+
     await client.query(
       `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [txType, refId, partnerCode, variantId, qtyChange, inv.rows[0].qty, userId],
+      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId],
     );
   }
 

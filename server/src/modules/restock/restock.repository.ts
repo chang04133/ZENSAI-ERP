@@ -209,6 +209,13 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
         GROUP BY p.product_code
       ),
+      pending_restocks AS (
+        SELECT ri.variant_id, COALESCE(SUM(ri.request_qty - COALESCE(ri.received_qty, 0)), 0)::int AS pending_qty
+        FROM restock_request_items ri
+        JOIN restock_requests rr ON ri.request_id = rr.request_id
+        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED')
+        GROUP BY ri.variant_id
+      ),
       zero_stock AS (
         SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
                p.season, 'SA' AS product_season,
@@ -219,6 +226,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(i.qty, 0) = 0
           AND pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
+          AND pv.variant_id NOT IN (SELECT variant_id FROM pending_restocks WHERE pending_qty > 0)
         GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
       ),
       combined AS (
@@ -235,16 +243,18 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int AS demand_30d,
         COALESCE(cs.total_stock, 0)::int AS current_stock,
         COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)::int AS in_production_qty,
-        (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0))::int AS total_available,
+        (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0) + COALESCE(pr.pending_qty, 0))::int AS total_available,
         GREATEST(0,
           ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
           - COALESCE(cs.total_stock, 0)
           - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+          - COALESCE(pr.pending_qty, 0)
         )::int AS shortage_qty,
         CEIL(GREATEST(0,
           ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
           - COALESCE(cs.total_stock, 0)
           - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+          - COALESCE(pr.pending_qty, 0)
         ) * 1.2)::int AS suggested_qty,
         CASE
           WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
@@ -279,6 +289,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       LEFT JOIN current_stock cs ON sv.variant_id = cs.variant_id
       LEFT JOIN in_production ip ON sv.product_code = ip.product_code
       LEFT JOIN variant_count vc ON sv.product_code = vc.product_code
+      LEFT JOIN pending_restocks pr ON sv.variant_id = pr.variant_id
       WHERE
         (
           CASE WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
@@ -288,9 +299,10 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
             ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
             - COALESCE(cs.total_stock, 0)
             - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
+            - COALESCE(pr.pending_qty, 0)
           ) > 0
         )
-        OR COALESCE(cs.total_stock, 0) = 0
+        OR (COALESCE(cs.total_stock, 0) = 0 AND COALESCE(pr.pending_qty, 0) = 0)
       ORDER BY
         CASE
           WHEN COALESCE(cs.total_stock, 0) = 0 THEN 0

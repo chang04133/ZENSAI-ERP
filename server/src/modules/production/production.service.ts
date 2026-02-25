@@ -64,23 +64,25 @@ class ProductionService extends BaseService<ProductionPlan> {
           );
         }
 
-        // 2) 완제품 재고 입고: 각 plan_item의 produced_qty만큼 본사(HQ) 재고 증가
+        // 2) 완제품 재고 입고: variant_id가 있는 plan_item의 produced_qty만큼 본사(HQ) 재고 증가
         const planItems = await client.query(
           `SELECT ppi.variant_id, ppi.produced_qty
            FROM production_plan_items ppi
-           WHERE ppi.plan_id = $1 AND ppi.produced_qty > 0`,
+           WHERE ppi.plan_id = $1 AND ppi.produced_qty > 0 AND ppi.variant_id IS NOT NULL`,
           [id],
         );
-        // 본사 파트너 코드 조회 (partner_type = 'HQ')
-        const hqResult = await client.query(
-          `SELECT partner_code FROM partners WHERE partner_type = 'HQ' LIMIT 1`,
-        );
-        const hqPartner = hqResult.rows[0]?.partner_code || 'HQ';
-        for (const item of planItems.rows) {
-          await inventoryRepository.applyChange(
-            hqPartner, item.variant_id, item.produced_qty,
-            'PRODUCTION', id, userId, client,
+        if (planItems.rows.length > 0) {
+          // 본사 파트너 코드 조회 (partner_type = 'HQ' 또는 '본사' 또는 '직영')
+          const hqResult = await client.query(
+            `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
           );
+          const hqPartner = hqResult.rows[0]?.partner_code || 'HQ';
+          for (const item of planItems.rows) {
+            await inventoryRepository.applyChange(
+              hqPartner, item.variant_id, item.produced_qty,
+              'PRODUCTION', id, userId, client,
+            );
+          }
         }
       }
 

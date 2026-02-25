@@ -272,11 +272,19 @@ class InventoryController extends BaseController<Inventory> {
 
   adjust = asyncHandler(async (req: Request, res: Response) => {
     const { partner_code, variant_id, qty_change, memo } = req.body;
-    if (!partner_code || !variant_id || qty_change === undefined) {
-      res.status(400).json({ success: false, error: '거래처코드, 변형ID, 수량변동은 필수입니다.' });
+    if (!partner_code || typeof partner_code !== 'string') {
+      res.status(400).json({ success: false, error: '거래처코드는 필수입니다.' });
       return;
     }
-    if (qty_change === 0) {
+    if (!variant_id || !Number.isInteger(Number(variant_id)) || Number(variant_id) <= 0) {
+      res.status(400).json({ success: false, error: '변형ID는 양의 정수여야 합니다.' });
+      return;
+    }
+    if (qty_change === undefined || qty_change === null || !Number.isInteger(Number(qty_change))) {
+      res.status(400).json({ success: false, error: '수량변동은 정수여야 합니다.' });
+      return;
+    }
+    if (Number(qty_change) === 0) {
       res.status(400).json({ success: false, error: '조정 수량은 0이 아니어야 합니다.' });
       return;
     }

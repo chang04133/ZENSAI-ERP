@@ -9,7 +9,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
-import { apiFetch } from '../core/api.client';
+import { apiFetch, safeJson } from '../core/api.client';
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
@@ -84,7 +84,7 @@ export default function DashboardPage() {
     try {
       setLoading(true);
       const res = await apiFetch('/api/dashboard/stats');
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.success) setStats(data.data);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -94,7 +94,7 @@ export default function DashboardPage() {
     setNotiLoading(true);
     try {
       const res = await apiFetch('/api/notifications?status=PENDING&limit=20');
-      const data = await res.json();
+      const data = await safeJson(res);
       if (data.success) setNotifications(data.data);
     } catch (e: any) { message.error('알림 로드 실패: ' + e.message); }
     finally { setNotiLoading(false); }

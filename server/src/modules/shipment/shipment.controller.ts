@@ -82,6 +82,12 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       res.status(400).json({ success: false, error: '업데이트할 품목이 없습니다.' });
       return;
     }
+    for (const item of items) {
+      if (!Number.isFinite(Number(item.shipped_qty)) || Number(item.shipped_qty) < 0) {
+        res.status(400).json({ success: false, error: '출고수량은 0 이상의 숫자여야 합니다.' });
+        return;
+      }
+    }
     const pool = getPool();
     const client = await pool.connect();
     try {
@@ -106,11 +112,35 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     }
   });
 
+  /** 출고확인: shipped_qty 저장 + SHIPPED 상태 + 재고 차감 (단일 트랜잭션) */
+  shipConfirm = asyncHandler(async (req: Request, res: Response) => {
+    const requestId = parseInt(req.params.id as string, 10);
+    if (!(await this.checkStoreAccess(req, res, requestId))) return;
+    const { items } = req.body; // [{ variant_id, shipped_qty }]
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: '출고수량 품목이 없습니다.' });
+      return;
+    }
+    const result = await shipmentService.shipAndConfirm(requestId, items, req.user!.userId);
+    if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
+    res.json({ success: true, data: result });
+  });
+
   /** 수령확인: received_qty 저장 + 상태 RECEIVED + 재고 연동 (단일 트랜잭션) */
   receive = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
     if (!(await this.checkStoreAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, received_qty }]
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: '수령수량 품목이 없습니다.' });
+      return;
+    }
+    for (const item of items) {
+      if (!Number.isFinite(Number(item.received_qty)) || Number(item.received_qty) < 0) {
+        res.status(400).json({ success: false, error: '수령수량은 0 이상의 숫자여야 합니다.' });
+        return;
+      }
+    }
     const result = await shipmentService.receiveWithInventory(requestId, items, req.user!.userId);
     if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });

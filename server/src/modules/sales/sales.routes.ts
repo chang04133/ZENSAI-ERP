@@ -274,11 +274,23 @@ router.post('/batch',
     try {
       await client.query('BEGIN');
       const results = [];
-      for (const item of items) {
-        const { variant_id, qty, unit_price, sale_type } = item;
-        if (!variant_id || !qty || !unit_price) continue;
+      const skipped: string[] = [];
+      for (let i = 0; i < items.length; i++) {
+        const { variant_id, qty, unit_price, sale_type } = items[i];
+        if (!variant_id || qty === undefined || qty === null || unit_price === undefined || unit_price === null) {
+          skipped.push(`항목 ${i + 1}: 필수값 누락 (variant_id, qty, unit_price)`);
+          continue;
+        }
+        if (Number(qty) <= 0) {
+          skipped.push(`항목 ${i + 1}: 수량은 양수여야 합니다 (qty=${qty})`);
+          continue;
+        }
+        if (Number(unit_price) < 0) {
+          skipped.push(`항목 ${i + 1}: 단가는 0 이상이어야 합니다 (unit_price=${unit_price})`);
+          continue;
+        }
         const total_price = Math.round(qty * unit_price);
-        const itemTaxFree = item.tax_free !== undefined ? !!item.tax_free : globalTaxFree;
+        const itemTaxFree = items[i].tax_free !== undefined ? !!items[i].tax_free : globalTaxFree;
         const sale = await client.query(
           `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
@@ -289,8 +301,13 @@ router.post('/batch',
         );
         results.push(sale.rows[0]);
       }
+      if (results.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ success: false, error: '등록 가능한 유효한 항목이 없습니다.', skipped });
+        return;
+      }
       await client.query('COMMIT');
-      res.status(201).json({ success: true, data: results, ...(warnings.length > 0 && { warnings }) });
+      res.status(201).json({ success: true, data: results, ...(warnings.length > 0 && { warnings }), ...(skipped.length > 0 && { skipped }) });
     } catch (e) {
       await client.query('ROLLBACK');
       throw e;
@@ -349,8 +366,16 @@ router.put('/:id',
   asyncHandler(async (req: Request, res: Response) => {
     const saleId = Number(req.params.id);
     const { qty, unit_price, sale_type, memo } = req.body;
-    if (!qty || !unit_price) {
+    if (qty === undefined || qty === null || unit_price === undefined || unit_price === null) {
       res.status(400).json({ success: false, error: 'qty, unit_price 필수' });
+      return;
+    }
+    if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) {
+      res.status(400).json({ success: false, error: '수량은 양수여야 합니다.' });
+      return;
+    }
+    if (!Number.isFinite(Number(unit_price)) || Number(unit_price) < 0) {
+      res.status(400).json({ success: false, error: '단가는 0 이상이어야 합니다.' });
       return;
     }
     const pool = getPool();

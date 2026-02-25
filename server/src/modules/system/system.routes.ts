@@ -62,6 +62,15 @@ router.post('/restore', ...admin, asyncHandler(async (req, res) => {
   if (!pkColumn) { res.status(400).json({ success: false, error: '유효하지 않은 테이블입니다.' }); return; }
 
   await pool.query(`UPDATE ${table_name} SET is_active = TRUE, updated_at = NOW() WHERE ${pkColumn} = $1`, [id]);
+
+  // 감사 로그 기록
+  const userId = req.user?.userId || 'unknown';
+  await pool.query(
+    `INSERT INTO audit_logs (table_name, record_id, action, changed_by, old_data, new_data)
+     VALUES ($1, $2, 'RESTORE', $3, '{"is_active": false}'::jsonb, '{"is_active": true}'::jsonb)`,
+    [table_name, String(id), userId],
+  ).catch((e) => console.error('감사 로그 기록 실패:', e.message));
+
   res.json({ success: true });
 }));
 

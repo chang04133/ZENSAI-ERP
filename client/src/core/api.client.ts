@@ -50,6 +50,18 @@ function fetchWithTimeout(url: string, opts: RequestInit = {}, ms = 30000): Prom
   return fetch(url, { ...opts, signal: controller.signal }).finally(() => clearTimeout(timer));
 }
 
+/** JSON 응답을 안전하게 파싱 (비JSON 응답 시 에러 메시지 반환) */
+export async function safeJson(res: Response): Promise<any> {
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text().catch(() => '');
+    throw new Error(
+      res.ok ? '서버 응답 형식 오류' : `서버 오류 (${res.status}): ${text.slice(0, 100) || res.statusText}`,
+    );
+  }
+  return res.json();
+}
+
 export async function apiFetch(path: string, options: RequestInit = {}): Promise<Response> {
   const token = getToken();
   const isFormData = options.body instanceof FormData;

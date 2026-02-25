@@ -67,11 +67,11 @@ const WORKFLOWS = [
     title: '출고 워크플로우',
     icon: <ExportOutlined />,
     steps: [
-      { status: 'PENDING', label: '의뢰 등록', desc: '출고/반품/수평이동 의뢰 생성. 출발지, 도착지, 품목 지정' },
-      { status: 'SHIPPED', label: '출고 확인', desc: '출고 수량 입력 후 출고 처리. 재고 변동 없음' },
-      { status: 'RECEIVED', label: '수령 확인', desc: '수령 수량 입력 → 도착지 재고 +, 출발지 재고 - 자동 반영' },
+      { status: 'PENDING', label: '의뢰 등록', desc: '출고/반품/수평이동 의뢰 생성. 출발지, 도착지, 품목 지정. 재고 변동 없음' },
+      { status: 'SHIPPED', label: '출고 확인', desc: '출고 수량 입력 후 출고 처리. 출발지(from_partner) 재고 -shipped_qty 차감' },
+      { status: 'RECEIVED', label: '수령 확인', desc: '수령 수량 입력. 도착지(to_partner) 재고 +received_qty 증가' },
     ],
-    note: '취소 시 CANCELLED로 변경, 재고 영향 없음',
+    note: '취소 시 이전 재고 변동 전부 롤백 (SHIPPED→출발지 복구, RECEIVED→출발지 복구+도착지 차감)',
   },
   {
     title: '매출 워크플로우',
@@ -453,7 +453,7 @@ export default function SystemOverviewPage() {
                 { type: 'SALE_EDIT', source: '매출 수정', effect: '±qty', desc: '수량 변경분 만큼 조정' },
                 { type: 'SALE_DELETE', source: '매출 삭제', effect: '+qty', desc: '삭제 시 재고 원복' },
                 { type: 'RETURN', source: '반품 등록', effect: '+qty', desc: '반품 시 재고 복원' },
-                { type: 'SHIPMENT', source: '출고 수령확인', effect: '+qty (도착지)', desc: '수령 시 도착 매장 재고 증가' },
+                { type: 'SHIPMENT', source: '출고확인/수령확인', effect: '±qty', desc: 'SHIPPED: 출발지 -shipped_qty / RECEIVED: 도착지 +received_qty' },
                 { type: 'TRANSFER', source: '수평이동', effect: '±qty', desc: '출발지 -, 도착지 +' },
                 { type: 'RESTOCK', source: '재입고 수령', effect: '+qty', desc: '재입고 시 해당 매장 재고 증가' },
                 { type: 'PRODUCTION', source: '생산 완료', effect: '+qty (본사)', desc: '완제품 본사 재고 추가' },
@@ -487,8 +487,9 @@ export default function SystemOverviewPage() {
               <Divider />
               <Title level={5}>출고 관련</Title>
               <ul style={{ fontSize: 13 }}>
-                <li><Text strong>재고 반영 시점:</Text> 수령확인(RECEIVED) 시에만 재고 변동 발생</li>
-                <li><Text strong>취소:</Text> 모든 상태에서 취소 가능, 재고 영향 없음</li>
+                <li><Text strong>SHIPPED 시:</Text> 출발지(from_partner) 재고 -shipped_qty 차감</li>
+                <li><Text strong>RECEIVED 시:</Text> 도착지(to_partner) 재고 +received_qty 증가</li>
+                <li><Text strong>취소(CANCELLED):</Text> 이전 재고 변동 전부 롤백 — SHIPPED 상태 취소 시 출발지 복구, RECEIVED 상태 취소 시 출발지 복구 + 도착지 차감</li>
                 <li><Text strong>삭제:</Text> PENDING 상태에서만 삭제 가능</li>
                 <li><Text strong>매장 매니저:</Text> 출고조회 페이지에서 조회만 가능 (수정/삭제 불가)</li>
               </ul>

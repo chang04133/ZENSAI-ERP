@@ -33,7 +33,7 @@ interface SystemStats {
 const ROLE_MATRIX = [
   { module: '대시보드', path: '/', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '마스터관리', path: '/codes', admin: true, sys: true, hq: true, store: false, staff: false },
-  { module: '거래처 관리', path: '/partners', admin: true, sys: true, hq: true, store: false, staff: false },
+  { module: '거래처 관리', path: '/partners', admin: true, sys: true, hq: true, store: '조회만', staff: false },
   { module: '상품 관리', path: '/products', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '상품 조회', path: '/products (view)', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '행사 상품', path: '/products/events', admin: true, sys: true, hq: true, store: true, staff: false },
@@ -95,7 +95,7 @@ const WORKFLOWS = [
       { status: 'ADJUST', label: '수동 조정', desc: '관리자 직접 조정. ADJUST 트랜잭션' },
       { status: 'PRODUCTION', label: '생산 완료', desc: '생산 완료 시 본사 +qty. PRODUCTION 트랜잭션' },
     ],
-    note: '모든 변동은 inventory_transactions 테이블에 이력 기록. 재고 0 미만 불가(GREATEST(0, qty)). 부족 시 경고 표시',
+    note: '모든 변동은 inventory_transactions 테이블에 이력 기록. 음수 재고 허용(정확한 추적). 부족 시 경고 표시',
   },
   {
     title: '생산기획 워크플로우',
@@ -387,15 +387,15 @@ export default function SystemOverviewPage() {
     { title: '모듈', dataIndex: 'module', key: 'module', width: 150, fixed: 'left' as const },
     { title: '경로', dataIndex: 'path', key: 'path', width: 180, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
     { title: 'ADMIN', dataIndex: 'admin', key: 'admin', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
     { title: 'SYS', dataIndex: 'sys', key: 'sys', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
     { title: 'HQ', dataIndex: 'hq', key: 'hq', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
     { title: 'STORE', dataIndex: 'store', key: 'store', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
     { title: 'STAFF', dataIndex: 'staff', key: 'staff', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
   ];
 
   return (
@@ -570,7 +570,7 @@ export default function SystemOverviewPage() {
                 <li><Text strong>매장 매니저 수정 제한:</Text> 매출일 기준 당일만 수정/삭제/반품 가능. 하루 지나면 서버에서 403 차단</li>
                 <li><Text strong>ADMIN/HQ_MANAGER:</Text> 날짜 제한 없이 수정/삭제 가능</li>
                 <li><Text strong>STORE_STAFF:</Text> 매출 등록만 가능, 수정/삭제/반품 불가</li>
-                <li><Text strong>재고 부족 시:</Text> 경고 표시하되 판매 차단하지 않음. 재고는 0 미만 불가(GREATEST(0, qty))</li>
+                <li><Text strong>재고 부족 시:</Text> 경고 표시하되 판매 차단하지 않음. 음수 재고 허용 (정확한 추적 목적, GREATEST(0) 제거됨)</li>
                 <li><Text strong>Tax Free:</Text> 면세 시 단가에서 부가세(10%) 자동 제외</li>
                 <li><Text strong>반품:</Text> 원본 매출 수량 이하만 반품 가능. total_price는 음수로 기록. 직접반품(direct-return)도 지원</li>
                 <li><Text strong>삭제 보호:</Text> 연결된 반품이 있으면 삭제 차단 (반품 먼저 삭제 필요)</li>
@@ -616,7 +616,7 @@ export default function SystemOverviewPage() {
               <Divider />
               <Title level={5}>시스템 공통</Title>
               <ul style={{ fontSize: 13 }}>
-                <li><Text strong>삭제 방식:</Text> Hard DELETE 수행 (is_active 필드는 목록 필터용). 시스템관리 &gt; 삭제데이터 조회에서 audit_logs 기반 복원 가능</li>
+                <li><Text strong>삭제 방식:</Text> Soft DELETE (is_active = FALSE). 삭제데이터 조회에서 is_active=FALSE 레코드로 복원. 출고 의뢰만 Hard DELETE (PENDING 상태)</li>
                 <li><Text strong>감사 로그:</Text> 주요 변경사항 수동 기록 (행사가 변경, 재고 조정 등). 전체 자동 기록은 미구현</li>
                 <li><Text strong>인증:</Text> JWT Access Token(2시간) + Refresh Token(7일, SHA256 해시 저장, 단일 사용)</li>
                 <li><Text strong>Rate Limit:</Text> 전역 200req/min, 로그인 10회/15분, 토큰갱신 30회/15분</li>
@@ -702,6 +702,7 @@ export default function SystemOverviewPage() {
                 { path: '/system/data-upload', name: '데이터 올리기', module: '시스템', roles: 'ADMIN, SYS' },
                 { path: '/system/deleted-data', name: '삭제데이터 조회', module: '시스템', roles: 'ADMIN, SYS' },
                 { path: '/system/overview', name: '시스템 현황', module: '시스템', roles: 'ADMIN, SYS' },
+                { path: '/test1', name: 'ERP 로직 정리', module: '시스템', roles: 'ADMIN, SYS' },
               ]}
               columns={[
                 { title: '경로', dataIndex: 'path', width: 200, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },

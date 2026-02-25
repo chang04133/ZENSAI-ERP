@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Collapse, Table, Tag, Statistic, Row, Col, Badge, Spin, Button, Divider, Typography, message, Descriptions, Timeline, Space, Alert } from 'antd';
 import {
-  ReloadOutlined, CheckCircleOutlined, ClockCircleOutlined, DatabaseOutlined,
+  ReloadOutlined, CheckCircleOutlined, DatabaseOutlined,
   UserOutlined, ShopOutlined, TagsOutlined, ExportOutlined, InboxOutlined,
   LineChartOutlined, ExperimentOutlined, SettingOutlined, SafetyCertificateOutlined,
   ApiOutlined, FileTextOutlined, TeamOutlined, BranchesOutlined,
-  WarningOutlined, SyncOutlined
+  WarningOutlined, SyncOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
@@ -30,310 +30,332 @@ interface SystemStats {
   lowStockItems: number;
 }
 
+// ════════════════════════════════════════════════════════════════════
+// 역할별 접근 매트릭스 (실제 라우트 미들웨어 기반)
+// ════════════════════════════════════════════════════════════════════
 const ROLE_MATRIX = [
   { module: '대시보드', path: '/', admin: true, sys: true, hq: true, store: true, staff: true },
+  { module: '바코드 관리', path: '/barcode', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '마스터관리', path: '/codes', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '거래처 관리', path: '/partners', admin: true, sys: true, hq: true, store: '조회만', staff: false },
-  { module: '상품 관리', path: '/products', admin: true, sys: true, hq: true, store: false, staff: false },
+  { module: '상품 관리 (CUD)', path: '/products (edit)', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '상품 조회', path: '/products (view)', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '행사 상품', path: '/products/events', admin: true, sys: true, hq: true, store: true, staff: false },
-  { module: '재고현황', path: '/inventory/status', admin: true, sys: true, hq: true, store: true, staff: false },
+  { module: '재고현황 (전체)', path: '/inventory/status', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '내 매장 재고', path: '/inventory/my-store', admin: false, sys: false, hq: false, store: true, staff: false },
   { module: '창고 재고', path: '/inventory/warehouse', admin: false, sys: false, hq: false, store: true, staff: false },
-  { module: '매장별 재고', path: '/inventory/store', admin: true, sys: true, hq: true, store: false, staff: false },
+  { module: '매장별 재고 비교', path: '/inventory/store', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '재고조정', path: '/inventory/adjust', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '재입고 관리', path: '/inventory/restock', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '출고의뢰', path: '/shipment/request', admin: true, sys: true, hq: true, store: true, staff: false },
-  { module: '출고조회', path: '/shipment/view', admin: false, sys: false, hq: false, store: true, staff: false },
+  { module: '출고조회 (매장)', path: '/shipment/view', admin: false, sys: false, hq: false, store: true, staff: false },
   { module: '반품관리', path: '/shipment/return', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '수평이동', path: '/shipment/transfer', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '출고내역', path: '/shipment/history', admin: true, sys: true, hq: true, store: true, staff: false },
   { module: '매출현황', path: '/sales/dashboard', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '매출등록', path: '/sales/entry', admin: true, sys: true, hq: true, store: true, staff: true },
-  { module: '매출 수정/삭제', path: '/sales (edit)', admin: true, sys: true, hq: true, store: '당일만', staff: false },
+  { module: '매출 수정/삭제', path: '/sales (edit/delete)', admin: true, sys: true, hq: true, store: '당일만', staff: false },
+  { module: '반품 등록', path: '/sales (return)', admin: true, sys: true, hq: true, store: '당일만', staff: false },
   { module: '아이템별 매출', path: '/sales/product-sales', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '판매분석', path: '/sales/analytics', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '판매율 분석', path: '/sales/sell-through', admin: true, sys: true, hq: true, store: true, staff: true },
   { module: '거래처별 매출', path: '/sales/partner-sales', admin: true, sys: true, hq: true, store: false, staff: false },
-  { module: '생산기획 (전체)', path: '/production', admin: true, sys: true, hq: '조회만', store: false, staff: false },
+  { module: '생산기획 (CUD)', path: '/production (edit)', admin: true, sys: true, hq: false, store: false, staff: false },
+  { module: '생산기획 (조회)', path: '/production (view)', admin: true, sys: true, hq: true, store: false, staff: false },
   { module: '원단/자재', path: '/production/materials', admin: true, sys: true, hq: '조회만', store: false, staff: false },
   { module: '자금계획', path: '/fund', admin: true, sys: false, hq: false, store: false, staff: false },
-  { module: '직원 관리', path: '/users', admin: true, sys: true, hq: true, store: true, staff: false },
-  { module: '바코드 관리', path: '/barcode', admin: true, sys: true, hq: true, store: true, staff: true },
+  { module: '직원 관리', path: '/users', admin: true, sys: true, hq: true, store: '자기매장', staff: false },
   { module: '시스템관리', path: '/system', admin: true, sys: true, hq: false, store: false, staff: false },
 ];
 
+// ════════════════════════════════════════════════════════════════════
+// 비즈니스 워크플로우 (실제 서비스 코드 기반)
+// ════════════════════════════════════════════════════════════════════
 const WORKFLOWS = [
   {
     title: '출고 워크플로우',
     icon: <ExportOutlined />,
     steps: [
-      { status: 'PENDING', label: '의뢰 등록', desc: '출고/반품/수평이동 의뢰 생성. 출발지, 도착지, 품목 지정. 재고 변동 없음' },
-      { status: 'SHIPPED', label: '출고 확인', desc: '출고 수량 입력 후 출고 처리. 출발지(from_partner) 재고 -shipped_qty 차감' },
-      { status: 'RECEIVED', label: '수령 확인', desc: '수령 수량 입력. 도착지(to_partner) 재고 +received_qty 증가' },
+      { status: 'PENDING', label: '의뢰 등록', desc: '출고/반품/수평이동 생성. from/to_partner+품목 지정. 자동채번 SR+YYMMDD+###. 재고 변동 없음' },
+      { status: 'SHIPPED', label: '출고 확인', desc: 'shipAndConfirm(): shipped_qty → from_partner -shipped_qty 차감. approved_by 기록. 단일 트랜잭션' },
+      { status: 'RECEIVED', label: '수령 확인', desc: 'receiveWithInventory(): received_qty(≤shipped 검증) → to_partner +received_qty. 단일 트랜잭션' },
     ],
-    note: '취소 시 이전 재고 변동 전부 롤백 (SHIPPED→출발지 복구, RECEIVED→출발지 복구+도착지 차감)',
+    note: 'ALLOWED_TRANSITIONS={PENDING:[SHIPPED,CANCELLED], SHIPPED:[RECEIVED,CANCELLED], RECEIVED:[CANCELLED]}. 취소→전재고롤백. tx_type매핑: 출고→SHIPMENT, 반품→RETURN, 수평이동→TRANSFER',
   },
   {
     title: '매출 워크플로우',
     icon: <LineChartOutlined />,
     steps: [
-      { status: 'CREATE', label: '매출 등록', desc: '매출일, 상품, 수량, 단가 입력. 즉시 재고 차감 (-qty)' },
-      { status: 'EDIT', label: '매출 수정', desc: '수량/단가/유형 변경. 수량 차이만큼 재고 조정. 매장매니저는 당일만 가능' },
-      { status: 'RETURN', label: '반품 등록', desc: '원본 매출 기반 반품. 반품수량 재고 복원 (+qty)' },
-      { status: 'DELETE', label: '매출 삭제', desc: '매출 삭제 시 재고 원복. 매장매니저는 당일만 가능' },
+      { status: 'CREATE', label: '매출 등록', desc: '단건/배치(트랜잭션). Math.round(qty×price). Tax-free: 10%제외. 즉시 재고차감. Advisory Lock' },
+      { status: 'EDIT', label: '매출 수정', desc: 'qtyDiff=(old-new) 재고조정. STORE_MANAGER: CURRENT_DATE 당일만. ADMIN/HQ: 무제한' },
+      { status: 'RETURN', label: '반품', desc: '원본기반(누적검증) or 직접반품. +qty복원, -total_price. memo="반품(원본#{id})"' },
+      { status: 'DELETE', label: '삭제', desc: '반품연결 검증(있으면 차단). 정상: +qty복원. 반품: -qty차감. 당일만(STORE)' },
     ],
-    note: '바코드/카메라 스캔 입력, 엑셀 일괄 업로드, Tax Free 지원',
+    note: 'Math.round() 정밀도. DB CURRENT_DATE 타임존. 바코드/카메라/엑셀 지원. GREATEST(0) 음수방지. 매장비교=자기필터',
   },
   {
     title: '재고 관리 워크플로우',
     icon: <InboxOutlined />,
     steps: [
-      { status: 'SALE', label: '판매 차감', desc: '매출 등록 시 -qty. SALE 트랜잭션 기록' },
-      { status: 'SHIPMENT', label: '출고 입고', desc: '수령 확인 시 도착지 +qty. SHIPMENT 트랜잭션' },
-      { status: 'RESTOCK', label: '재입고', desc: '재입고 수령 시 +qty. RESTOCK 트랜잭션' },
-      { status: 'ADJUST', label: '수동 조정', desc: '관리자 직접 조정. ADJUST 트랜잭션' },
-      { status: 'PRODUCTION', label: '생산 완료', desc: '생산 완료 시 본사 +qty. PRODUCTION 트랜잭션' },
+      { status: 'SALE', label: '판매', desc: 'SALE(-), SALE_EDIT(±), SALE_DELETE(±). Advisory Lock' },
+      { status: 'SHIPMENT', label: '출고/수령', desc: 'SHIPPED: from-. RECEIVED: to+. TRANSFER/SHIPMENT/RETURN' },
+      { status: 'RESTOCK', label: '재입고', desc: 'receive()전용. +received_qty. 이중방지' },
+      { status: 'ADJUST', label: '수동', desc: '±qty. audit_logs. Advisory Lock' },
+      { status: 'PRODUCTION', label: '생산완료', desc: 'HQ +produced_qty. variant_id NOT NULL 필수' },
     ],
-    note: '모든 변동은 inventory_transactions 테이블에 이력 기록. 음수 재고 허용(정확한 추적). 부족 시 경고 표시',
+    note: '핵심: applyChange() → pg_advisory_xact_lock(hash) → UPSERT inventory(GREATEST(0)) → INSERT inventory_transactions(불변). threshold 캐시 1분 TTL',
   },
   {
     title: '생산기획 워크플로우',
     icon: <ExperimentOutlined />,
     steps: [
-      { status: 'DRAFT', label: '초안 작성', desc: '수동 or 자동생성(판매율→S/A/B등급→배수×안전버퍼). CANCELLED 가능' },
-      { status: 'CONFIRMED', label: '확정', desc: 'ADMIN 전용. approved_by 기록, 자재BOM 연결. CANCELLED 가능' },
-      { status: 'IN_PRODUCTION', label: '생산 중', desc: 'start_date 자동설정. produced_qty/used_qty 실시간 업데이트' },
-      { status: 'COMPLETED', label: '완료', desc: 'end_date 자동. used_qty>0 자재차감 + variant_id NOT NULL인 아이템 HQ재고 입고' },
+      { status: 'DRAFT', label: '초안', desc: '수동/자동생성. category/fit/length/qty/cost. CANCELLED 가능' },
+      { status: 'CONFIRMED', label: '확정', desc: 'ADMIN전용. approved_by. 자재BOM. CANCELLED 가능. HQ=조회만' },
+      { status: 'IN_PRODUCTION', label: '생산중', desc: 'start_date자동. produced_qty/used_qty 실시간' },
+      { status: 'COMPLETED', label: '완료', desc: '자재차감(used>0)+HQ재고입고(variant NOT NULL)+알림. end_date' },
     ],
-    note: '권한: ADMIN=전체, HQ=조회만. 자동추천: 60일판매→시즌가중치→Grade S(≥80%,×1.5)/A(≥50%,×1.2)/B(≥30%,×1.0)→안전버퍼1.2×. 설정값 9개(master_codes)',
+    note: '자동추천: 60일판매→판매율→S(≥80%,×1.5)/A(≥50%,×1.2)/B(≥30%,×1.0)→버퍼1.2×. 설정9개(SETTING). HQ: partner_type IN (HQ,본사,직영)',
   },
   {
     title: '재입고 워크플로우',
     icon: <SyncOutlined />,
     steps: [
-      { status: 'DRAFT', label: '요청 작성', desc: 'ADMIN/HQ만 생성 (STORE_MANAGER는 조회만). 매장별 재입고 요청. 취소 가능' },
-      { status: 'APPROVED', label: '승인', desc: '본사 승인. approved_by 기록. 취소 가능' },
-      { status: 'ORDERED', label: '발주', desc: '공급처 발주 완료. ORDERED 상태에서만 수령확인 가능' },
-      { status: 'RECEIVED', label: '입고', desc: '수령수량 입력(요청의 150%까지) → 매장 재고 +received_qty. received_date 자동. 입고 후 취소해도 재고 롤백 안됨' },
+      { status: 'DRAFT', label: '요청', desc: 'ADMIN/HQ만. RS+YYMMDD+###. 품목+수량+단가' },
+      { status: 'APPROVED', label: '승인', desc: 'approved_by. 취소 가능' },
+      { status: 'ORDERED', label: '발주', desc: '공급처 발주. 이 상태에서만 수령확인 가능' },
+      { status: 'RECEIVED', label: '입고', desc: '수량검증(음수X, 150%X) → +received_qty(RESTOCK). receive()전용. received_date자동' },
     ],
-    note: 'AI 추천: 60일 판매 + 시즌가중치 + (현재고+생산중+진행중재입고) 차감 후 20% 버퍼. 긴급도: CRITICAL(재고0 또는 7일이내), WARNING(14일이내), NORMAL',
+    note: 'AI: WITH sales_60d, current_inv, in_production, pending_restocks → 속도→30일수요→시즌가중→shortage→×1.2. 긴급: CRITICAL(0/7일), WARNING(14일). pending_restocks CTE 중복방지',
+  },
+  {
+    title: '재고요청 알림 플로우',
+    icon: <ThunderboltOutlined />,
+    steps: [
+      { status: 'PENDING', label: '요청', desc: '매장A→B. variant_id+수량. stock_notifications' },
+      { status: 'READ', label: '읽음', desc: 'B 확인. PENDING→READ' },
+      { status: 'RESOLVED', label: '승인+이동', desc: 'process: 승인 + TRANSFER shipment 자동생성. 동일건 PENDING 자동취소' },
+    ],
+    note: 'createNotification(): 출고변경/생산완료/재입고에서 비동기호출(실패무시). general_notifications에 type별 기록',
   },
 ];
 
+// ════════════════════════════════════════════════════════════════════
+// API 엔드포인트 전체 (실제 라우트 파일 기반)
+// ════════════════════════════════════════════════════════════════════
 const API_ENDPOINTS = [
   { module: '인증', endpoints: [
-    { method: 'POST', path: '/api/auth/login', desc: '로그인 (JWT access+refresh)' },
-    { method: 'POST', path: '/api/auth/refresh', desc: '토큰 갱신' },
-    { method: 'POST', path: '/api/auth/logout', desc: '로그아웃' },
-    { method: 'GET', path: '/api/auth/me', desc: '현재 사용자 정보' },
+    { method: 'POST', path: '/api/auth/login', desc: '로그인 → JWT access(2h)+refresh(7일). bcrypt' },
+    { method: 'POST', path: '/api/auth/refresh', desc: '토큰갱신. SHA256비교, 이전삭제(단일사용)' },
+    { method: 'POST', path: '/api/auth/logout', desc: '로그아웃. refresh DB삭제' },
+    { method: 'GET', path: '/api/auth/me', desc: '현재 사용자' },
   ]},
   { module: '거래처', endpoints: [
-    { method: 'GET', path: '/api/partners', desc: '목록 조회 (페이징)' },
-    { method: 'GET', path: '/api/partners/:code', desc: '상세 조회' },
+    { method: 'GET', path: '/api/partners', desc: '목록 (ILIKE, type필터, 페이징)' },
+    { method: 'GET', path: '/api/partners/:code', desc: '상세' },
     { method: 'POST', path: '/api/partners', desc: '등록 (ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/partners/:code', desc: '수정 (ADMIN/HQ)' },
-    { method: 'DELETE', path: '/api/partners/:code', desc: '삭제 (소프트, ADMIN/HQ)' },
+    { method: 'PUT', path: '/api/partners/:code', desc: '수정' },
+    { method: 'DELETE', path: '/api/partners/:code', desc: '삭제 (is_active=false)' },
   ]},
   { module: '직원', endpoints: [
     { method: 'GET', path: '/api/users/roles', desc: '역할 목록' },
-    { method: 'GET', path: '/api/users', desc: '직원 목록 (매장매니저: 자기매장만)' },
-    { method: 'GET', path: '/api/users/:id', desc: '직원 상세' },
-    { method: 'POST', path: '/api/users', desc: '직원 등록' },
-    { method: 'PUT', path: '/api/users/:id', desc: '직원 수정' },
-    { method: 'DELETE', path: '/api/users/:id', desc: '직원 삭제' },
+    { method: 'GET', path: '/api/users', desc: '목록 (STORE: 자기매장필터)' },
+    { method: 'POST', path: '/api/users', desc: '등록 (bcrypt 해싱)' },
+    { method: 'PUT', path: '/api/users/:id', desc: '수정' },
+    { method: 'DELETE', path: '/api/users/:id', desc: '삭제' },
   ]},
   { module: '마스터코드', endpoints: [
-    { method: 'GET', path: '/api/codes', desc: '전체 코드 조회 (타입별 그룹핑)' },
-    { method: 'GET', path: '/api/codes/:type', desc: '특정 타입 코드 조회' },
-    { method: 'POST', path: '/api/codes', desc: '코드 등록 (ADMIN/SYS)' },
-    { method: 'PUT', path: '/api/codes/:id', desc: '코드 수정 (ADMIN/SYS)' },
-    { method: 'DELETE', path: '/api/codes/:id', desc: '코드 삭제 (ADMIN)' },
+    { method: 'GET', path: '/api/codes', desc: '전체 (type별 그룹핑)' },
+    { method: 'GET', path: '/api/codes/:type', desc: '타입별' },
+    { method: 'POST', path: '/api/codes', desc: '등록 (ADMIN/SYS)' },
+    { method: 'PUT', path: '/api/codes/:id', desc: '수정' },
+    { method: 'DELETE', path: '/api/codes/:id', desc: '삭제' },
   ]},
-  { module: '상품', endpoints: [
-    { method: 'GET', path: '/api/products', desc: '목록 (variants+총재고 포함)' },
-    { method: 'GET', path: '/api/products/:code', desc: '상세 + 옵션 목록' },
-    { method: 'POST', path: '/api/products', desc: '등록 (옵션 포함, ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/products/:code', desc: '수정 (ADMIN/HQ)' },
-    { method: 'DELETE', path: '/api/products/:code', desc: '삭제 (소프트, ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/products/:code/image', desc: '이미지 업로드 (ADMIN/HQ)' },
-    { method: 'GET', path: '/api/products/variants/search', desc: 'SKU/바코드/색상/사이즈 검색' },
-    { method: 'POST', path: '/api/products/:code/variants', desc: '옵션 추가 (ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/products/:code/variants/:id', desc: '옵션 수정 (ADMIN/HQ)' },
-    { method: 'DELETE', path: '/api/products/:code/variants/:id', desc: '옵션 삭제 (ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/products/variants/:id/barcode', desc: '바코드 등록/수정' },
-    { method: 'PUT', path: '/api/products/variants/:id/alert', desc: '부족알림 ON/OFF' },
-    { method: 'PUT', path: '/api/products/:code/event-price', desc: '행사가 설정 (ADMIN/HQ)' },
-    { method: 'GET', path: '/api/products/events', desc: '행사상품 조회' },
-    { method: 'GET', path: '/api/products/events/recommendations', desc: '행사추천 (깨진사이즈+저판매)' },
-    { method: 'PUT', path: '/api/products/events/bulk', desc: '행사가 일괄변경 (ADMIN/HQ)' },
-    { method: 'GET', path: '/api/products/barcode-dashboard', desc: '바코드 통계 대시보드' },
-    { method: 'GET', path: '/api/products/excel/template', desc: '엑셀 템플릿 다운로드' },
-    { method: 'POST', path: '/api/products/excel/upload', desc: '엑셀 일괄등록 (ADMIN/HQ)' },
+  { module: '상품 (19개)', endpoints: [
+    { method: 'GET', path: '/api/products', desc: '목록 (variants JOIN, 총재고, 필터)' },
+    { method: 'GET', path: '/api/products/:code', desc: '상세+옵션+재고' },
+    { method: 'POST', path: '/api/products', desc: '등록 (SKU 자동생성)' },
+    { method: 'PUT', path: '/api/products/:code', desc: '수정' },
+    { method: 'DELETE', path: '/api/products/:code', desc: '삭제' },
+    { method: 'POST', path: '/api/products/:code/image', desc: '이미지(Multer 5MB)' },
+    { method: 'GET', path: '/api/products/variants/search', desc: 'SKU/바코드 검색' },
+    { method: 'POST', path: '/api/products/:code/variants', desc: '옵션 추가' },
+    { method: 'PUT', path: '/api/products/:code/variants/:id', desc: '옵션 수정' },
+    { method: 'DELETE', path: '/api/products/:code/variants/:id', desc: '옵션 삭제' },
+    { method: 'PUT', path: '/api/products/variants/:id/barcode', desc: '바코드' },
+    { method: 'PUT', path: '/api/products/variants/:id/alert', desc: '알림ON/OFF' },
+    { method: 'PUT', path: '/api/products/:code/event-price', desc: '행사가(audit_logs)' },
+    { method: 'GET', path: '/api/products/events', desc: '행사상품' },
+    { method: 'GET', path: '/api/products/events/recommendations', desc: '행사추천' },
+    { method: 'PUT', path: '/api/products/events/bulk', desc: '행사가 일괄' },
+    { method: 'GET', path: '/api/products/barcode-dashboard', desc: '바코드 통계' },
+    { method: 'GET', path: '/api/products/excel/template', desc: '엑셀 템플릿' },
+    { method: 'POST', path: '/api/products/excel/upload', desc: '엑셀 일괄등록' },
   ]},
-  { module: '출고', endpoints: [
-    { method: 'GET', path: '/api/shipments', desc: '목록 (매장 자동필터)' },
-    { method: 'GET', path: '/api/shipments/:id', desc: '상세 (품목 포함)' },
-    { method: 'POST', path: '/api/shipments', desc: '의뢰 등록 (출고/반품/수평이동)' },
-    { method: 'PUT', path: '/api/shipments/:id', desc: '수정/상태변경' },
-    { method: 'DELETE', path: '/api/shipments/:id', desc: '삭제 (PENDING만)' },
-    { method: 'PUT', path: '/api/shipments/:id/shipped-qty', desc: '출고수량 입력 → SHIPPED + 재고차감' },
-    { method: 'PUT', path: '/api/shipments/:id/receive', desc: '수령확인 → RECEIVED + 재고증가' },
+  { module: '출고 (9개)', endpoints: [
+    { method: 'GET', path: '/api/shipments', desc: '목록 (매장:자동필터)' },
+    { method: 'GET', path: '/api/shipments/:id', desc: '상세(품목JOIN)' },
+    { method: 'POST', path: '/api/shipments', desc: '의뢰(SR+YYMMDD+###)' },
+    { method: 'PUT', path: '/api/shipments/:id', desc: '수정/상태(updateWithInventory)' },
+    { method: 'DELETE', path: '/api/shipments/:id', desc: '삭제(PENDING만)' },
+    { method: 'PUT', path: '/api/shipments/:id/shipped-qty', desc: '출고확인→SHIPPED+재고-' },
+    { method: 'PUT', path: '/api/shipments/:id/receive', desc: '수령→RECEIVED+재고+' },
     { method: 'GET', path: '/api/shipments/excel/template', desc: '엑셀 템플릿' },
-    { method: 'POST', path: '/api/shipments/excel/upload', desc: '엑셀 일괄등록' },
+    { method: 'POST', path: '/api/shipments/excel/upload', desc: '엑셀 일괄' },
   ]},
-  { module: '재고', endpoints: [
-    { method: 'GET', path: '/api/inventory', desc: '목록 조회 (매장 자동필터)' },
-    { method: 'GET', path: '/api/inventory/:id', desc: '단건 조회' },
-    { method: 'GET', path: '/api/inventory/dashboard-stats', desc: '대시보드 KPI (총수량/품목/품절)' },
-    { method: 'GET', path: '/api/inventory/warehouse', desc: '창고(본사) 재고' },
-    { method: 'GET', path: '/api/inventory/reorder-alerts', desc: '리오더 알림 (임계값 기반)' },
-    { method: 'GET', path: '/api/inventory/search-item', desc: '재고찾기 (상품별 매장별 재고)' },
-    { method: 'GET', path: '/api/inventory/search-suggest', desc: '검색 자동완성' },
-    { method: 'GET', path: '/api/inventory/summary/by-season', desc: '시즌별 재고 요약' },
-    { method: 'GET', path: '/api/inventory/by-season/:season', desc: '시즌별 아이템 목록' },
-    { method: 'GET', path: '/api/inventory/by-product/:code', desc: '상품별 매장 재고' },
-    { method: 'GET', path: '/api/inventory/transactions', desc: '변동 이력' },
-    { method: 'POST', path: '/api/inventory/adjust', desc: '수동 조정 (ADMIN/HQ)' },
+  { module: '재고 (11개)', endpoints: [
+    { method: 'GET', path: '/api/inventory', desc: '목록(필터)' },
+    { method: 'GET', path: '/api/inventory/dashboard-stats', desc: 'KPI' },
+    { method: 'GET', path: '/api/inventory/warehouse', desc: '본사재고' },
+    { method: 'GET', path: '/api/inventory/reorder-alerts', desc: '재주문알림' },
+    { method: 'GET', path: '/api/inventory/search-item', desc: '재고검색' },
+    { method: 'GET', path: '/api/inventory/search-suggest', desc: '자동완성' },
+    { method: 'GET', path: '/api/inventory/by-product/:code', desc: '상품별매장재고' },
+    { method: 'GET', path: '/api/inventory/by-season/:season', desc: '시즌별' },
+    { method: 'GET', path: '/api/inventory/summary/by-season', desc: '시즌요약' },
+    { method: 'GET', path: '/api/inventory/transactions', desc: '변동이력(불변)' },
+    { method: 'POST', path: '/api/inventory/adjust', desc: '수동조정(Lock+audit)' },
   ]},
-  { module: '매출', endpoints: [
-    { method: 'GET', path: '/api/sales', desc: '목록 조회' },
-    { method: 'POST', path: '/api/sales', desc: '단건 등록 + 재고차감' },
-    { method: 'POST', path: '/api/sales/batch', desc: '다건 등록 (트랜잭션)' },
-    { method: 'PUT', path: '/api/sales/:id', desc: '수정 (매장: 당일만)' },
-    { method: 'DELETE', path: '/api/sales/:id', desc: '삭제 + 재고복원 (반품 검증, 매장: 당일만)' },
-    { method: 'POST', path: '/api/sales/:id/return', desc: '반품 (원본 매출 기반)' },
-    { method: 'POST', path: '/api/sales/direct-return', desc: '직접 반품 (매장 고객용)' },
-    { method: 'GET', path: '/api/sales/scan', desc: '바코드/SKU 스캔 상품 조회' },
-    { method: 'GET', path: '/api/sales/dashboard-stats', desc: '매출현황 KPI (오늘/주간/월간)' },
-    { method: 'GET', path: '/api/sales/monthly-sales', desc: '월별 매출 추이' },
-    { method: 'GET', path: '/api/sales/style-analytics', desc: '스타일별 분석 (전년대비)' },
-    { method: 'GET', path: '/api/sales/year-comparison', desc: '연도별 매출 비교' },
-    { method: 'GET', path: '/api/sales/style-by-range', desc: '기간별 스타일 판매현황' },
-    { method: 'GET', path: '/api/sales/product-variant-sales', desc: '상품별 컬러/사이즈 상세' },
-    { method: 'GET', path: '/api/sales/products-by-range', desc: '기간별 상품 매출' },
-    { method: 'GET', path: '/api/sales/by-product/:code', desc: '상품별 판매이력' },
-    { method: 'GET', path: '/api/sales/sell-through', desc: '판매율 분석' },
-    { method: 'GET', path: '/api/sales/drop-analysis', desc: '드랍 분석 (출시일 기준)' },
-    { method: 'GET', path: '/api/sales/comprehensive', desc: '종합 매출조회' },
-    { method: 'GET', path: '/api/sales/store-comparison', desc: '매장별 성과 비교' },
+  { module: '매출 (22개)', endpoints: [
+    { method: 'GET', path: '/api/sales', desc: '목록(4-table JOIN)' },
+    { method: 'POST', path: '/api/sales', desc: '단건+재고-' },
+    { method: 'POST', path: '/api/sales/batch', desc: '배치(트랜잭션)' },
+    { method: 'PUT', path: '/api/sales/:id', desc: '수정(당일검증)' },
+    { method: 'DELETE', path: '/api/sales/:id', desc: '삭제(반품검증)' },
+    { method: 'POST', path: '/api/sales/:id/return', desc: '원본반품(누적검증)' },
+    { method: 'POST', path: '/api/sales/direct-return', desc: '직접반품' },
+    { method: 'GET', path: '/api/sales/scan', desc: '바코드스캔' },
+    { method: 'GET', path: '/api/sales/dashboard-stats', desc: '매출KPI' },
+    { method: 'GET', path: '/api/sales/monthly-sales', desc: '월별추이' },
+    { method: 'GET', path: '/api/sales/style-analytics', desc: '스타일(전년대비)' },
+    { method: 'GET', path: '/api/sales/year-comparison', desc: '연도비교' },
+    { method: 'GET', path: '/api/sales/style-by-range', desc: '기간별스타일' },
+    { method: 'GET', path: '/api/sales/product-variant-sales', desc: '컬러×사이즈' },
+    { method: 'GET', path: '/api/sales/products-by-range', desc: '기간별상품' },
+    { method: 'GET', path: '/api/sales/by-product/:code', desc: '상품별이력' },
+    { method: 'GET', path: '/api/sales/sell-through', desc: '판매율' },
+    { method: 'GET', path: '/api/sales/drop-analysis', desc: '드랍분석' },
+    { method: 'GET', path: '/api/sales/comprehensive', desc: '종합조회' },
+    { method: 'GET', path: '/api/sales/store-comparison', desc: '매장비교(자기필터)' },
     { method: 'GET', path: '/api/sales/excel/template', desc: '엑셀 템플릿' },
-    { method: 'POST', path: '/api/sales/excel/upload', desc: '엑셀 매출 일괄등록' },
+    { method: 'POST', path: '/api/sales/excel/upload', desc: '엑셀 일괄' },
   ]},
-  { module: '생산', endpoints: [
-    { method: 'GET', path: '/api/productions', desc: '계획 목록 (ADMIN+HQ)' },
-    { method: 'GET', path: '/api/productions/:id', desc: '계획 상세 (품목+자재)' },
-    { method: 'POST', path: '/api/productions', desc: '계획 생성 (ADMIN)' },
-    { method: 'PUT', path: '/api/productions/:id', desc: '계획 수정 (ADMIN)' },
-    { method: 'DELETE', path: '/api/productions/:id', desc: '계획 삭제 (ADMIN)' },
-    { method: 'GET', path: '/api/productions/dashboard', desc: '대시보드 KPI' },
-    { method: 'GET', path: '/api/productions/generate-no', desc: '자동 채번' },
-    { method: 'GET', path: '/api/productions/recommendations', desc: '권장 품목 (60일+시즌가중치)' },
-    { method: 'GET', path: '/api/productions/category-stats', desc: '카테고리별 수요-공급 현황' },
-    { method: 'GET', path: '/api/productions/category-stats/:cat/sub', desc: '세부 카테고리 통계' },
-    { method: 'GET', path: '/api/productions/product-variants/:code', desc: '상품별 변형 판매상세' },
-    { method: 'GET', path: '/api/productions/auto-generate/preview', desc: '자동생성 미리보기' },
-    { method: 'POST', path: '/api/productions/auto-generate', desc: '자동 생성 (ADMIN)' },
-    { method: 'PUT', path: '/api/productions/:id/status', desc: '상태 변경 (ADMIN)' },
-    { method: 'PUT', path: '/api/productions/:id/produced-qty', desc: '생산수량 업데이트' },
-    { method: 'PUT', path: '/api/productions/:id/materials', desc: '자재 소요량 저장' },
+  { module: '생산 (16개)', endpoints: [
+    { method: 'GET', path: '/api/productions', desc: '목록(ADMIN+HQ)' },
+    { method: 'GET', path: '/api/productions/:id', desc: '상세(품목+자재)' },
+    { method: 'POST', path: '/api/productions', desc: '생성(ADMIN)' },
+    { method: 'PUT', path: '/api/productions/:id', desc: '수정(ADMIN)' },
+    { method: 'DELETE', path: '/api/productions/:id', desc: '삭제(ADMIN)' },
+    { method: 'GET', path: '/api/productions/dashboard', desc: 'KPI' },
+    { method: 'GET', path: '/api/productions/generate-no', desc: '자동채번' },
+    { method: 'GET', path: '/api/productions/recommendations', desc: '권장품목' },
+    { method: 'GET', path: '/api/productions/category-stats', desc: '카테고리수요-공급' },
+    { method: 'GET', path: '/api/productions/category-stats/:cat/sub', desc: '세부카테고리' },
+    { method: 'GET', path: '/api/productions/product-variants/:code', desc: '상품변형' },
+    { method: 'GET', path: '/api/productions/auto-generate/preview', desc: '미리보기' },
+    { method: 'POST', path: '/api/productions/auto-generate', desc: '자동DRAFT' },
+    { method: 'PUT', path: '/api/productions/:id/status', desc: '상태변경' },
+    { method: 'PUT', path: '/api/productions/:id/produced-qty', desc: '생산수량' },
+    { method: 'PUT', path: '/api/productions/:id/materials', desc: '자재BOM' },
   ]},
-  { module: '재입고', endpoints: [
-    { method: 'GET', path: '/api/restocks', desc: '요청 목록' },
-    { method: 'GET', path: '/api/restocks/:id', desc: '요청 상세' },
-    { method: 'POST', path: '/api/restocks', desc: '요청 등록 (ADMIN/HQ)' },
-    { method: 'PUT', path: '/api/restocks/:id', desc: '요청 수정 (ADMIN/HQ)' },
-    { method: 'DELETE', path: '/api/restocks/:id', desc: '요청 삭제 (ADMIN/HQ)' },
-    { method: 'GET', path: '/api/restocks/generate-no', desc: '자동 채번' },
-    { method: 'GET', path: '/api/restocks/suggestions', desc: 'AI 재입고 추천' },
-    { method: 'GET', path: '/api/restocks/selling-velocity', desc: '판매속도 분석' },
-    { method: 'GET', path: '/api/restocks/progress-stats', desc: '진행 통계' },
-    { method: 'PUT', path: '/api/restocks/:id/receive', desc: '입고처리 + 재고증가 (ADMIN/HQ)' },
+  { module: '재입고 (10개)', endpoints: [
+    { method: 'GET', path: '/api/restocks', desc: '목록' },
+    { method: 'GET', path: '/api/restocks/:id', desc: '상세' },
+    { method: 'POST', path: '/api/restocks', desc: '생성(ADMIN/HQ)' },
+    { method: 'PUT', path: '/api/restocks/:id', desc: '수정/상태' },
+    { method: 'DELETE', path: '/api/restocks/:id', desc: '삭제' },
+    { method: 'GET', path: '/api/restocks/generate-no', desc: '자동채번' },
+    { method: 'GET', path: '/api/restocks/suggestions', desc: 'AI제안(4CTE)' },
+    { method: 'GET', path: '/api/restocks/selling-velocity', desc: '판매속도' },
+    { method: 'GET', path: '/api/restocks/progress-stats', desc: '진행통계' },
+    { method: 'PUT', path: '/api/restocks/:id/receive', desc: '입고(검증+재고+)' },
   ]},
-  { module: '자재', endpoints: [
-    { method: 'GET', path: '/api/materials', desc: '자재 목록 (ADMIN)' },
-    { method: 'GET', path: '/api/materials/:id', desc: '자재 상세' },
-    { method: 'POST', path: '/api/materials', desc: '자재 등록' },
-    { method: 'PUT', path: '/api/materials/:id', desc: '자재 수정' },
-    { method: 'DELETE', path: '/api/materials/:id', desc: '자재 삭제' },
-    { method: 'GET', path: '/api/materials/generate-code', desc: '자동 코드 생성 (MAT+####)' },
-    { method: 'GET', path: '/api/materials/low-stock', desc: '부족 자재 알림' },
-    { method: 'GET', path: '/api/materials/summary', desc: '자재 사용 요약' },
-    { method: 'PUT', path: '/api/materials/:id/adjust-stock', desc: '자재 재고 조정' },
+  { module: '자재 (9개)', endpoints: [
+    { method: 'GET', path: '/api/materials', desc: '목록' },
+    { method: 'POST', path: '/api/materials', desc: '등록(MAT+####)' },
+    { method: 'PUT', path: '/api/materials/:id', desc: '수정' },
+    { method: 'DELETE', path: '/api/materials/:id', desc: '삭제' },
+    { method: 'GET', path: '/api/materials/generate-code', desc: '코드생성' },
+    { method: 'GET', path: '/api/materials/low-stock', desc: '부족알림' },
+    { method: 'GET', path: '/api/materials/summary', desc: '사용요약' },
+    { method: 'PUT', path: '/api/materials/:id/adjust-stock', desc: '재고조정' },
+    { method: 'GET', path: '/api/materials/:id', desc: '상세' },
   ]},
-  { module: '자금', endpoints: [
-    { method: 'GET', path: '/api/funds', desc: '연간 계획 조회 (ADMIN)' },
-    { method: 'GET', path: '/api/funds/summary', desc: '월별 계획 vs 실적 요약' },
-    { method: 'GET', path: '/api/funds/categories', desc: '카테고리 조회' },
-    { method: 'POST', path: '/api/funds/categories', desc: '카테고리 생성' },
-    { method: 'PUT', path: '/api/funds/categories/:id', desc: '카테고리 수정' },
-    { method: 'DELETE', path: '/api/funds/categories/:id', desc: '카테고리 삭제' },
-    { method: 'POST', path: '/api/funds', desc: '단건 등록' },
-    { method: 'POST', path: '/api/funds/batch', desc: '일괄 등록/수정' },
+  { module: '자금 (10개)', endpoints: [
+    { method: 'GET', path: '/api/funds', desc: '연간계획(ADMIN)' },
+    { method: 'GET', path: '/api/funds/summary', desc: '월별 계획vs실적' },
+    { method: 'GET', path: '/api/funds/categories', desc: '카테고리계층' },
+    { method: 'POST', path: '/api/funds/categories', desc: '카테고리생성' },
+    { method: 'PUT', path: '/api/funds/categories/:id', desc: '카테고리수정' },
+    { method: 'DELETE', path: '/api/funds/categories/:id', desc: '카테고리삭제' },
+    { method: 'POST', path: '/api/funds', desc: '단건' },
+    { method: 'POST', path: '/api/funds/batch', desc: '일괄' },
     { method: 'DELETE', path: '/api/funds/:id', desc: '삭제' },
-    { method: 'GET', path: '/api/funds/production-costs', desc: '생산비용 자동계산' },
+    { method: 'GET', path: '/api/funds/production-costs', desc: '생산원가' },
   ]},
-  { module: '알림', endpoints: [
-    { method: 'GET', path: '/api/notifications', desc: '재고요청 알림 조회 (PENDING)' },
-    { method: 'GET', path: '/api/notifications/count', desc: '미읽은 알림 수' },
-    { method: 'GET', path: '/api/notifications/general', desc: '일반 알림 (출고/생산 등)' },
-    { method: 'GET', path: '/api/notifications/my-pending-requests', desc: '내가 보낸 대기중 요청' },
-    { method: 'POST', path: '/api/notifications/stock-request', desc: '타 매장 재고 요청 발송' },
-    { method: 'PUT', path: '/api/notifications/:id/read', desc: '알림 읽음 처리' },
-    { method: 'PUT', path: '/api/notifications/:id/resolve', desc: '승인 + 중복 자동취소' },
-    { method: 'PUT', path: '/api/notifications/:id/process', desc: '처리 + 수평이동 자동생성' },
+  { module: '알림 (8개)', endpoints: [
+    { method: 'GET', path: '/api/notifications', desc: '재고요청(PENDING/READ)' },
+    { method: 'GET', path: '/api/notifications/count', desc: '미읽은수' },
+    { method: 'GET', path: '/api/notifications/general', desc: '일반알림' },
+    { method: 'GET', path: '/api/notifications/my-pending-requests', desc: '내 대기요청' },
+    { method: 'POST', path: '/api/notifications/stock-request', desc: '재고요청발송' },
+    { method: 'PUT', path: '/api/notifications/:id/read', desc: '읽음' },
+    { method: 'PUT', path: '/api/notifications/:id/resolve', desc: '승인+중복취소' },
+    { method: 'PUT', path: '/api/notifications/:id/process', desc: '승인+수평이동생성' },
   ]},
   { module: '대시보드', endpoints: [
-    { method: 'GET', path: '/api/dashboard/stats', desc: '통합 대시보드 (역할별 필터링)' },
+    { method: 'GET', path: '/api/dashboard/stats', desc: '통합KPI(역할필터)' },
   ]},
-  { module: '시스템', endpoints: [
-    { method: 'GET', path: '/api/system/audit-logs', desc: '감사 로그 (ADMIN/SYS)' },
-    { method: 'GET', path: '/api/system/deleted-data', desc: '삭제 데이터 (ADMIN/SYS)' },
-    { method: 'POST', path: '/api/system/restore', desc: '데이터 복원 (ADMIN/SYS)' },
-    { method: 'GET', path: '/api/system/settings', desc: '설정 조회 (ADMIN/SYS)' },
-    { method: 'PUT', path: '/api/system/settings', desc: '설정 변경 (ADMIN/SYS)' },
+  { module: '시스템 (5개)', endpoints: [
+    { method: 'GET', path: '/api/system/audit-logs', desc: '감사로그' },
+    { method: 'GET', path: '/api/system/deleted-data', desc: '삭제데이터' },
+    { method: 'POST', path: '/api/system/restore', desc: '복원(old_data→INSERT)' },
+    { method: 'GET', path: '/api/system/settings', desc: '설정(SETTING타입)' },
+    { method: 'PUT', path: '/api/system/settings', desc: '설정변경' },
   ]},
 ];
 
+// ════════════════════════════════════════════════════════════════════
+// DB 테이블 (실제 DB 검증)
+// ════════════════════════════════════════════════════════════════════
 const DB_TABLES = [
   { group: '핵심', tables: [
-    { name: 'users', desc: '사용자 계정 (ID, 비밀번호, 역할, 소속매장)' },
-    { name: 'role_groups', desc: '역할 정의 (ADMIN, SYS_ADMIN, HQ_MANAGER, STORE_MANAGER, STORE_STAFF)' },
-    { name: 'partners', desc: '거래처/매장 (본사, 대리점, 직영점, 백화점, 아울렛, 온라인)' },
-    { name: 'master_codes', desc: '마스터 코드 (카테고리, 브랜드, 시즌, 컬러, 사이즈 등)' },
+    { name: 'users', desc: 'user_id PK, bcrypt password_hash, role_group FK, partner_code FK' },
+    { name: 'role_groups', desc: '5역할: ADMIN, SYS_ADMIN, HQ_MANAGER, STORE_MANAGER, STORE_STAFF' },
+    { name: 'refresh_tokens', desc: 'SHA256 token_hash, expires_at, user_id FK' },
+    { name: 'partners', desc: 'partner_code PK, type: HQ/직영/가맹/온라인/대리점/백화점/아울렛' },
+    { name: 'master_codes', desc: '11 code_type, parent_code 자기참조. SETTING=시스템설정값' },
   ]},
   { group: '상품', tables: [
-    { name: 'products', desc: '상품 마스터 (품번, 카테고리, 가격, 판매상태)' },
-    { name: 'product_variants', desc: '상품 옵션 (컬러/사이즈별 SKU, 바코드)' },
+    { name: 'products', desc: 'product_code PK, 가격3단계(base/discount/event), sale_status 4종' },
+    { name: 'product_variants', desc: 'variant_id PK, sku UNIQUE, barcode UNIQUE, color/size, alert_enabled' },
   ]},
   { group: '재고', tables: [
-    { name: 'inventory', desc: '현재고 (매장별 × 옵션별 수량)' },
-    { name: 'inventory_transactions', desc: '재고 변동 이력 (불변 감사 로그)' },
+    { name: 'inventory', desc: 'partner_code×variant_id UNIQUE, qty. Advisory Lock 동시성' },
+    { name: 'inventory_transactions', desc: 'tx_type 9종, 불변 로그. qty_change/qty_after' },
   ]},
   { group: '출고', tables: [
-    { name: 'shipment_requests', desc: '출고 의뢰 (출고/반품/수평이동)' },
-    { name: 'shipment_request_items', desc: '출고 품목 (요청/출고/수령 수량)' },
+    { name: 'shipment_requests', desc: 'request_no SR+YYMMDD+###, status 4종, from/to_partner' },
+    { name: 'shipment_request_items', desc: 'request_qty/shipped_qty/received_qty' },
   ]},
   { group: '매출', tables: [
-    { name: 'sales', desc: '매출 기록 (일자, 매장, 상품, 수량, 금액, 유형)' },
+    { name: 'sales', desc: 'sale_type 4종, tax_free, total_price=Math.round(qty×price)' },
   ]},
   { group: '재입고', tables: [
-    { name: 'restock_requests', desc: '재입고 요청 헤더' },
-    { name: 'restock_request_items', desc: '재입고 품목' },
+    { name: 'restock_requests', desc: 'request_no RS+YYMMDD+###, status 5종, received_date' },
+    { name: 'restock_request_items', desc: 'request_qty, received_qty, unit_cost' },
   ]},
   { group: '생산', tables: [
-    { name: 'production_plans', desc: '생산 계획 (시즌, 일정, 상태)' },
-    { name: 'production_plan_items', desc: '생산 품목 (카테고리/품번별 수량)' },
-    { name: 'production_material_usage', desc: '자재 사용량' },
-    { name: 'materials', desc: '원단/자재 마스터 (코드, 재고, 공급처)' },
+    { name: 'production_plans', desc: 'plan_no PP+YYMMDD+###, status 5종, start/end_date' },
+    { name: 'production_plan_items', desc: 'category/fit/length, product_code nullable, plan/produced_qty' },
+    { name: 'production_material_usage', desc: 'required_qty, used_qty' },
+    { name: 'materials', desc: 'material_code MAT+####, type 3종(FABRIC/ACC/PKG), stock/min_stock' },
   ]},
   { group: '기타', tables: [
-    { name: 'stock_notifications', desc: '재고 요청 알림' },
-    { name: 'general_notifications', desc: '시스템 알림' },
-    { name: 'fund_categories', desc: '자금 카테고리' },
-    { name: 'fund_plans', desc: '자금 계획' },
-    { name: 'audit_logs', desc: '감사 로그 (전체 변경 이력)' },
-    { name: 'refresh_tokens', desc: '인증 토큰' },
+    { name: 'stock_notifications', desc: '재고요청: from/to_partner, status 4종' },
+    { name: 'general_notifications', desc: '시스템알림: type(SHIPMENT/PRODUCTION/RESTOCK/SYSTEM)' },
+    { name: 'fund_categories', desc: '3단계 계층, auto_source' },
+    { name: 'fund_plans', desc: 'plan_year/month, plan/actual_amount' },
+    { name: 'audit_logs', desc: 'Hard DELETE 복원기반, old/new_data JSONB' },
   ]},
 ];
 
@@ -376,27 +398,24 @@ export default function SystemOverviewPage() {
   }, []);
 
   useEffect(() => { loadStats(); }, [loadStats]);
-
-  // 자동 갱신 (60초)
   useEffect(() => {
     const interval = setInterval(loadStats, 60000);
     return () => clearInterval(interval);
   }, [loadStats]);
 
   const roleColumns = [
-    { title: '모듈', dataIndex: 'module', key: 'module', width: 150, fixed: 'left' as const },
-    { title: '경로', dataIndex: 'path', key: 'path', width: 180, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
-    { title: 'ADMIN', dataIndex: 'admin', key: 'admin', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
-    { title: 'SYS', dataIndex: 'sys', key: 'sys', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
-    { title: 'HQ', dataIndex: 'hq', key: 'hq', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
-    { title: 'STORE', dataIndex: 'store', key: 'store', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
-    { title: 'STAFF', dataIndex: 'staff', key: 'staff', width: 80, align: 'center' as const,
-      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} /> : v === '당일만' ? <Tag color="orange" style={{ fontSize: 10 }}>당일</Tag> : v === '조회만' ? <Tag color="cyan" style={{ fontSize: 10 }}>조회</Tag> : <span style={{ color: '#d9d9d9' }}>-</span> },
+    { title: '모듈', dataIndex: 'module', key: 'module', width: 170, fixed: 'left' as const },
+    { title: '경로', dataIndex: 'path', key: 'path', width: 190, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
+    ...['admin', 'sys', 'hq', 'store', 'staff'].map(role => ({
+      title: { admin: 'ADMIN', sys: 'SYS', hq: 'HQ', store: 'STORE', staff: 'STAFF' }[role],
+      dataIndex: role, key: role, width: 80, align: 'center' as const,
+      render: (v: boolean | string) => v === true ? <CheckCircleOutlined style={{ color: '#52c41a' }} />
+        : typeof v === 'string' ? <Tag color="orange" style={{ fontSize: 10 }}>{v}</Tag>
+        : <span style={{ color: '#d9d9d9' }}>-</span>,
+    })),
   ];
+
+  const totalEndpoints = API_ENDPOINTS.reduce((a, g) => a + g.endpoints.length, 0);
 
   return (
     <div>
@@ -409,10 +428,9 @@ export default function SystemOverviewPage() {
         </Space>
       } />
 
-      <Alert message="이 페이지는 60초마다 자동으로 갱신됩니다. 전체 ERP 시스템의 실시간 현황과 비즈니스 로직을 문서화합니다."
-        type="info" showIcon style={{ marginBottom: 16 }} />
+      <Alert message="60초 자동갱신. 실제 코드 기반 전체 비즈니스 로직 문서. 15모듈, 130+API, 23테이블, 6워크플로우." type="info" showIcon style={{ marginBottom: 16 }} />
 
-      {/* ──── 1. 실시간 시스템 현황 ──── */}
+      {/* 실시간 시스템 현황 */}
       <Card title={<><DatabaseOutlined /> 실시간 시스템 현황</>} style={{ marginBottom: 16 }} size="small">
         <Spin spinning={loading}>
           {stats && (
@@ -440,59 +458,52 @@ export default function SystemOverviewPage() {
       </Card>
 
       <Collapse defaultActiveKey={['roles']} items={[
-        /* ──── 2. 역할별 접근 권한 ──── */
         {
           key: 'roles',
-          label: <><SafetyCertificateOutlined /> 역할별 접근 권한 매트릭스</>,
+          label: <><SafetyCertificateOutlined /> 역할별 접근 권한 매트릭스 ({ROLE_MATRIX.length}개 기능)</>,
           children: (
             <div>
               <Descriptions bordered size="small" column={5} style={{ marginBottom: 16 }}>
-                <Descriptions.Item label="ADMIN (마스터)">전체 시스템 관리, 모든 기능 접근</Descriptions.Item>
-                <Descriptions.Item label="SYS_ADMIN (부마스터)">시스템 설정, 감사로그 관리</Descriptions.Item>
-                <Descriptions.Item label="HQ_MANAGER (본사)">본사 업무 관리, 다중 매장 관리</Descriptions.Item>
-                <Descriptions.Item label="STORE_MANAGER (매장)">단일 매장 운영, 직원 관리. 매출 수정/삭제는 당일만</Descriptions.Item>
-                <Descriptions.Item label="STORE_STAFF (직원)">매출 등록, 상품 조회 등 기본 업무</Descriptions.Item>
+                <Descriptions.Item label="ADMIN">전체 마스터 + 자금계획</Descriptions.Item>
+                <Descriptions.Item label="SYS_ADMIN">시스템설정/감사로그/삭제복원</Descriptions.Item>
+                <Descriptions.Item label="HQ_MANAGER">본사 총괄. 생산=조회만</Descriptions.Item>
+                <Descriptions.Item label="STORE_MANAGER">단일매장. 매출 당일만 수정</Descriptions.Item>
+                <Descriptions.Item label="STORE_STAFF">매출 등록+조회만</Descriptions.Item>
               </Descriptions>
-              <Table columns={roleColumns} dataSource={ROLE_MATRIX} rowKey="module"
-                size="small" pagination={false} scroll={{ x: 800 }} />
+              <Table columns={roleColumns} dataSource={ROLE_MATRIX} rowKey="module" size="small" pagination={false} scroll={{ x: 900 }} />
             </div>
           ),
         },
-
-        /* ──── 3. 비즈니스 워크플로우 ──── */
         {
           key: 'workflows',
-          label: <><BranchesOutlined /> 비즈니스 워크플로우</>,
+          label: <><BranchesOutlined /> 비즈니스 워크플로우 ({WORKFLOWS.length}개, 상태기계+재고연동)</>,
           children: (
             <Row gutter={[16, 16]}>
               {WORKFLOWS.map((wf) => (
                 <Col span={12} key={wf.title}>
                   <Card title={<Space>{wf.icon}<span>{wf.title}</span></Space>} size="small">
                     <Timeline items={wf.steps.map((step) => ({
-                      color: step.status === 'COMPLETED' || step.status === 'RECEIVED' ? 'green'
+                      color: step.status === 'COMPLETED' || step.status === 'RECEIVED' || step.status === 'RESOLVED' ? 'green'
                         : step.status === 'CANCELLED' || step.status === 'DELETE' ? 'red'
-                        : step.status === 'PENDING' || step.status === 'DRAFT' || step.status === 'CREATE' ? 'gray'
-                        : 'blue',
+                        : step.status === 'PENDING' || step.status === 'DRAFT' || step.status === 'CREATE' ? 'gray' : 'blue',
                       children: (
                         <div>
                           <Text strong>{step.label}</Text>
                           <Tag style={{ marginLeft: 8, fontSize: 10 }}>{step.status}</Tag>
-                          <br /><Text type="secondary" style={{ fontSize: 12 }}>{step.desc}</Text>
+                          <br /><Text type="secondary" style={{ fontSize: 11 }}>{step.desc}</Text>
                         </div>
                       ),
                     }))} />
-                    {wf.note && <Alert message={wf.note} type="info" showIcon style={{ fontSize: 12 }} />}
+                    {wf.note && <Alert message={<span style={{ fontSize: 11 }}>{wf.note}</span>} type="info" showIcon />}
                   </Card>
                 </Col>
               ))}
             </Row>
           ),
         },
-
-        /* ──── 4. API 엔드포인트 ──── */
         {
           key: 'api',
-          label: <><ApiOutlined /> API 엔드포인트 목록</>,
+          label: <><ApiOutlined /> API 엔드포인트 ({totalEndpoints}개, {API_ENDPOINTS.length}모듈)</>,
           children: (
             <div>
               {API_ENDPOINTS.map((group) => (
@@ -500,21 +511,19 @@ export default function SystemOverviewPage() {
                   <Title level={5} style={{ margin: '0 0 8px' }}>{group.module}</Title>
                   <Table size="small" dataSource={group.endpoints} rowKey="path" pagination={false}
                     columns={[
-                      { title: 'Method', dataIndex: 'method', width: 80,
+                      { title: 'Method', dataIndex: 'method', width: 70,
                         render: (v: string) => <Tag color={{ GET: 'green', POST: 'blue', PUT: 'orange', DELETE: 'red' }[v]}>{v}</Tag> },
-                      { title: 'Path', dataIndex: 'path', render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
-                      { title: '설명', dataIndex: 'desc' },
+                      { title: 'Path', dataIndex: 'path', width: 330, render: (v: string) => <Text code style={{ fontSize: 10 }}>{v}</Text> },
+                      { title: '설명', dataIndex: 'desc', render: (v: string) => <span style={{ fontSize: 12 }}>{v}</span> },
                     ]} />
                 </div>
               ))}
             </div>
           ),
         },
-
-        /* ──── 5. 데이터베이스 테이블 ──── */
         {
           key: 'db',
-          label: <><DatabaseOutlined /> 데이터베이스 스키마</>,
+          label: <><DatabaseOutlined /> 데이터베이스 스키마 (23테이블, DB검증)</>,
           children: (
             <Row gutter={[16, 16]}>
               {DB_TABLES.map((group) => (
@@ -532,183 +541,153 @@ export default function SystemOverviewPage() {
             </Row>
           ),
         },
-
-        /* ──── 6. 재고 트랜잭션 유형 ──── */
         {
           key: 'inventory-types',
-          label: <><InboxOutlined /> 재고 트랜잭션 유형</>,
+          label: <><InboxOutlined /> 재고 트랜잭션 유형 (9종)</>,
           children: (
             <Table size="small" pagination={false} rowKey="type"
               dataSource={[
-                { type: 'SALE', source: '매출 등록', effect: '-qty', desc: '판매 시 재고 차감. 배치/단건 모두 동일' },
-                { type: 'SALE_EDIT', source: '매출 수정', effect: '±qty', desc: 'qtyDiff = old_qty - new_qty. 양수면 복원, 음수면 추가 차감' },
-                { type: 'SALE_DELETE', source: '매출 삭제', effect: '±qty', desc: '정상매출 삭제: +qty(복원). 반품매출 삭제: -qty(반품 취소)' },
-                { type: 'RETURN', source: '반품 등록', effect: '+qty', desc: '반품 시 재고 복원' },
-                { type: 'SHIPMENT', source: '출고확인/수령확인', effect: '±qty', desc: 'SHIPPED: 출발지 -shipped_qty / RECEIVED: 도착지 +received_qty' },
-                { type: 'TRANSFER', source: '수평이동', effect: '±qty', desc: '출발지 -, 도착지 +' },
-                { type: 'RESTOCK', source: '재입고 수령', effect: '+qty', desc: '재입고 시 해당 매장 재고 증가' },
-                { type: 'PRODUCTION', source: '생산 완료', effect: '+qty (본사)', desc: '완제품 본사 재고 추가' },
-                { type: 'ADJUST', source: '수동 조정', effect: '±qty', desc: '관리자 직접 재고 조정' },
+                { type: 'SALE', source: '매출등록', effect: '-qty', desc: '판매차감. Advisory Lock. GREATEST(0) 음수방지' },
+                { type: 'SALE_EDIT', source: '매출수정', effect: '±qty', desc: 'qtyDiff=old-new. 양수=복원, 음수=추가차감' },
+                { type: 'SALE_DELETE', source: '매출삭제', effect: '±qty', desc: '정상삭제: +복원. 반품삭제: -차감' },
+                { type: 'RETURN', source: '반품', effect: '+qty', desc: '재고복원. 원본/직접 반품 모두' },
+                { type: 'SHIPMENT', source: '출고/수령', effect: '±qty', desc: 'SHIPPED: from-. RECEIVED: to+' },
+                { type: 'TRANSFER', source: '수평이동', effect: '±qty', desc: 'from-, to+' },
+                { type: 'RESTOCK', source: '재입고수령', effect: '+qty', desc: 'receive()전용. 이중방지' },
+                { type: 'PRODUCTION', source: '생산완료', effect: '+qty', desc: 'HQ재고. variant NOT NULL' },
+                { type: 'ADJUST', source: '수동조정', effect: '±qty', desc: '관리자. audit_logs. Lock' },
               ]}
               columns={[
                 { title: '유형', dataIndex: 'type', width: 120, render: (v: string) => <Tag color="blue">{v}</Tag> },
-                { title: '발생 원인', dataIndex: 'source', width: 140 },
-                { title: '재고 변동', dataIndex: 'effect', width: 120, render: (v: string) => <Text strong style={{ color: v.startsWith('+') ? '#52c41a' : v.startsWith('-') ? '#ff4d4f' : '#faad14' }}>{v}</Text> },
-                { title: '설명', dataIndex: 'desc' },
+                { title: '발생', dataIndex: 'source', width: 100 },
+                { title: '변동', dataIndex: 'effect', width: 80, render: (v: string) => <Text strong style={{ color: v.startsWith('+') ? '#52c41a' : v.startsWith('-') ? '#ff4d4f' : '#faad14' }}>{v}</Text> },
+                { title: '상세', dataIndex: 'desc' },
               ]} />
           ),
         },
-
-        /* ──── 7. 비즈니스 규칙 ──── */
         {
           key: 'rules',
           label: <><FileTextOutlined /> 비즈니스 규칙 & 제약조건</>,
           children: (
             <div>
-              <Title level={5}>매출 관련</Title>
-              <ul style={{ fontSize: 13 }}>
-                <li><Text strong>매장 매니저 수정 제한:</Text> 매출일 기준 당일만 수정/삭제/반품 가능. 하루 지나면 서버에서 403 차단</li>
-                <li><Text strong>ADMIN/HQ_MANAGER:</Text> 날짜 제한 없이 수정/삭제 가능</li>
-                <li><Text strong>STORE_STAFF:</Text> 매출 등록만 가능, 수정/삭제/반품 불가</li>
-                <li><Text strong>재고 부족 시:</Text> 경고 표시하되 판매 차단하지 않음. 음수 재고 허용 (정확한 추적 목적, GREATEST(0) 제거됨)</li>
-                <li><Text strong>Tax Free:</Text> 면세 시 단가에서 부가세(10%) 자동 제외</li>
-                <li><Text strong>반품:</Text> 원본 매출 수량 이하만 반품 가능. total_price는 음수로 기록. 직접반품(direct-return)도 지원</li>
-                <li><Text strong>삭제 보호:</Text> 연결된 반품이 있으면 삭제 차단 (반품 먼저 삭제 필요)</li>
-                <li><Text strong>금액 정밀도:</Text> total_price = Math.round(qty × unit_price)로 부동소수점 오차 방지</li>
-                <li><Text strong>당일 판단:</Text> DB CURRENT_DATE 기준 비교 (서버 타임존 일관성)</li>
+              <Title level={5}>보안 & 인증</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>JWT:</Text> Access 2h + Refresh 7일(SHA256 해시, 단일사용). bcrypt 10rounds</li>
+                <li><Text strong>Rate Limit:</Text> 전역 200/min, 로그인 10/15min, 토큰갱신 30/15min</li>
+                <li><Text strong>동시성:</Text> pg_advisory_xact_lock(hash(partner:variant)). 트랜잭션 종료 시 자동해제</li>
+                <li><Text strong>캐싱:</Text> threshold 값 1분 인메모리 TTL</li>
               </ul>
-
               <Divider />
-              <Title level={5}>출고 관련</Title>
-              <ul style={{ fontSize: 13 }}>
-                <li><Text strong>SHIPPED 시:</Text> 출발지(from_partner) 재고 -shipped_qty 차감</li>
-                <li><Text strong>RECEIVED 시:</Text> 도착지(to_partner) 재고 +received_qty 증가</li>
-                <li><Text strong>취소(CANCELLED):</Text> 이전 재고 변동 전부 롤백 — SHIPPED 상태 취소 시 출발지 복구, RECEIVED 상태 취소 시 출발지 복구 + 도착지 차감</li>
-                <li><Text strong>삭제:</Text> PENDING 상태에서만 삭제 가능</li>
-                <li><Text strong>매장 매니저:</Text> 출고조회 페이지에서 조회만 가능 (수정/삭제 불가)</li>
+              <Title level={5}>매출</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>당일만:</Text> STORE_MANAGER sale_date::date=CURRENT_DATE. ADMIN/HQ 무제한. STAFF 등록만</li>
+                <li><Text strong>삭제보호:</Text> 연결반품 있으면 차단. 반품누적검증: SUM+요청≤원본</li>
+                <li><Text strong>금액:</Text> Math.round(qty×price). Tax-free: 10%제외. 재고: GREATEST(0) 음수방지</li>
+                <li><Text strong>매장비교:</Text> STORE 사용자 자기 partner_code 자동필터</li>
               </ul>
-
               <Divider />
-              <Title level={5}>생산 관련</Title>
-              <ul style={{ fontSize: 13 }}>
-                <li><Text strong>권한 구분:</Text> ADMIN=생성/수정/삭제/상태변경, HQ_MANAGER=조회만</li>
-                <li><Text strong>완료 시 자동 처리:</Text> ①used_qty{'>'} 0인 자재만 차감(GREATEST(0)) ②variant_id NOT NULL + produced_qty{'>'} 0인 아이템만 HQ 재고 입고 ③알림 자동 생성</li>
-                <li><Text strong>본사 파트너:</Text> partner_type IN ('HQ','본사','직영')으로 자동 조회, 없으면 'HQ' 기본값</li>
-                <li><Text strong>자동 생성:</Text> 60일 판매→판매율→Grade S(≥80%,×1.5)/A(≥50%,×1.2)/B(≥30%,×1.0)→안전버퍼1.2×→카테고리별 DRAFT 생성</li>
-                <li><Text strong>미리보기:</Text> auto-generate/preview API로 저장 없이 결과 확인 가능</li>
-                <li><Text strong>설정값 9개:</Text> AUTO_PROD_GRADE_S/A/B_MIN, _MULT, SAFETY_BUFFER (master_codes SETTING 타입)</li>
-                <li><Text strong>상태 전이:</Text> DRAFT→CONFIRMED→IN_PRODUCTION→COMPLETED. DRAFT/CONFIRMED에서 CANCELLED 가능. COMPLETED/CANCELLED는 변경 불가</li>
+              <Title level={5}>출고</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>상태:</Text> PENDING→[SHIPPED,CANCELLED], SHIPPED→[RECEIVED,CANCELLED], RECEIVED→[CANCELLED]</li>
+                <li><Text strong>재고:</Text> SHIPPED=from-, RECEIVED=to+. CANCELLED=전롤백. tx_type매핑</li>
               </ul>
-
               <Divider />
-              <Title level={5}>재입고 관련</Title>
-              <ul style={{ fontSize: 13 }}>
-                <li><Text strong>AI 추천:</Text> 60일 판매속도, 판매율, 시즌가중치 분석하여 적정 수량 제안</li>
-                <li><Text strong>중복 방지:</Text> 진행중(DRAFT/APPROVED/ORDERED) 재입고 수량을 자동 차감하여 중복 제안 방지</li>
-                <li><Text strong>수량 검증:</Text> 수령 수량 음수 불가, 요청수량 150% 초과 불가</li>
-                <li><Text strong>이중 재고 방지:</Text> 재고 증가는 receive() 메서드에서만 처리 (updateWithInventory와 이중 적용 방지)</li>
-                <li><Text strong>긴급도:</Text> CRITICAL (재고 0 또는 7일 이내 소진), WARNING (14일 이내), NORMAL</li>
-                <li><Text strong>입고 시:</Text> ORDERED→RECEIVED 전환 + 해당 매장 재고 즉시 반영. 입고 후 취소해도 재고 롤백 안됨</li>
-                <li><Text strong>권한:</Text> ADMIN/HQ만 생성·수정·수령. STORE_MANAGER는 조회만 가능</li>
-                <li><Text strong>제안 공식:</Text> suggested_qty = (30일수요 × 시즌가중치 - 현재고 - 생산중 - 진행중재입고) × 1.2</li>
+              <Title level={5}>생산</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>권한:</Text> ADMIN=전체, HQ=조회만. 상태: DRAFT→CONFIRMED→IN_PRODUCTION→COMPLETED/CANCELLED</li>
+                <li><Text strong>완료:</Text> 자재차감(used{'>'} 0)+HQ재고입고(variant NOT NULL)+알림. 설정9개(SETTING)</li>
+                <li><Text strong>자동추천:</Text> 60일→판매율→S/A/B등급→×배수→안전버퍼1.2×</li>
               </ul>
-
               <Divider />
-              <Title level={5}>시스템 공통</Title>
-              <ul style={{ fontSize: 13 }}>
-                <li><Text strong>삭제 방식:</Text> Soft DELETE (is_active = FALSE). 삭제데이터 조회에서 is_active=FALSE 레코드로 복원. 출고 의뢰만 Hard DELETE (PENDING 상태)</li>
-                <li><Text strong>감사 로그:</Text> 주요 변경사항 수동 기록 (행사가 변경, 재고 조정 등). 전체 자동 기록은 미구현</li>
-                <li><Text strong>인증:</Text> JWT Access Token(2시간) + Refresh Token(7일, SHA256 해시 저장, 단일 사용)</li>
-                <li><Text strong>Rate Limit:</Text> 전역 200req/min, 로그인 10회/15분, 토큰갱신 30회/15분</li>
-                <li><Text strong>페이지네이션:</Text> 기본 50건/페이지, 테이블 size="small"</li>
+              <Title level={5}>재입고</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>이중방지:</Text> 재고증가=receive()전용. updateWithInventory=날짜만</li>
+                <li><Text strong>검증:</Text> 음수불가, 150%초과불가. pending_restocks CTE 중복방지</li>
+                <li><Text strong>제안:</Text> shortage=(30일수요×시즌-현재고-생산중-진행중)×1.2. 긴급: CRITICAL/WARNING/NORMAL</li>
+              </ul>
+              <Divider />
+              <Title level={5}>시스템</Title>
+              <ul style={{ fontSize: 12 }}>
+                <li><Text strong>삭제:</Text> Hard DELETE. audit_logs old_data JSONB 기반 복원</li>
+                <li><Text strong>감사:</Text> 주요 변경만 수동 기록(행사가, 재고조정). 전체 자동=미구현</li>
+                <li><Text strong>응답:</Text> {'{ success, data/error, total }'}. asyncHandler 래퍼. 에러=한국어</li>
               </ul>
             </div>
           ),
         },
-
-        /* ──── 8. 개발 환경 ──── */
         {
           key: 'dev',
-          label: <><SettingOutlined /> 개발 환경 정보</>,
+          label: <><SettingOutlined /> 개발 환경</>,
           children: (
             <div>
               <Descriptions bordered size="small" column={2}>
-                <Descriptions.Item label="프론트엔드">React + TypeScript + Ant Design + Vite</Descriptions.Item>
-                <Descriptions.Item label="백엔드">Express + TypeScript + PostgreSQL</Descriptions.Item>
-                <Descriptions.Item label="인증">JWT (Access + Refresh Token)</Descriptions.Item>
-                <Descriptions.Item label="ORM">Raw SQL (pg pool)</Descriptions.Item>
-                <Descriptions.Item label="상태관리">Zustand</Descriptions.Item>
-                <Descriptions.Item label="차트">Recharts / Ant Charts</Descriptions.Item>
+                <Descriptions.Item label="프론트엔드">React 18 + TypeScript + Ant Design 5 + Vite</Descriptions.Item>
+                <Descriptions.Item label="백엔드">Express + TypeScript + PostgreSQL (Raw SQL)</Descriptions.Item>
+                <Descriptions.Item label="상태관리">Zustand (9개 스토어)</Descriptions.Item>
+                <Descriptions.Item label="DB">Render PostgreSQL (Singapore, SSL, pool max 10)</Descriptions.Item>
               </Descriptions>
-
               <Divider />
-              <Title level={5}>개발 포트 & 자동 로그인</Title>
               <Table size="small" pagination={false} rowKey="port"
                 dataSource={[
-                  { port: 5172, user: 'admin', role: 'ADMIN', desc: '마스터 계정' },
-                  { port: 5173, user: 'hq_manager', role: 'HQ_MANAGER', desc: '본사 매니저' },
-                  { port: 5174, user: 'gangnam', role: 'STORE_MANAGER', desc: '강남점 매장매니저' },
-                  { port: 5175, user: 'daegu', role: 'STORE_MANAGER', desc: '대구점 매장매니저' },
+                  { port: 5172, user: 'admin', role: 'ADMIN', desc: '마스터' },
+                  { port: 5173, user: 'hq_manager', role: 'HQ_MANAGER', desc: '본사' },
+                  { port: 5174, user: 'gangnam', role: 'STORE_MANAGER', desc: '강남점' },
+                  { port: 5175, user: 'daegu', role: 'STORE_MANAGER', desc: '대구점' },
                 ]}
                 columns={[
                   { title: '포트', dataIndex: 'port', width: 80 },
-                  { title: '계정', dataIndex: 'user', width: 120 },
+                  { title: '계정', dataIndex: 'user', width: 120, render: (v: string) => <Text code>{v}</Text> },
                   { title: '역할', dataIndex: 'role', width: 140, render: (v: string) => <Tag>{v}</Tag> },
                   { title: '설명', dataIndex: 'desc' },
                 ]} />
             </div>
           ),
         },
-
-        /* ──── 9. 페이지 목록 ──── */
         {
           key: 'pages',
-          label: <><TeamOutlined /> 전체 페이지 목록</>,
+          label: <><TeamOutlined /> 전체 페이지 목록 (36+)</>,
           children: (
             <Table size="small" pagination={false} rowKey="path"
               dataSource={[
-                { path: '/', name: '대시보드', module: '공통', roles: '전체' },
-                { path: '/barcode', name: '바코드 관리', module: '바코드', roles: '전체' },
-                { path: '/codes', name: '마스터관리', module: '마스터', roles: 'ADMIN, HQ' },
-                { path: '/partners', name: '거래처 관리', module: '거래처', roles: 'ADMIN, HQ' },
-                { path: '/products', name: '상품 관리', module: '상품', roles: 'ADMIN, HQ' },
-                { path: '/products/:code', name: '상품 상세', module: '상품', roles: '전체' },
-                { path: '/products/events', name: '행사 상품', module: '상품', roles: 'ADMIN, HQ, STORE' },
-                { path: '/inventory/status', name: '재고현황', module: '재고', roles: 'ADMIN, HQ, STORE' },
-                { path: '/inventory/my-store', name: '내 매장 재고', module: '재고', roles: 'STORE' },
-                { path: '/inventory/warehouse', name: '창고 재고', module: '재고', roles: 'STORE' },
-                { path: '/inventory/store', name: '매장별 재고', module: '재고', roles: 'ADMIN, HQ' },
-                { path: '/inventory/adjust', name: '재고조정', module: '재고', roles: 'ADMIN, HQ' },
-                { path: '/inventory/restock', name: '재입고 관리', module: '재입고', roles: 'ADMIN, HQ' },
-                { path: '/inventory/restock-progress', name: '재입고 진행', module: '재입고', roles: 'ADMIN, HQ' },
-                { path: '/shipment/request', name: '출고의뢰', module: '출고', roles: 'ADMIN, HQ, STORE' },
-                { path: '/shipment/view', name: '출고조회', module: '출고', roles: 'STORE' },
-                { path: '/shipment/return', name: '반품관리', module: '출고', roles: 'ADMIN, HQ, STORE' },
-                { path: '/shipment/transfer', name: '수평이동', module: '출고', roles: 'ADMIN, HQ, STORE' },
-                { path: '/shipment/history', name: '출고내역', module: '출고', roles: 'ADMIN, HQ, STORE' },
-                { path: '/sales/dashboard', name: '매출현황', module: '매출', roles: 'ADMIN, HQ' },
-                { path: '/sales/entry', name: '매출등록', module: '매출', roles: '전체' },
-                { path: '/sales/product-sales', name: '아이템별 매출', module: '매출', roles: '전체' },
-                { path: '/sales/partner-sales', name: '거래처별 매출', module: '매출', roles: 'ADMIN, HQ' },
-                { path: '/sales/analytics', name: '판매분석', module: '매출', roles: '전체' },
-                { path: '/sales/sell-through', name: '판매율 분석', module: '매출', roles: '전체' },
-                { path: '/production', name: '생산 대시보드', module: '생산', roles: 'ADMIN, HQ' },
-                { path: '/production/plans', name: '생산계획', module: '생산', roles: 'ADMIN, HQ' },
-                { path: '/production/progress', name: '생산진행', module: '생산', roles: 'ADMIN, HQ' },
-                { path: '/production/materials', name: '원단/자재', module: '생산', roles: 'ADMIN, HQ' },
-                { path: '/fund', name: '자금계획', module: '자금', roles: 'ADMIN' },
-                { path: '/users', name: '직원 관리', module: '사용자', roles: 'ADMIN, HQ, STORE' },
-                { path: '/system/settings', name: '시스템 설정', module: '시스템', roles: 'ADMIN, SYS' },
-                { path: '/system/data-upload', name: '데이터 올리기', module: '시스템', roles: 'ADMIN, SYS' },
-                { path: '/system/deleted-data', name: '삭제데이터 조회', module: '시스템', roles: 'ADMIN, SYS' },
-                { path: '/system/overview', name: '시스템 현황', module: '시스템', roles: 'ADMIN, SYS' },
-                { path: '/test1', name: 'ERP 로직 정리', module: '시스템', roles: 'ADMIN, SYS' },
+                { path: '/', name: '대시보드', roles: '전체' },
+                { path: '/barcode', name: '바코드', roles: '전체' },
+                { path: '/codes', name: '마스터관리', roles: 'ADMIN/SYS/HQ' },
+                { path: '/partners', name: '거래처', roles: 'ADMIN/HQ(STORE:조회)' },
+                { path: '/products', name: '상품관리', roles: 'CUD:ADMIN/HQ' },
+                { path: '/products/events', name: '행사상품', roles: 'ADMIN/HQ/STORE' },
+                { path: '/inventory/status', name: '재고현황', roles: 'ADMIN/HQ/STORE' },
+                { path: '/inventory/my-store', name: '내매장재고', roles: 'STORE' },
+                { path: '/inventory/warehouse', name: '창고재고', roles: 'STORE' },
+                { path: '/inventory/store', name: '매장별재고', roles: 'ADMIN/HQ' },
+                { path: '/inventory/adjust', name: '재고조정', roles: 'ADMIN/HQ' },
+                { path: '/inventory/restock', name: '재입고', roles: 'ADMIN/HQ' },
+                { path: '/shipment/request', name: '출고의뢰', roles: 'ADMIN/HQ/STORE' },
+                { path: '/shipment/view', name: '출고조회', roles: 'STORE' },
+                { path: '/shipment/return', name: '반품', roles: 'ADMIN/HQ/STORE' },
+                { path: '/shipment/transfer', name: '수평이동', roles: 'ADMIN/HQ/STORE' },
+                { path: '/shipment/history', name: '출고내역', roles: 'ADMIN/HQ/STORE' },
+                { path: '/sales/dashboard', name: '매출현황', roles: 'ADMIN/HQ' },
+                { path: '/sales/entry', name: '매출등록', roles: '전체' },
+                { path: '/sales/product-sales', name: '아이템매출', roles: '전체' },
+                { path: '/sales/analytics', name: '판매분석', roles: '전체' },
+                { path: '/sales/sell-through', name: '판매율', roles: '전체' },
+                { path: '/sales/partner-sales', name: '거래처매출', roles: 'ADMIN/HQ' },
+                { path: '/production', name: '생산대시보드', roles: 'ADMIN/HQ(조회)' },
+                { path: '/production/plans', name: '생산계획', roles: 'ADMIN/HQ(조회)' },
+                { path: '/production/progress', name: '생산진행', roles: 'ADMIN/HQ' },
+                { path: '/production/materials', name: '자재', roles: 'ADMIN/HQ(조회)' },
+                { path: '/fund', name: '자금계획', roles: 'ADMIN' },
+                { path: '/users', name: '직원', roles: 'ADMIN/HQ/STORE(자기)' },
+                { path: '/system/settings', name: '시스템설정', roles: 'ADMIN/SYS' },
+                { path: '/system/overview', name: '시스템현황', roles: 'ADMIN/SYS' },
+                { path: '/system/data-upload', name: '데이터업로드', roles: 'ADMIN/SYS' },
+                { path: '/system/deleted-data', name: '삭제복원', roles: 'ADMIN/SYS' },
+                { path: '/test1', name: 'ERP로직정리', roles: 'ADMIN/SYS' },
               ]}
               columns={[
-                { title: '경로', dataIndex: 'path', width: 200, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
-                { title: '페이지명', dataIndex: 'name', width: 140 },
-                { title: '모듈', dataIndex: 'module', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-                { title: '접근 권한', dataIndex: 'roles' },
+                { title: '경로', dataIndex: 'path', width: 210, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
+                { title: '페이지', dataIndex: 'name', width: 120 },
+                { title: '권한', dataIndex: 'roles' },
               ]} />
           ),
         },

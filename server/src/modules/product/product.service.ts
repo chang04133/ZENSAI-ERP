@@ -31,12 +31,12 @@ class ProductService extends BaseService<Product> {
     return productRepository.listEventProducts(options);
   }
 
-  async updateEventPrice(code: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null) {
-    return productRepository.updateEventPrice(code, eventPrice, startDate, endDate);
+  async updateEventPrice(code: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null, storeCodes?: string[] | null) {
+    return productRepository.updateEventPrice(code, eventPrice, startDate, endDate, storeCodes);
   }
 
-  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>) {
-    return productRepository.bulkUpdateEventPrices(updates);
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) {
+    return productRepository.bulkUpdateEventPrices(updates, storeCodes);
   }
 
   async eventRecommendations(options: { category?: string; limit?: number }) {

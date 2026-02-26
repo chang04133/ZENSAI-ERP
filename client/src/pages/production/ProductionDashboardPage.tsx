@@ -205,29 +205,6 @@ export default function ProductionDashboardPage() {
         </Button>
       </div>
 
-      {/* Status Cards */}
-      <Row gutter={[16, 16]}>
-        {[
-          { key: 'DRAFT', label: '초안', icon: <ClockCircleOutlined />, bg: '#f0f0f0', color: '#666' },
-          { key: 'CONFIRMED', label: '확정', icon: <CheckCircleOutlined />, bg: '#e6f7ff', color: '#1890ff' },
-          { key: 'IN_PRODUCTION', label: '생산중', icon: <SyncOutlined spin />, bg: '#fff7e6', color: '#fa8c16' },
-          { key: 'COMPLETED', label: '완료', icon: <FileDoneOutlined />, bg: '#f6ffed', color: '#52c41a' },
-        ].map((s) => (
-          <Col xs={12} sm={6} key={s.key}>
-            <Card size="small" style={{ borderRadius: 10, background: s.bg, border: 'none' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ fontSize: 28, color: s.color }}>{s.icon}</div>
-                <div>
-                  <div style={{ fontSize: 12, color: '#888' }}>{s.label}</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: s.color }}>{getCount(s.key)}건</div>
-                  <div style={{ fontSize: 11, color: '#aaa' }}>{Number(getQty(s.key)).toLocaleString()}개</div>
-                </div>
-              </div>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
       {/* 카테고리별 재고 현황 */}
       {categoryStats.length > 0 && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

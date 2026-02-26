@@ -121,6 +121,12 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       res.status(400).json({ success: false, error: '출고수량 품목이 없습니다.' });
       return;
     }
+    for (const item of items) {
+      if (!Number.isFinite(Number(item.shipped_qty)) || Number(item.shipped_qty) < 0) {
+        res.status(400).json({ success: false, error: '출고수량은 0 이상의 숫자여야 합니다.' });
+        return;
+      }
+    }
     const result = await shipmentService.shipAndConfirm(requestId, items, req.user!.userId);
     if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });

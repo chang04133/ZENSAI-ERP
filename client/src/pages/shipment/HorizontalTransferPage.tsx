@@ -137,8 +137,7 @@ export default function HorizontalTransferPage() {
       const sItems = (shipTarget as any).items.map((item: any) => ({
         variant_id: item.variant_id, shipped_qty: shippedQtys[item.variant_id] || 0,
       }));
-      await shipmentApi.updateShippedQty(shipTarget.request_id, sItems);
-      await shipmentApi.update(shipTarget.request_id, { status: 'SHIPPED' });
+      await shipmentApi.shipConfirm(shipTarget.request_id, sItems);
       message.success('출고 확인이 완료되었습니다. 재고가 차감됩니다.');
       setShipModalOpen(false); setShipTarget(null); load();
     } catch (e: any) { message.error(e.message); }

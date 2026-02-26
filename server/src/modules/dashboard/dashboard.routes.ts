@@ -96,6 +96,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON i.partner_code = pt.partner_code
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
+        AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         AND i.qty <= $${lowStockThresholdIdx} AND i.qty >= 0 ${lowStockPcFilter}
       ORDER BY i.qty ASC LIMIT 10
     `, lowStockParams),

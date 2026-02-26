@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input, Switch } from 'antd';
 import type { InputRef } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined, CameraOutlined } from '@ant-design/icons';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined, CameraOutlined, SwapOutlined } from '@ant-design/icons';
 import BarcodeScanner from '../../components/BarcodeScanner';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
@@ -16,6 +16,16 @@ const SALE_TYPE_OPTIONS = [
   { label: '정상', value: '정상' },
   { label: '할인', value: '할인' },
   { label: '행사', value: '행사' },
+];
+
+const RETURN_REASON_OPTIONS = [
+  { label: '사이즈 불일치', value: 'SIZE' },
+  { label: '색상 불일치', value: 'COLOR' },
+  { label: '불량/하자', value: 'DEFECT' },
+  { label: '고객 변심', value: 'CHANGE_MIND' },
+  { label: '파손/오염', value: 'DAMAGE' },
+  { label: '오배송', value: 'WRONG_ITEM' },
+  { label: '기타', value: 'OTHER' },
 ];
 
 
@@ -110,6 +120,16 @@ export default function SalesEntryPage() {
   const [directReturnScanning, setDirectReturnScanning] = useState(false);
   const [directReturnSearchResults, setDirectReturnSearchResults] = useState<any[]>([]);
   const directReturnBarcodeRef = useRef<InputRef>(null);
+
+  // 교환 모달 상태
+  const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
+  const [exchangeRecord, setExchangeRecord] = useState<any>(null);
+  const [exchangeReturnReason, setExchangeReturnReason] = useState('');
+  const [exchangeNewVariant, setExchangeNewVariant] = useState<any>(null);
+  const [exchangeNewQty, setExchangeNewQty] = useState(1);
+  const [exchangeNewPrice, setExchangeNewPrice] = useState(0);
+  const [exchangeSearchResults, setExchangeSearchResults] = useState<any[]>([]);
+  const [exchangeSubmitting, setExchangeSubmitting] = useState(false);
 
   const load = async (p?: number) => {
     const currentPage = p ?? page;
@@ -327,9 +347,10 @@ export default function SalesEntryPage() {
   // 반품 저장
   const handleReturnSubmit = async () => {
     if (!returnRecord) return;
+    if (!returnReason) { message.error('반품 사유를 선택해주세요'); return; }
     setReturnSubmitting(true);
     try {
-      await salesApi.createReturn(returnRecord.sale_id, { qty: returnQty, reason: returnReason });
+      await salesApi.createReturn(returnRecord.sale_id, { qty: returnQty, reason: '', return_reason: returnReason });
       message.success(`${returnQty}개 반품이 등록되었습니다.`);
       setReturnModalOpen(false);
       load();
@@ -381,19 +402,59 @@ export default function SalesEntryPage() {
   const handleDirectReturnSubmit = async () => {
     if (!directReturnProduct) { message.error('반품할 상품을 선택해주세요'); return; }
     if (directReturnQty <= 0) { message.error('반품 수량을 입력해주세요'); return; }
+    if (!directReturnReason) { message.error('반품 사유를 선택해주세요'); return; }
     setDirectReturnSubmitting(true);
     try {
       await salesApi.createDirectReturn({
         variant_id: directReturnProduct.variant_id,
         qty: directReturnQty,
         unit_price: directReturnProduct.base_price || 0,
-        reason: directReturnReason || undefined,
+        reason: '',
+        return_reason: directReturnReason,
       });
       message.success(`${directReturnQty}개 반품이 등록되었습니다.`);
       setDirectReturnOpen(false);
       load();
     } catch (e: any) { message.error(e.message); }
     finally { setDirectReturnSubmitting(false); }
+  };
+
+  // 교환 모달 열기
+  const openExchangeModal = (record: any) => {
+    setExchangeRecord(record);
+    setExchangeReturnReason('');
+    setExchangeNewVariant(null);
+    setExchangeNewQty(1);
+    setExchangeNewPrice(0);
+    setExchangeSearchResults([]);
+    setExchangeModalOpen(true);
+  };
+
+  const handleExchangeSearch = async (value: string) => {
+    if (value.length >= 2) {
+      try {
+        const results = await productApi.searchVariants(value);
+        setExchangeSearchResults(results);
+      } catch (e: any) { message.error('검색 실패: ' + e.message); }
+    }
+  };
+
+  const handleExchangeSubmit = async () => {
+    if (!exchangeRecord || !exchangeNewVariant) { message.error('교환 상품을 선택해주세요'); return; }
+    if (!exchangeReturnReason) { message.error('교환 사유를 선택해주세요'); return; }
+    setExchangeSubmitting(true);
+    try {
+      await salesApi.createExchange(exchangeRecord.sale_id, {
+        new_variant_id: exchangeNewVariant.variant_id,
+        new_qty: exchangeNewQty,
+        new_unit_price: exchangeNewPrice,
+        return_reason: exchangeReturnReason,
+      });
+      message.success('교환이 처리되었습니다.');
+      setExchangeModalOpen(false);
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setExchangeSubmitting(false); }
   };
 
   const handleExcelUpload = async (file: File) => {
@@ -448,6 +509,13 @@ export default function SalesEntryPage() {
     { title: '면세', dataIndex: 'tax_free', key: 'tax_free', width: 50,
       render: (v: boolean) => v ? <span style={{ color: '#389e0d', fontSize: 12 }}>면세</span> : null,
     },
+    { title: '반품사유', dataIndex: 'return_reason', key: 'return_reason', width: 90,
+      render: (v: string) => {
+        if (!v) return null;
+        const label = RETURN_REASON_OPTIONS.find(o => o.value === v)?.label || v;
+        return <span style={{ fontSize: 12, color: '#722ed1' }}>{label}</span>;
+      },
+    },
     { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, ellipsis: true,
       render: (v: string | null) => v ? <span style={{ fontSize: 12, color: '#888' }}>{v}</span> : null,
     },
@@ -468,6 +536,7 @@ export default function SalesEntryPage() {
         return (
           <Space size={4}>
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={isExpired} />
+            <Button size="small" icon={<SwapOutlined />} onClick={() => openExchangeModal(record)} style={{ color: isExpired ? undefined : '#1677ff' }} disabled={isExpired} title="교환" />
             <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: isExpired ? undefined : '#722ed1' }} disabled={isExpired} />
             <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} disabled={isExpired} />
           </Space>
@@ -769,9 +838,14 @@ export default function SalesEntryPage() {
                 onChange={(v) => setReturnQty(v || 1)} />
             </div>
             <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유</div>
-              <Input.TextArea rows={2} value={returnReason} onChange={(e) => setReturnReason(e.target.value)}
-                placeholder="불량, 사이즈 교환, 고객 변심 등" />
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유 *</div>
+              <Select
+                placeholder="반품 사유 선택"
+                options={RETURN_REASON_OPTIONS}
+                value={returnReason || undefined}
+                onChange={setReturnReason}
+                style={{ width: '100%' }}
+              />
             </div>
             <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600, color: '#cf1322' }}>
               반품 금액: -{(returnQty * Number(returnRecord.unit_price)).toLocaleString()}원
@@ -851,9 +925,14 @@ export default function SalesEntryPage() {
                   onChange={(v) => setDirectReturnQty(v || 1)} />
               </div>
               <div>
-                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유</div>
-                <Input.TextArea rows={2} value={directReturnReason} onChange={(e) => setDirectReturnReason(e.target.value)}
-                  placeholder="불량, 사이즈 교환, 고객 변심 등" />
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유 *</div>
+                <Select
+                  placeholder="반품 사유 선택"
+                  options={RETURN_REASON_OPTIONS}
+                  value={directReturnReason || undefined}
+                  onChange={setDirectReturnReason}
+                  style={{ width: '100%' }}
+                />
               </div>
               <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600, color: '#cf1322' }}>
                 반품 금액: -{(directReturnQty * Number(directReturnProduct.base_price || 0)).toLocaleString()}원
@@ -861,6 +940,98 @@ export default function SalesEntryPage() {
             </>
           )}
         </div>
+      </Modal>
+
+      {/* 교환 모달 */}
+      <Modal
+        title="교환 처리"
+        open={exchangeModalOpen}
+        onCancel={() => setExchangeModalOpen(false)}
+        onOk={handleExchangeSubmit}
+        confirmLoading={exchangeSubmitting}
+        okText="교환 처리"
+        cancelText="취소"
+        width={560}
+        okButtonProps={{ disabled: !exchangeNewVariant || !exchangeReturnReason }}
+      >
+        {exchangeRecord && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>원본 상품 (반품 처리됨)</div>
+              <div style={{ fontWeight: 600 }}>{exchangeRecord.product_name}</div>
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {exchangeRecord.sku} ({exchangeRecord.color}/{exchangeRecord.size}) | {Number(exchangeRecord.qty)}개 x {Number(exchangeRecord.unit_price).toLocaleString()}원
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>교환 사유 *</div>
+              <Select
+                placeholder="교환 사유 선택"
+                options={RETURN_REASON_OPTIONS}
+                value={exchangeReturnReason || undefined}
+                onChange={setExchangeReturnReason}
+                style={{ width: '100%' }}
+              />
+            </div>
+            <Divider style={{ margin: '4px 0' }}>교환 상품</Divider>
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>새 상품 검색 *</div>
+              <Select
+                showSearch
+                placeholder="SKU/상품명 검색 (2자 이상)"
+                filterOption={false}
+                style={{ width: '100%' }}
+                value={exchangeNewVariant?.variant_id}
+                onSearch={handleExchangeSearch}
+                onChange={(v) => {
+                  const found = exchangeSearchResults.find((r: any) => r.variant_id === v);
+                  if (found) {
+                    setExchangeNewVariant(found);
+                    setExchangeNewPrice(found.base_price || found.price || 0);
+                  }
+                }}
+                notFoundContent="2자 이상 입력"
+              >
+                {exchangeSearchResults.map((v: any) => (
+                  <Select.Option key={v.variant_id} value={v.variant_id}>
+                    {v.sku} - {v.product_name} ({v.color}/{v.size})
+                  </Select.Option>
+                ))}
+              </Select>
+            </div>
+            {exchangeNewVariant && (
+              <>
+                <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 6, border: '1px solid #adc6ff' }}>
+                  <div style={{ fontWeight: 600 }}>{exchangeNewVariant.product_name}</div>
+                  <div style={{ fontSize: 12, color: '#666' }}>
+                    {exchangeNewVariant.sku} ({exchangeNewVariant.color}/{exchangeNewVariant.size})
+                    {exchangeNewVariant.current_stock !== undefined && ` | 재고: ${exchangeNewVariant.current_stock}개`}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 16 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>수량</div>
+                    <InputNumber min={1} value={exchangeNewQty} style={{ width: '100%' }}
+                      onChange={(v) => setExchangeNewQty(v || 1)} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가</div>
+                    <InputNumber min={0} value={exchangeNewPrice} style={{ width: '100%' }}
+                      formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                      onChange={(v) => setExchangeNewPrice(v || 0)} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600 }}>
+                  <span style={{ color: '#cf1322' }}>반품: -{(Number(exchangeRecord.qty) * Number(exchangeRecord.unit_price)).toLocaleString()}원</span>
+                  <span style={{ color: '#389e0d' }}>교환: +{(exchangeNewQty * exchangeNewPrice).toLocaleString()}원</span>
+                </div>
+                <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600 }}>
+                  차액: {((exchangeNewQty * exchangeNewPrice) - (Number(exchangeRecord.qty) * Number(exchangeRecord.unit_price))).toLocaleString()}원
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </Modal>
 
       {/* 엑셀 업로드 모달 */}

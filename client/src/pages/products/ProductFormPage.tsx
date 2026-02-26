@@ -213,7 +213,7 @@ export default function ProductFormPage() {
             <Select options={SALE_STATUS_OPTIONS} />
           </Form.Item>
 
-          <Divider orientation="left">재고부족 알림</Divider>
+          <Divider orientation="left">재입고 알림</Divider>
           <Space style={{ display: 'flex' }} align="start" wrap>
             <Form.Item name="low_stock_alert" label="알림 활성화" valuePropName="checked">
               <Switch checkedChildren="ON" unCheckedChildren="OFF" />

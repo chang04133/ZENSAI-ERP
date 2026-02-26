@@ -39,6 +39,15 @@ router.get('/style-analytics', authMiddleware, asyncHandler(async (req, res) => 
   res.json({ success: true, data });
 }));
 
+// 연도별 매출현황 (최근 6년)
+router.get('/yearly-overview', authMiddleware, asyncHandler(async (req, res) => {
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+  const data = await salesRepository.yearlyOverview(partnerCode);
+  res.json({ success: true, data });
+}));
+
 // 연단위 비교
 router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => {
   const year = Number(req.query.year) || new Date().getFullYear();
@@ -106,7 +115,7 @@ router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
   const result = await pool.query(
     `SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.barcode,
             p.product_code, p.product_name, p.category,
-            p.base_price, p.discount_price, p.event_price
+            p.base_price, p.discount_price, p.event_price, p.event_store_codes
        ${partnerCode ? `, COALESCE(i.qty, 0)::int AS current_stock` : ''}
      FROM product_variants pv
      JOIN products p ON pv.product_code = p.product_code
@@ -121,7 +130,15 @@ router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
     res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
     return;
   }
-  res.json({ success: true, data: result.rows[0] });
+  const row = result.rows[0];
+  // 행사 매장 제한: event_store_codes가 설정되어 있고 현재 매장이 포함되지 않으면 event_price 제거
+  if (row.event_price && row.event_store_codes && row.event_store_codes.length > 0 && partnerCode) {
+    if (!row.event_store_codes.includes(partnerCode)) {
+      row.event_price = null;
+    }
+  }
+  delete row.event_store_codes;
+  res.json({ success: true, data: row });
 }));
 
 // 판매율 분석 (품번별/사이즈별/카테고리별/일자별)
@@ -322,7 +339,7 @@ router.post('/',
   ...writeRoles,
   validateRequired(['sale_date', 'partner_code', 'variant_id', 'qty', 'unit_price']),
   asyncHandler(async (req: Request, res: Response) => {
-    const { sale_date, partner_code, variant_id, qty, unit_price, sale_type, tax_free } = req.body;
+    const { sale_date, partner_code, variant_id, qty, unit_price, sale_type, tax_free, memo } = req.body;
     const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user.partnerCode : partner_code;
     const total_price = Math.round(qty * unit_price);
     const pool = getPool();
@@ -342,9 +359,9 @@ router.post('/',
     try {
       await client.query('BEGIN');
       const sale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', !!tax_free],
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', !!tax_free, memo || null],
       );
       await inventoryRepository.applyChange(
         pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
@@ -499,9 +516,21 @@ router.delete('/:id',
 router.post('/direct-return',
   ...managerRoles,
   asyncHandler(async (req: Request, res: Response) => {
-    const { variant_id, qty, unit_price, reason } = req.body;
+    const { variant_id, qty, unit_price, reason, return_reason } = req.body;
     if (!variant_id || !qty || !unit_price) {
       res.status(400).json({ success: false, error: 'variant_id, qty, unit_price 필수' });
+      return;
+    }
+    if (!return_reason) {
+      res.status(400).json({ success: false, error: '반품 사유를 선택해주세요.' });
+      return;
+    }
+    if (Number(qty) <= 0) {
+      res.status(400).json({ success: false, error: '반품 수량은 양수여야 합니다.' });
+      return;
+    }
+    if (Number(unit_price) <= 0) {
+      res.status(400).json({ success: false, error: '단가는 양수여야 합니다.' });
       return;
     }
 
@@ -519,9 +548,9 @@ router.post('/direct-return',
       await client.query('BEGIN');
 
       const returnSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6) RETURNING *`,
-        [pc, variant_id, qty, unit_price, -total_price, reason || '매장 고객 반품'],
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
+        [pc, variant_id, qty, unit_price, -total_price, return_reason, reason || '매장 고객 반품'],
       );
 
       // 재고 복원 (+qty)
@@ -545,7 +574,11 @@ router.post('/:id/return',
   ...managerRoles,
   asyncHandler(async (req: Request, res: Response) => {
     const saleId = Number(req.params.id);
-    const { qty, reason } = req.body;
+    const { qty, reason, return_reason } = req.body;
+    if (!return_reason) {
+      res.status(400).json({ success: false, error: '반품 사유를 선택해주세요.' });
+      return;
+    }
 
     const pool = getPool();
     const client = await pool.connect();
@@ -596,9 +629,9 @@ router.post('/:id/return',
 
       // 반품 매출 레코드 생성
       const returnSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6) RETURNING *`,
-        [old.partner_code, old.variant_id, returnQty, old.unit_price, -total_price, reason || `반품(원본#${saleId})`],
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
+        [old.partner_code, old.variant_id, returnQty, old.unit_price, -total_price, return_reason, reason ? `반품(원본#${saleId}) ${reason}` : `반품(원본#${saleId})`],
       );
 
       // 재고 복원 (+qty)
@@ -616,5 +649,123 @@ router.post('/:id/return',
     }
   }),
 );
+
+// 교환 처리 (반품 + 새 판매를 단일 트랜잭션으로)
+router.post('/:id/exchange',
+  ...managerRoles,
+  asyncHandler(async (req: Request, res: Response) => {
+    const originalSaleId = Number(req.params.id);
+    const { new_variant_id, new_qty, new_unit_price, return_reason, memo } = req.body;
+    if (!new_variant_id || !new_qty || new_unit_price === undefined || new_unit_price === null) {
+      res.status(400).json({ success: false, error: 'new_variant_id, new_qty, new_unit_price 필수' });
+      return;
+    }
+    if (!return_reason) {
+      res.status(400).json({ success: false, error: '교환 사유를 선택해주세요.' });
+      return;
+    }
+
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 원본 매출 조회
+      const orig = await client.query('SELECT * FROM sales WHERE sale_id = $1', [originalSaleId]);
+      if (orig.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ success: false, error: '원본 매출을 찾을 수 없습니다.' });
+        return;
+      }
+      const old = orig.rows[0];
+
+      // 반품 처리 (원본 상품)
+      const returnTotal = Math.round(old.qty * old.unit_price);
+      const returnSale = await client.query(
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
+        [old.partner_code, old.variant_id, old.qty, old.unit_price, -returnTotal, return_reason, `교환반품(원본#${originalSaleId})`],
+      );
+      await inventoryRepository.applyChange(
+        old.partner_code, old.variant_id, old.qty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
+      );
+
+      // 새 판매 처리 (교환 상품)
+      const newTotal = Math.round(new_qty * new_unit_price);
+      const newSale = await client.query(
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, memo)
+         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '정상', $6) RETURNING *`,
+        [old.partner_code, new_variant_id, new_qty, new_unit_price, newTotal, `교환판매(원본#${originalSaleId})`],
+      );
+      await inventoryRepository.applyChange(
+        old.partner_code, new_variant_id, -new_qty, 'SALE', newSale.rows[0].sale_id, req.user!.userId, client,
+      );
+
+      // 교환 레코드 생성
+      await client.query(
+        `INSERT INTO sales_exchanges (original_sale_id, return_sale_id, new_sale_id, exchange_date, memo, created_by)
+         VALUES ($1, $2, $3, CURRENT_DATE, $4, $5)`,
+        [originalSaleId, returnSale.rows[0].sale_id, newSale.rows[0].sale_id, memo || null, req.user!.userId],
+      );
+
+      await client.query('COMMIT');
+      res.status(201).json({
+        success: true,
+        data: {
+          return_sale: returnSale.rows[0],
+          new_sale: newSale.rows[0],
+        },
+      });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }),
+);
+
+// 교환 이력 조회
+router.get('/exchanges/list', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const { page = '1', limit = '50' } = req.query;
+  const p = parseInt(page as string, 10);
+  const l = Math.min(parseInt(limit as string, 10), 100);
+  const offset = (p - 1) * l;
+  const pool = getPool();
+
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  const partnerFilter = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc
+    ? 'AND os.partner_code = $3' : '';
+  const params: any[] = [l, offset];
+  if (partnerFilter) params.push(pc);
+
+  const countSql = `SELECT COUNT(*) FROM sales_exchanges se
+    JOIN sales os ON se.original_sale_id = os.sale_id
+    WHERE 1=1 ${partnerFilter ? 'AND os.partner_code = $1' : ''}`;
+  const countParams = partnerFilter ? [pc] : [];
+  const total = parseInt((await pool.query(countSql, countParams)).rows[0].count, 10);
+
+  const dataSql = `
+    SELECT se.*,
+      os.variant_id AS orig_variant_id, os.qty AS orig_qty, os.unit_price AS orig_unit_price,
+      opv.sku AS orig_sku, op.product_name AS orig_product_name, opv.color AS orig_color, opv.size AS orig_size,
+      ns.variant_id AS new_variant_id, ns.qty AS new_qty, ns.unit_price AS new_unit_price,
+      npv.sku AS new_sku, np.product_name AS new_product_name, npv.color AS new_color, npv.size AS new_size,
+      pa.partner_name
+    FROM sales_exchanges se
+    JOIN sales os ON se.original_sale_id = os.sale_id
+    JOIN sales ns ON se.new_sale_id = ns.sale_id
+    JOIN product_variants opv ON os.variant_id = opv.variant_id
+    JOIN products op ON opv.product_code = op.product_code
+    JOIN product_variants npv ON ns.variant_id = npv.variant_id
+    JOIN products np ON npv.product_code = np.product_code
+    JOIN partners pa ON os.partner_code = pa.partner_code
+    WHERE 1=1 ${partnerFilter}
+    ORDER BY se.created_at DESC
+    LIMIT $1 OFFSET $2`;
+  const data = await pool.query(dataSql, params);
+  res.json({ success: true, data: { data: data.rows, total, page: p, limit: l, totalPages: Math.ceil(total / l) } });
+}));
 
 export default router;

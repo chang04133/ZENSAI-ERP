@@ -135,7 +135,8 @@
       "Bash(__NEW_LINE_b2bae6b70b743962__ echo \"=== FIX5b: Delete SHIPPED \\(ID 209\\) - should fail ===\")",
       "Bash(__NEW_LINE_b2bae6b70b743962__ echo \"=== FIX5c: Verify deleted \\(ID 230 should be 404\\) ===\")",
       "Bash(FORCE_RESEED= node:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "WebSearch"
     ]
   }
 }

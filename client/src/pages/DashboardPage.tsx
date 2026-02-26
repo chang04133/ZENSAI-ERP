@@ -967,7 +967,7 @@ export default function DashboardPage() {
       {/* Tables */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={8}>
-          <Card title={<span>{isStore ? '내 매장 재고 부족' : '재고 부족'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
+          <Card title={<span>{isStore ? '내 매장 재입고 필요' : '재입고 필요'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
             size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<a onClick={() => navigate('/inventory/status')}>전체보기</a>}>
             {(stats?.lowStock || []).length > 0 ? (
@@ -975,7 +975,7 @@ export default function DashboardPage() {
             ) : (
               <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
                 <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-                재고 부족 품목이 없습니다
+                재입고 필요 품목이 없습니다
               </div>
             )}
           </Card>

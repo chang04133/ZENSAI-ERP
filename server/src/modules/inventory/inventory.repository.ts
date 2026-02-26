@@ -59,13 +59,20 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const sumQty = parseInt((await this.pool.query(sumSql, params)).rows[0].sum_qty, 10);
 
     const orderMap: Record<string, string> = { qty: 'i.qty', product_name: 'p.product_name', category: 'p.category', season: 'p.season', sku: 'pv.sku' };
-    const orderCol = orderMap[sort_field] || 'i.qty';
+    const orderCol = orderMap[sort_field] || null;
     const orderDir = sort_dir === 'ASC' ? 'ASC' : 'DESC';
+
+    // 기본 정렬: 품번 → 컬러 → 사이즈(의류순서) → 거래처
+    const defaultOrder = `p.product_code ASC, pv.color ASC,
+      CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4
+                   WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END ASC,
+      pt.partner_name ASC`;
+    const orderClause = orderCol ? `${orderCol} ${orderDir}, p.product_name` : defaultOrder;
 
     const dataSql = `
       SELECT i.*, pt.partner_name, pv.sku, pv.color, pv.size,
              p.product_code, p.product_name, p.category, p.brand, p.season, p.fit, p.base_price, p.image_url
-      ${baseSql} ORDER BY ${orderCol} ${orderDir}, p.product_name LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
+      ${baseSql} ORDER BY ${orderClause} LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, limit, offset]);
     return { data: data.rows, total, sumQty, page, limit, totalPages: Math.ceil(total / limit) };
   }

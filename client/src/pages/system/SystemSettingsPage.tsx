@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
-import { Card, InputNumber, Button, message, Descriptions, Spin, Typography, Tag } from 'antd';
-import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined, FireOutlined } from '@ant-design/icons';
+import { Card, InputNumber, Button, message, Descriptions, Spin, Typography, Tag, Table, Input, Select, Popconfirm, Space, Modal, Form, Switch } from 'antd';
+import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined, FireOutlined, AppstoreOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
+
+const { Text } = Typography;
 
 const SEASONS = ['SA', 'SM', 'WN'] as const;
 const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
@@ -29,6 +31,91 @@ export default function SystemSettingsPage() {
   const [gradeA, setGradeA] = useState({ min: 50, mult: 1.2 });
   const [gradeB, setGradeB] = useState({ min: 30, mult: 1.0 });
   const [safetyBuffer, setSafetyBuffer] = useState(1.2);
+
+  // 코드 관리
+  const CODE_TYPES = [
+    { value: 'CATEGORY', label: '카테고리' },
+    { value: 'FIT', label: '핏' },
+    { value: 'LENGTH', label: '기장' },
+    { value: 'BRAND', label: '브랜드' },
+    { value: 'SEASON', label: '시즌' },
+  ];
+  const [codeType, setCodeType] = useState('CATEGORY');
+  const [codes, setCodes] = useState<any[]>([]);
+  const [codesLoading, setCodesLoading] = useState(false);
+  const [codeSearch, setCodeSearch] = useState('');
+  const [codeModalOpen, setCodeModalOpen] = useState(false);
+  const [editingCode, setEditingCode] = useState<any>(null);
+  const [codeForm] = Form.useForm();
+
+  const loadCodes = async (type?: string) => {
+    const t = type || codeType;
+    setCodesLoading(true);
+    try {
+      const res = await apiFetch(`/api/codes/${t}`);
+      const data = await res.json();
+      if (data.success) setCodes(data.data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setCodesLoading(false); }
+  };
+
+  useEffect(() => { loadCodes(); }, [codeType]);
+
+  const handleCodeSave = async (values: any) => {
+    try {
+      if (editingCode) {
+        const res = await apiFetch(`/api/codes/${editingCode.code_id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ ...values, is_active: values.is_active ?? true }),
+        });
+        const data = await res.json();
+        if (!data.success) { message.error(data.error); return; }
+        message.success('수정되었습니다.');
+      } else {
+        const res = await apiFetch('/api/codes', {
+          method: 'POST',
+          body: JSON.stringify({ ...values, code_type: codeType }),
+        });
+        const data = await res.json();
+        if (!data.success) { message.error(data.error); return; }
+        message.success('추가되었습니다.');
+      }
+      setCodeModalOpen(false);
+      setEditingCode(null);
+      codeForm.resetFields();
+      loadCodes();
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleCodeDelete = async (id: number) => {
+    try {
+      await apiFetch(`/api/codes/${id}`, { method: 'DELETE' });
+      message.success('삭제되었습니다.');
+      loadCodes();
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const openCodeEdit = (record: any) => {
+    setEditingCode(record);
+    codeForm.setFieldsValue({
+      code_value: record.code_value,
+      code_label: record.code_label,
+      sort_order: record.sort_order,
+      parent_code: record.parent_code,
+      is_active: record.is_active,
+    });
+    setCodeModalOpen(true);
+  };
+
+  const openCodeAdd = () => {
+    setEditingCode(null);
+    codeForm.resetFields();
+    codeForm.setFieldsValue({ sort_order: 0, is_active: true });
+    setCodeModalOpen(true);
+  };
+
+  // 상위 코드 목록 (하위카테고리용)
+  const parentOptions = codes.filter(c => !c.parent_code).map(c => ({ label: c.code_label, value: c.code_value }));
 
   // 행사 추천 설정
   const [eventRecBrokenWeight, setEventRecBrokenWeight] = useState(60);
@@ -126,8 +213,123 @@ export default function SystemSettingsPage() {
   if (loading) return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
 
   return (
-    <div style={{ maxWidth: 700 }}>
+    <div style={{ maxWidth: 800 }}>
       <PageHeader title="시스템 설정" />
+
+      <Card
+        title={<span><AppstoreOutlined style={{ marginRight: 8 }} />코드 관리 (카테고리 / 핏 / 기장 / 브랜드 등)</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
+        extra={
+          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCodeAdd}>
+            추가
+          </Button>
+        }
+      >
+        <Space style={{ marginBottom: 12 }} wrap>
+          <Select
+            value={codeType}
+            onChange={(v) => { setCodeType(v); setCodeSearch(''); }}
+            style={{ width: 160 }}
+            options={CODE_TYPES}
+          />
+          <Input
+            placeholder="코드값/코드명 검색"
+            prefix={<SearchOutlined />}
+            value={codeSearch}
+            onChange={(e) => setCodeSearch(e.target.value)}
+            allowClear
+            style={{ width: 180 }}
+            size="small"
+          />
+          <span style={{ color: '#888', fontSize: 12 }}>
+            {codeType === 'CATEGORY' && '상위 카테고리 + 하위카테고리(parent_code 연결)'}
+            {codeType === 'FIT' && '상품 핏 유형 (SLIM, REGULAR, OVERSIZE 등)'}
+            {codeType === 'LENGTH' && '상품 기장 유형 (CROP, REGULAR, LONG 등)'}
+            {codeType === 'BRAND' && '취급 브랜드'}
+            {codeType === 'SEASON' && '시즌 코드'}
+          </span>
+        </Space>
+
+        <Table
+          size="small"
+          loading={codesLoading}
+          dataSource={codeSearch ? codes.filter(c =>
+            c.code_value.toLowerCase().includes(codeSearch.toLowerCase()) ||
+            c.code_label.toLowerCase().includes(codeSearch.toLowerCase())
+          ) : codes}
+          rowKey="code_id"
+          pagination={false}
+          scroll={{ y: 300 }}
+          columns={[
+            {
+              title: '코드값', dataIndex: 'code_value', width: 120,
+              render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text>,
+            },
+            {
+              title: '코드명', dataIndex: 'code_label', width: 150,
+              render: (v: string, r: any) => (
+                <span>
+                  {r.parent_code && <Tag color="blue" style={{ fontSize: 10, margin: '0 4px 0 0', padding: '0 3px' }}>하위</Tag>}
+                  {v}
+                </span>
+              ),
+            },
+            ...(codeType === 'CATEGORY' ? [{
+              title: '상위 코드', dataIndex: 'parent_code', width: 100,
+              render: (v: string) => v ? <Tag>{v}</Tag> : <span style={{ color: '#ccc' }}>-</span>,
+            }] : []),
+            { title: '정렬', dataIndex: 'sort_order', width: 60, align: 'center' as const },
+            {
+              title: '활성', dataIndex: 'is_active', width: 60, align: 'center' as const,
+              render: (v: boolean) => v ? <Tag color="green">Y</Tag> : <Tag color="red">N</Tag>,
+            },
+            {
+              title: '관리', key: 'actions', width: 100,
+              render: (_: any, record: any) => (
+                <Space size={4}>
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openCodeEdit(record)} />
+                  <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleCodeDelete(record.code_id)}>
+                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                  </Popconfirm>
+                </Space>
+              ),
+            },
+          ]}
+        />
+      </Card>
+
+      {/* 코드 추가/수정 모달 */}
+      <Modal
+        title={editingCode ? '코드 수정' : '코드 추가'}
+        open={codeModalOpen}
+        onCancel={() => { setCodeModalOpen(false); setEditingCode(null); }}
+        onOk={() => codeForm.submit()}
+        okText={editingCode ? '수정' : '추가'}
+        cancelText="취소"
+        width={420}
+      >
+        <Form form={codeForm} layout="vertical" onFinish={handleCodeSave}>
+          <Form.Item name="code_value" label="코드값" rules={[{ required: true, message: '코드값을 입력해주세요' }]}>
+            <Input placeholder="예: TOP, SLIM, CROP" disabled={!!editingCode} />
+          </Form.Item>
+          <Form.Item name="code_label" label="코드명 (표시명)" rules={[{ required: true, message: '코드명을 입력해주세요' }]}>
+            <Input placeholder="예: 상의, 슬림핏, 크롭" />
+          </Form.Item>
+          {codeType === 'CATEGORY' && (
+            <Form.Item name="parent_code" label="상위 카테고리 (하위카테고리일 때 선택)">
+              <Select allowClear placeholder="상위 카테고리 선택 (없으면 최상위)" options={parentOptions} />
+            </Form.Item>
+          )}
+          <Form.Item name="sort_order" label="정렬순서">
+            <InputNumber min={0} style={{ width: '100%' }} />
+          </Form.Item>
+          {editingCode && (
+            <Form.Item name="is_active" label="활성 여부" valuePropName="checked">
+              <Switch checkedChildren="활성" unCheckedChildren="비활성" />
+            </Form.Item>
+          )}
+        </Form>
+      </Modal>
 
       <Card
         title={<span><SettingOutlined style={{ marginRight: 8 }} />재고 임계값 설정</span>}

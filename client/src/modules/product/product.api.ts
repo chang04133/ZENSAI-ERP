@@ -5,6 +5,13 @@ import type { Product } from '../../../../shared/types/product';
 export const productApi = {
   ...createCrudApi<Product>('/api/products'),
 
+  variantOptions: async () => {
+    const res = await apiFetch('/api/products/variants/options');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { colors: string[]; sizes: string[] };
+  },
+
   searchVariants: async (search: string) => {
     const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(search)}`);
     const data = await res.json();
@@ -40,18 +47,20 @@ export const productApi = {
     return data.data as { data: Product[]; total: number; page: number; limit: number };
   },
 
-  updateEventPrice: async (productCode: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null) => {
+  updateEventPrice: async (productCode: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null, storeCodes?: string[] | null) => {
     const res = await apiFetch(`/api/products/${productCode}/event-price`, {
-      method: 'PUT', body: JSON.stringify({ event_price: eventPrice, event_start_date: startDate, event_end_date: endDate }),
+      method: 'PUT', body: JSON.stringify({ event_price: eventPrice, event_start_date: startDate, event_end_date: endDate, event_store_codes: storeCodes }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as Product;
   },
 
-  bulkUpdateEventPrices: async (updates: Array<{ product_code: string; event_price: number | null }>) => {
+  bulkUpdateEventPrices: async (updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) => {
+    const body: any = { updates };
+    if (storeCodes !== undefined) body.event_store_codes = storeCodes;
     const res = await apiFetch('/api/products/events/bulk', {
-      method: 'PUT', body: JSON.stringify({ updates }),
+      method: 'PUT', body: JSON.stringify(body),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
@@ -91,7 +100,7 @@ export const productApi = {
     return data.data as { image_url: string };
   },
 
-  // SKU별 부족알림 토글
+  // SKU별 재입고 알림 토글
   toggleVariantAlert: async (variantId: number, low_stock_alert: boolean) => {
     const res = await apiFetch(`/api/products/variants/${variantId}/alert`, {
       method: 'PUT', body: JSON.stringify({ low_stock_alert }),

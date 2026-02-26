@@ -3,6 +3,7 @@ import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Input
 import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
   StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
+  FileTextOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { codeApi } from '../../modules/code/code.api';
@@ -19,6 +20,15 @@ const STATUS_LABELS: Record<string, string> = {
 const CATEGORY_COLORS: Record<string, string> = {
   TOP: '#1890ff', BOTTOM: '#52c41a', OUTER: '#fa8c16', DRESS: '#eb2f96', ACC: '#722ed1',
 };
+
+const STEPS = [
+  { key: '', label: '전체', color: '#1890ff', bg: '#e6f7ff', icon: <AppstoreOutlined /> },
+  { key: 'DRAFT', label: '초안', color: '#8c8c8c', bg: '#fafafa', icon: <FileTextOutlined /> },
+  { key: 'CONFIRMED', label: '확정', color: '#1677ff', bg: '#e6f4ff', icon: <CheckCircleOutlined /> },
+  { key: 'IN_PRODUCTION', label: '생산중', color: '#fa8c16', bg: '#fff7e6', icon: <PlayCircleOutlined /> },
+  { key: 'COMPLETED', label: '완료', color: '#52c41a', bg: '#f6ffed', icon: <CheckOutlined /> },
+  { key: 'CANCELLED', label: '취소', color: '#ff4d4f', bg: '#fff2f0', icon: <StopOutlined /> },
+];
 
 const fmtNum = (v: number) => v.toLocaleString();
 
@@ -46,6 +56,7 @@ export default function ProductionPlanPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusCounts, setStatusCounts] = useState<Record<string, { count: number; qty: number }>>({});
   const [search, setSearch] = useState('');
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -80,6 +91,28 @@ export default function ProductionPlanPage() {
   }, [page, statusFilter, search]);
 
   useEffect(() => { load(); }, [load]);
+
+  const loadCounts = useCallback(async () => {
+    try {
+      const dashboard = await productionApi.dashboard();
+      const sc = dashboard.statusCounts || [];
+      const counts: Record<string, { count: number; qty: number }> = {};
+      let totalCount = 0, totalQty = 0;
+      for (const r of sc) {
+        counts[r.status] = { count: Number(r.count), qty: Number(r.total_qty) };
+        totalCount += Number(r.count);
+        totalQty += Number(r.total_qty);
+      }
+      counts[''] = { count: totalCount, qty: totalQty };
+      // 빠진 상태는 0으로 초기화
+      for (const s of ['DRAFT', 'CONFIRMED', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED']) {
+        if (!counts[s]) counts[s] = { count: 0, qty: 0 };
+      }
+      setStatusCounts(counts);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => { loadCounts(); }, [loadCounts]);
 
   useEffect(() => {
     (async () => {
@@ -175,7 +208,7 @@ export default function ProductionPlanPage() {
       });
       message.success('생산계획이 등록되었습니다.');
       setCreateOpen(false);
-      load();
+      load(); loadCounts();
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -183,7 +216,7 @@ export default function ProductionPlanPage() {
     try {
       await productionApi.updateStatus(id, status);
       message.success(`상태가 ${STATUS_LABELS[status]}(으)로 변경되었습니다.`);
-      load();
+      load(); loadCounts();
       if (detail?.plan_id === id) {
         const updated = await productionApi.get(id);
         setDetail(updated);
@@ -259,17 +292,43 @@ export default function ProductionPlanPage() {
 
   return (
     <div>
-      <Card title="생산계획 관리" extra={
+      {/* 상태 대시보드 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 12, marginBottom: 16 }}>
+        {STEPS.map(step => {
+          const active = statusFilter === step.key;
+          const info = statusCounts[step.key];
+          return (
+            <div
+              key={step.key || 'ALL'}
+              onClick={() => { setStatusFilter(step.key); setPage(1); }}
+              style={{
+                padding: '16px 12px',
+                borderRadius: 10,
+                border: active ? `2px solid ${step.color}` : '2px solid #f0f0f0',
+                background: active ? step.bg : '#fff',
+                cursor: 'pointer',
+                textAlign: 'center',
+                transition: 'all 0.2s',
+                boxShadow: active ? `0 2px 8px ${step.color}33` : '0 1px 3px rgba(0,0,0,0.06)',
+              }}
+            >
+              <div style={{ fontSize: 28, color: step.color, marginBottom: 4 }}>{step.icon}</div>
+              <div style={{ fontSize: 13, color: active ? step.color : '#666', fontWeight: active ? 600 : 400, marginBottom: 2 }}>{step.label}</div>
+              <div style={{ fontSize: 22, fontWeight: 700, color: step.color }}>{info?.count ?? '-'}건</div>
+              <div style={{ fontSize: 12, color: '#999' }}>{info ? `${info.qty.toLocaleString()}개` : '-'}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      <Card title={`생산계획 관리${statusFilter ? ` - ${STATUS_LABELS[statusFilter]}` : ''}`} extra={
         <Space>
-          <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }} allowClear placeholder="상태">
-            {Object.entries(STATUS_LABELS).map(([k, v]) => <Select.Option key={k} value={k}>{v}</Select.Option>)}
-          </Select>
           <Input.Search placeholder="검색" onSearch={setSearch} allowClear style={{ width: 180 }} />
           <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
         </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
-          size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+          size="small" scroll={{ x: 1100, y: 'calc(100vh - 350px)' }}
           pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
       </Card>
 

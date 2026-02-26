@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, Segmented, message, Alert, Spin } from 'antd';
+import { useEffect, useState } from 'react';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -17,10 +17,6 @@ const SALE_STATUS_COLORS: Record<string, string> = {
   '승인대기': 'blue',
 };
 
-import { sizeSort } from '../../utils/size-order';
-
-type ViewMode = 'product' | 'color' | 'size';
-
 export default function ProductListPage() {
   const navigate = useNavigate();
   const { data: products, total, loading, fetchList: fetchProducts } = useProductStore();
@@ -32,6 +28,8 @@ export default function ProductListPage() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [fitFilter, setFitFilter] = useState<string | undefined>();
   const [subCategoryFilter, setSubCategoryFilter] = useState<string | undefined>();
+  const [colorFilter, setColorFilter] = useState<string | undefined>();
+  const [sizeFilter, setSizeFilter] = useState<string | undefined>();
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
@@ -39,9 +37,10 @@ export default function ProductListPage() {
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
+  const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [variantsMap, setVariantsMap] = useState<Record<string, any[]>>({});
   const [variantsLoading, setVariantsLoading] = useState<Record<string, boolean>>({});
-  const [viewMode, setViewMode] = useState<ViewMode>('product');
   const [bulkLoading, setBulkLoading] = useState(false);
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
@@ -57,6 +56,10 @@ export default function ProductListPage() {
     codeApi.getByType('FIT').then((data: any[]) => {
       setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch((e: any) => { message.error('핏 옵션 로드 실패: ' + e.message); });
+    productApi.variantOptions().then((data: any) => {
+      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
+      setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
+    }).catch(() => {});
   }, []);
 
   const load = () => {
@@ -67,10 +70,12 @@ export default function ProductListPage() {
     if (seasonFilter) params.season = seasonFilter;
     if (statusFilter) params.sale_status = statusFilter;
     if (fitFilter) params.fit = fitFilter;
+    if (colorFilter) params.color = colorFilter;
+    if (sizeFilter) params.size = sizeFilter;
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
 
   const handleCategoryFilterChange = (value: string | undefined) => {
     setCategoryFilter(value);
@@ -196,30 +201,6 @@ export default function ProductListPage() {
     }
   };
 
-  const loadAllVariants = async () => {
-    const missing = products.filter((p: any) => !variantsMap[p.product_code]);
-    if (missing.length === 0) return;
-    setBulkLoading(true);
-    try {
-      const results = await Promise.all(
-        missing.map((p: any) => productApi.get(p.product_code).then((d: any) => ({ code: p.product_code, variants: d.variants || [] })).catch(() => ({ code: p.product_code, variants: [] }))),
-      );
-      setVariantsMap((prev) => {
-        const next = { ...prev };
-        results.forEach((r) => { next[r.code] = r.variants; });
-        return next;
-      });
-    } finally {
-      setBulkLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (viewMode !== 'product' && products.length > 0) {
-      loadAllVariants();
-    }
-  }, [viewMode, products]);
-
   const expandedRowRender = (record: any) => {
     const variants = variantsMap[record.product_code];
     if (variantsLoading[record.product_code]) return <Spin size="small" style={{ padding: 16 }} />;
@@ -232,7 +213,7 @@ export default function ProductListPage() {
         render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
       },
       { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
-      { title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
+      { title: '재입고 알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
         render: (v: boolean, row: any) => (
           <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, record.product_code)} />
         ),
@@ -300,127 +281,6 @@ export default function ProductListPage() {
     }] : []),
   ];
 
-  // --- 뷰 모드별 데이터 변환 ---
-  const displayData = useMemo(() => {
-    if (viewMode === 'product') return products;
-
-    if (viewMode === 'color') {
-      const rows: any[] = [];
-      products.forEach((p: any) => {
-        const variants = variantsMap[p.product_code];
-        if (!variants || variants.length === 0) {
-          rows.push({ ...p, _color: '-', _colorVariants: [], _rowKey: `${p.product_code}-none` });
-          return;
-        }
-        const colorMap: Record<string, any[]> = {};
-        variants.forEach((v: any) => {
-          const c = v.color || '-';
-          if (!colorMap[c]) colorMap[c] = [];
-          colorMap[c].push(v);
-        });
-        Object.entries(colorMap).forEach(([color, cvs]) => {
-          const colorQty = cvs.reduce((sum: number, v: any) => sum + Number(v.stock_qty || 0), 0);
-          rows.push({ ...p, _color: color, _colorVariants: cvs.sort((a: any, b: any) => sizeSort(a.size, b.size)), _colorQty: colorQty, _rowKey: `${p.product_code}-${color}` });
-        });
-      });
-      return rows;
-    }
-
-    // size view
-    const rows: any[] = [];
-    products.forEach((p: any) => {
-      const variants = variantsMap[p.product_code];
-      if (!variants || variants.length === 0) return;
-      const sorted = [...variants].sort((a: any, b: any) => {
-        const cc = (a.color || '').localeCompare(b.color || '');
-        if (cc !== 0) return cc;
-        return sizeSort(a.size, b.size);
-      });
-      sorted.forEach((v: any) => {
-        rows.push({ ...p, ...v, _rowKey: `${v.variant_id}` });
-      });
-    });
-    return rows;
-  }, [viewMode, products, variantsMap]);
-
-  const displayColumns = useMemo((): any[] => {
-    if (viewMode === 'product') return columns;
-
-    if (viewMode === 'color') {
-      const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
-      const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
-      const colorCol = { title: 'Color', dataIndex: '_color', key: '_color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
-      const qtyCol = {
-        title: '재고', key: 'total_inv_qty', width: 80,
-        render: (_: any, record: any) => {
-          const qty = record._colorQty ?? 0;
-          return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
-        },
-      };
-      const newCols = [...base];
-      newCols.splice(codeIdx + 1, 0, colorCol);
-      // update product_code render to include color
-      newCols[codeIdx] = {
-        ...newCols[codeIdx],
-        render: (_: any, record: any) => <a onClick={() => navigate(`/products/${record.product_code}`)}>{record.product_code}-{record._color}</a>,
-      };
-      newCols.push(qtyCol);
-      return newCols;
-    }
-
-    // size view
-    const base = (columns as any[]).filter((c) => c.key !== 'total_inv_qty');
-    const codeIdx = base.findIndex((c: any) => c.key === 'product_code');
-    const colorCol = { title: 'Color', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v}</Tag> };
-    const sizeCol = { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> };
-    const skuCol = { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, ellipsis: true };
-    const qtyCol = {
-      title: '재고', dataIndex: 'stock_qty', key: 'stock_qty', width: 80,
-      render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
-    };
-    const barcodeCol = { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 130, render: (v: string) => v || '-' };
-    const alertCol = {
-      title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
-      render: (v: boolean, row: any) => (
-        <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, row.product_code)} />
-      ),
-    };
-    const newCols = [...base];
-    newCols.splice(codeIdx + 1, 0, colorCol, sizeCol, skuCol);
-    // update product_code render
-    newCols[codeIdx] = {
-      ...newCols[codeIdx],
-      render: (_: any, record: any) => <a onClick={() => navigate(`/products/${record.product_code}`)}>{record.product_code}</a>,
-    };
-    newCols.push(qtyCol, barcodeCol, alertCol);
-    return newCols;
-  }, [viewMode, columns, navigate, isStore, canWrite]);
-
-  const colorExpandedRowRender = (record: any) => {
-    const variants = record._colorVariants || [];
-    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
-    const cols = [
-      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
-      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-      { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
-        render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
-      },
-      { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
-      { title: '부족알림', dataIndex: 'low_stock_alert', key: 'low_stock_alert', width: 90,
-        render: (v: boolean, row: any) => (
-          <Switch size="small" checked={v !== false} onChange={(checked) => handleToggleVariantAlert(row.variant_id, checked, record.product_code)} />
-        ),
-      },
-    ];
-    return <Table columns={cols} dataSource={variants} rowKey="variant_id" pagination={false} size="small" style={{ margin: 0 }} />;
-  };
-
-  const tableExpandable = useMemo(() => {
-    if (viewMode === 'product') return { expandedRowRender, onExpand: handleExpand };
-    if (viewMode === 'color') return { expandedRowRender: colorExpandedRowRender };
-    return undefined; // size: no expand
-  }, [viewMode, variantsMap, variantsLoading]);
-
   return (
     <div>
       <PageHeader
@@ -456,22 +316,17 @@ export default function ProductListPage() {
           ]} />
         <Select placeholder="핏" allowClear value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
           options={fitOptions} />
+        <Select showSearch optionFilterProp="label" placeholder="컬러" allowClear value={colorFilter}
+          onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
+          options={colorOptions} />
+        <Select showSearch optionFilterProp="label" placeholder="사이즈" allowClear value={sizeFilter}
+          onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
+          options={sizeOptions} />
         <Select placeholder="판매상태" allowClear value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
           options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
         <Button onClick={load}>조회</Button>
       </Space>
-      <div style={{ marginBottom: 12 }}>
-        <Segmented
-          value={viewMode}
-          onChange={(v) => setViewMode(v as ViewMode)}
-          options={[
-            { label: '품번별', value: 'product' },
-            { label: '컬러별', value: 'color' },
-            { label: '사이즈별', value: 'size' },
-          ]}
-        />
-      </div>
-      {canWrite && viewMode === 'product' && selectedRowKeys.length > 0 && (
+      {canWrite && selectedRowKeys.length > 0 && (
         <Space style={{ marginBottom: 8 }}>
           <Tag>{selectedRowKeys.length}개 선택</Tag>
           <Button size="small" onClick={() => { setBulkStatus(undefined); setBulkStatusModalOpen(true); }}>
@@ -481,18 +336,15 @@ export default function ProductListPage() {
         </Space>
       )}
       <Table
-        columns={displayColumns}
-        dataSource={displayData}
-        rowKey={viewMode === 'product' ? 'product_code' : '_rowKey'}
+        columns={columns}
+        dataSource={products}
+        rowKey="product_code"
         loading={loading || bulkLoading}
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={viewMode === 'product'
-          ? { current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }
-          : { pageSize: 50, showTotal: (t: number) => `총 ${t}건` }
-        }
-        expandable={tableExpandable}
-        rowSelection={canWrite && viewMode === 'product' ? {
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        expandable={{ expandedRowRender, onExpand: handleExpand }}
+        rowSelection={canWrite ? {
           selectedRowKeys,
           onChange: setSelectedRowKeys,
         } : undefined}

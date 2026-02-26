@@ -17,6 +17,16 @@ export const shipmentApi = {
     return data.data;
   },
 
+  /** 출고확인 원자화 (shipped_qty 저장 + SHIPPED 상태 + 재고 차감, 단일 트랜잭션) */
+  shipConfirm: async (id: number, items: Array<{ variant_id: number; shipped_qty: number }>) => {
+    const res = await apiFetch(`/api/shipments/${id}/ship-confirm`, {
+      method: 'PUT', body: JSON.stringify({ items }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
   /** 수령확인 (received_qty 저장 + 상태 RECEIVED + 재고 연동) */
   receive: async (id: number, items: Array<{ variant_id: number; received_qty: number }>) => {
     const res = await apiFetch(`/api/shipments/${id}/receive`, {

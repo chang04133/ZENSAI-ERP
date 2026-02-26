@@ -253,7 +253,7 @@ export class SalesRepository {
                COUNT(DISTINCT partner_code)::int AS partner_count
         FROM sales
         WHERE EXTRACT(MONTH FROM sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
-          AND EXTRACT(YEAR FROM sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 3 AND EXTRACT(YEAR FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
           ${pcOnlyFilter}
         GROUP BY EXTRACT(YEAR FROM sale_date)
         ORDER BY year`;
@@ -269,7 +269,7 @@ export class SalesRepository {
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
-          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 3 AND EXTRACT(YEAR FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
           ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.category, '미분류')
         ORDER BY year, total_amount DESC`;
@@ -285,7 +285,7 @@ export class SalesRepository {
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
-          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 2 AND EXTRACT(YEAR FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
           ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.fit, '미지정')
         ORDER BY year, total_amount DESC`;
@@ -301,7 +301,7 @@ export class SalesRepository {
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
         WHERE EXTRACT(MONTH FROM s.sale_date) = EXTRACT(MONTH FROM CURRENT_DATE)
-          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 2 AND EXTRACT(YEAR FROM CURRENT_DATE)
+          AND EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
           ${pcOnlyFilterS}
         GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.length, '미지정')
         ORDER BY year, total_amount DESC`;
@@ -1232,6 +1232,100 @@ export class SalesRepository {
     const velocity = (await this.pool.query(velocitySql, params)).rows;
 
     return { milestones, cohorts, velocity };
+  }
+
+  /** 연도별 매출현황 (최근 6년: 올해 + 5년전까지) */
+  async yearlyOverview(partnerCode?: string) {
+    const params: any[] = [];
+    let pcFilter = '';
+    let pcFilterS = '';
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcFilter = `AND partner_code = $1`;
+      pcFilterS = `AND s.partner_code = $1`;
+    }
+
+    // 1. 연도별 총 매출
+    const yearlySql = `
+      SELECT EXTRACT(YEAR FROM sale_date)::int AS year,
+             SUM(total_price)::bigint AS total_amount,
+             SUM(qty)::int AS total_qty,
+             COUNT(*)::int AS sale_count,
+             COUNT(DISTINCT partner_code)::int AS partner_count
+      FROM sales
+      WHERE EXTRACT(YEAR FROM sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
+        ${pcFilter}
+      GROUP BY EXTRACT(YEAR FROM sale_date)
+      ORDER BY year`;
+    const yearly = (await this.pool.query(yearlySql, params)).rows;
+
+    // 2. 연도별 월별 매출
+    const monthlyByYearSql = `
+      SELECT EXTRACT(YEAR FROM sale_date)::int AS year,
+             EXTRACT(MONTH FROM sale_date)::int AS month,
+             SUM(total_price)::bigint AS total_amount,
+             SUM(qty)::int AS total_qty
+      FROM sales
+      WHERE EXTRACT(YEAR FROM sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
+        ${pcFilter}
+      GROUP BY EXTRACT(YEAR FROM sale_date), EXTRACT(MONTH FROM sale_date)
+      ORDER BY year, month`;
+    const monthlyByYear = (await this.pool.query(monthlyByYearSql, params)).rows;
+
+    // 3. 연도별 카테고리별 매출
+    const categoryByYearSql = `
+      SELECT EXTRACT(YEAR FROM s.sale_date)::int AS year,
+             COALESCE(p.category, '미분류') AS category,
+             SUM(s.total_price)::bigint AS total_amount,
+             SUM(s.qty)::int AS total_qty
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
+        ${pcFilterS}
+      GROUP BY EXTRACT(YEAR FROM s.sale_date), COALESCE(p.category, '미분류')
+      ORDER BY year, total_amount DESC`;
+    const categoryByYear = (await this.pool.query(categoryByYearSql, params)).rows;
+
+    // 4. 연도별 시즌별 매출
+    const seasonByYearSql = `
+      SELECT EXTRACT(YEAR FROM s.sale_date)::int AS year,
+             CASE
+               WHEN p.season LIKE '%SA' THEN '봄/가을'
+               WHEN p.season LIKE '%SM' THEN '여름'
+               WHEN p.season LIKE '%WN' THEN '겨울'
+               ELSE '기타'
+             END AS season_type,
+             SUM(s.total_price)::bigint AS total_amount,
+             SUM(s.qty)::int AS total_qty
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
+        ${pcFilterS}
+      GROUP BY EXTRACT(YEAR FROM s.sale_date), season_type
+      ORDER BY year, total_amount DESC`;
+    const seasonByYear = (await this.pool.query(seasonByYearSql, params)).rows;
+
+    // 5. 연도별 인기상품 TOP 5
+    const topByYearSql = `
+      SELECT ranked.* FROM (
+        SELECT EXTRACT(YEAR FROM s.sale_date)::int AS year,
+               p.product_code, p.product_name, p.category,
+               SUM(s.qty)::int AS total_qty,
+               SUM(s.total_price)::bigint AS total_amount,
+               ROW_NUMBER() OVER (PARTITION BY EXTRACT(YEAR FROM s.sale_date) ORDER BY SUM(s.total_price) DESC) AS rn
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE EXTRACT(YEAR FROM s.sale_date) BETWEEN EXTRACT(YEAR FROM CURRENT_DATE) - 5 AND EXTRACT(YEAR FROM CURRENT_DATE)
+          ${pcFilterS}
+        GROUP BY EXTRACT(YEAR FROM s.sale_date), p.product_code, p.product_name, p.category
+      ) ranked WHERE rn <= 5
+      ORDER BY year DESC, total_amount DESC`;
+    const topByYear = (await this.pool.query(topByYearSql, params)).rows;
+
+    return { yearly, monthlyByYear, categoryByYear, seasonByYear, topByYear };
   }
 
   async weeklyStyleSales(options: { weeks?: number; category?: string; partner_code?: string } = {}) {

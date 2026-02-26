@@ -31,6 +31,11 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/style-analytics?year=${year}`));
   },
 
+  // 연도별 매출현황 (최근 6년)
+  yearlyOverview: async () => {
+    return parse(await apiFetch('/api/sales/yearly-overview'));
+  },
+
   // 연단위 비교
   yearComparison: async (year: number) => {
     return parse(await apiFetch(`/api/sales/year-comparison?year=${year}`));
@@ -83,12 +88,21 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'DELETE' }));
   },
   // 반품 등록 (원본 매출 기반)
-  createReturn: async (id: number, body: { qty: number; reason?: string }) => {
+  createReturn: async (id: number, body: { qty: number; reason?: string; return_reason: string }) => {
     return parse(await apiFetch(`/api/sales/${id}/return`, { method: 'POST', body: JSON.stringify(body) }));
   },
   // 직접 반품 등록 (매장 고객 반품용)
-  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string }) => {
+  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string; return_reason: string }) => {
     return parse(await apiFetch('/api/sales/direct-return', { method: 'POST', body: JSON.stringify(body) }));
+  },
+  // 교환 처리
+  createExchange: async (id: number, body: { new_variant_id: number; new_qty: number; new_unit_price: number; return_reason: string; memo?: string }) => {
+    return parse(await apiFetch(`/api/sales/${id}/exchange`, { method: 'POST', body: JSON.stringify(body) }));
+  },
+  // 교환 이력
+  exchangeList: async (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return parse(await apiFetch(`/api/sales/exchanges/list${q}`));
   },
 
   // 바코드/SKU 스캔 조회

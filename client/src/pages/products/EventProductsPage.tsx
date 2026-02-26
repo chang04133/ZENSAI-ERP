@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Input, InputNumber, Space, Tag, Modal, Alert, Popconfirm, DatePicker, Tabs, Select, Radio, message } from 'antd';
-import { SearchOutlined, FireOutlined, TagsOutlined } from '@ant-design/icons';
+import { Table, Button, Input, InputNumber, Space, Tag, Modal, Alert, Popconfirm, DatePicker, Tabs, Select, Radio, message, Tooltip, Collapse, Typography, Divider } from 'antd';
+import { SearchOutlined, FireOutlined, TagsOutlined, ShopOutlined, InfoCircleOutlined, ThunderboltOutlined, DatabaseOutlined, SettingOutlined } from '@ant-design/icons';
+
+const { Text, Paragraph } = Typography;
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
+import { partnerApi } from '../../modules/partner/partner.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { SIZE_ORDER } from '../../utils/size-order';
@@ -54,6 +57,14 @@ export default function EventProductsPage() {
   const [bulkPrice, setBulkPrice] = useState<number | null>(null);
   const [editingPrices, setEditingPrices] = useState<Record<string, number | null>>({});
 
+  /* ═══════ 매장 목록 ═══════ */
+  const [partners, setPartners] = useState<any[]>([]);
+  const [storeModalOpen, setStoreModalOpen] = useState(false);
+  const [storeModalCode, setStoreModalCode] = useState<string>('');
+  const [storeModalSelected, setStoreModalSelected] = useState<string[]>([]);
+  const [bulkStoreModalOpen, setBulkStoreModalOpen] = useState(false);
+  const [bulkStoreCodes, setBulkStoreCodes] = useState<string[]>([]);
+
   /* ═══════ 탭2: 행사 추천 ═══════ */
   const [recs, setRecs] = useState<any[]>([]);
   const [recLoading, setRecLoading] = useState(false);
@@ -63,6 +74,7 @@ export default function EventProductsPage() {
   const [applyMode, setApplyMode] = useState<'rate' | 'fixed'>('rate');
   const [applyRate, setApplyRate] = useState<number>(30);
   const [applyFixed, setApplyFixed] = useState<number | null>(null);
+  const [recStoreCodes, setRecStoreCodes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
   /* ── 행사 상품 로드 ── */
@@ -80,6 +92,11 @@ export default function EventProductsPage() {
   };
 
   useEffect(() => { load(); }, [page]);
+
+  /* ── 매장 목록 로드 ── */
+  useEffect(() => {
+    partnerApi.list({ limit: '1000' }).then((r) => setPartners(r.data)).catch(() => {});
+  }, []);
 
   /* ── 추천 로드 ── */
   const loadRecs = async () => {
@@ -154,6 +171,46 @@ export default function EventProductsPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  /* ── 매장 설정 (개별) ── */
+  const openStoreModal = (code: string, currentStores?: string[]) => {
+    setStoreModalCode(code);
+    setStoreModalSelected(currentStores || []);
+    setStoreModalOpen(true);
+  };
+
+  const handleStoreSave = async () => {
+    try {
+      const item = data.find((d: any) => d.product_code === storeModalCode);
+      await productApi.updateEventPrice(
+        storeModalCode, item?.event_price,
+        item?.event_start_date || null, item?.event_end_date || null,
+        storeModalSelected.length > 0 ? storeModalSelected : null,
+      );
+      message.success('행사 매장이 설정되었습니다.');
+      setStoreModalOpen(false);
+      load();
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  /* ── 매장 일괄 설정 ── */
+  const handleBulkStoreSet = async () => {
+    try {
+      for (const key of selectedRowKeys) {
+        const item = data.find((d: any) => d.product_code === key);
+        await productApi.updateEventPrice(
+          key as string, item?.event_price,
+          item?.event_start_date || null, item?.event_end_date || null,
+          bulkStoreCodes.length > 0 ? bulkStoreCodes : null,
+        );
+      }
+      message.success(`${selectedRowKeys.length}개 상품의 행사 매장이 설정되었습니다.`);
+      setBulkStoreModalOpen(false);
+      setBulkStoreCodes([]);
+      setSelectedRowKeys([]);
+      load();
+    } catch (e: any) { message.error(e.message); }
+  };
+
   /* ── 추천 → 행사가 일괄 적용 ── */
   const handleRecApply = async () => {
     const selected = recs.filter((r) => selectedRecKeys.includes(r.product_code));
@@ -172,10 +229,11 @@ export default function EventProductsPage() {
     }
 
     try {
-      await productApi.bulkUpdateEventPrices(updates);
+      await productApi.bulkUpdateEventPrices(updates, recStoreCodes.length > 0 ? recStoreCodes : null);
       message.success(`${updates.length}개 상품에 행사가가 설정되었습니다.`);
       setSelectedRecKeys([]);
       setRecApplyOpen(false);
+      setRecStoreCodes([]);
       loadRecs();
       load();
     } catch (e: any) { message.error(e.message); }
@@ -244,6 +302,33 @@ export default function EventProductsPage() {
             onChange={(d) => handleDateChange(record.product_code, 'end', d)}
             placeholder="종료일" style={{ width: 120 }} status={expired ? 'error' : undefined} />
         );
+      },
+    },
+    {
+      title: '행사 매장', dataIndex: 'event_store_codes', key: 'event_store_codes', width: 160,
+      render: (v: string[], record: any) => {
+        const codes = v || [];
+        const label = codes.length === 0
+          ? <Tag color="blue">전체 매장</Tag>
+          : (
+            <Tooltip title={codes.map((c) => {
+              const p = partners.find((pp: any) => pp.partner_code === c);
+              return p ? p.partner_name : c;
+            }).join(', ')}>
+              <span>
+                {codes.slice(0, 2).map((c) => {
+                  const p = partners.find((pp: any) => pp.partner_code === c);
+                  return <Tag key={c} style={{ fontSize: 11, margin: '0 2px 2px 0', padding: '0 4px' }}>{p ? p.partner_name : c}</Tag>;
+                })}
+                {codes.length > 2 && <Tag style={{ fontSize: 11, margin: 0, padding: '0 4px' }}>+{codes.length - 2}</Tag>}
+              </span>
+            </Tooltip>
+          );
+        return canWrite ? (
+          <span style={{ cursor: 'pointer' }} onClick={() => openStoreModal(record.product_code, codes)}>
+            {label}
+          </span>
+        ) : label;
       },
     },
     {
@@ -335,6 +420,9 @@ export default function EventProductsPage() {
           <Button type="primary" onClick={() => { setBulkPrice(null); setBulkModalOpen(true); }}>
             선택 행사가 설정 ({selectedRowKeys.length})
           </Button>
+          <Button icon={<ShopOutlined />} onClick={() => { setBulkStoreCodes([]); setBulkStoreModalOpen(true); }}>
+            선택 매장 설정 ({selectedRowKeys.length})
+          </Button>
         </Space>
       )}
 
@@ -344,6 +432,11 @@ export default function EventProductsPage() {
         loading={loading} size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 300px)' }}
         pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        title={() => (
+          <span style={{ color: '#888', fontSize: 12 }}>
+            event_price 설정 상품 · 매출등록 시 '행사' 유형 선택 → 행사가 자동 적용 · 기간/매장 지정 가능
+          </span>
+        )}
       />
     </>
   );
@@ -363,7 +456,7 @@ export default function EventProductsPage() {
         <Button onClick={loadRecs} loading={recLoading}>새로고침</Button>
         {canWrite && selectedRecKeys.length > 0 && (
           <Button type="primary" icon={<FireOutlined />}
-            onClick={() => { setApplyMode('rate'); setApplyRate(30); setApplyFixed(null); setRecApplyOpen(true); }}>
+            onClick={() => { setApplyMode('rate'); setApplyRate(30); setApplyFixed(null); setRecStoreCodes([]); setRecApplyOpen(true); }}>
             선택 상품 행사가 설정 ({selectedRecKeys.length})
           </Button>
         )}
@@ -380,6 +473,11 @@ export default function EventProductsPage() {
         loading={recLoading} size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 300px)' }}
         pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+        title={() => (
+          <span style={{ color: '#888', fontSize: 12 }}>
+            사이즈 깨짐(60%) + 저판매(40%) 가중 점수 · 365일 판매 기반 · 판매중 & 행사가 미설정 · FREE 사이즈 제외 · 점수 내림차순 · 최대 50건
+          </span>
+        )}
       />
     </>
   );
@@ -387,6 +485,106 @@ export default function EventProductsPage() {
   return (
     <div>
       <PageHeader title="행사 상품" />
+
+      <Collapse
+        size="small"
+        style={{ marginBottom: 16 }}
+        items={[
+          {
+            key: 'overview',
+            label: <Space><InfoCircleOutlined /><Text strong>행사 상품 시스템 로직</Text></Space>,
+            children: (
+              <div>
+                {/* ── 전체 구조 ── */}
+                <Paragraph style={{ margin: 0, fontSize: 12 }}>
+                  <Text strong>개요: </Text>
+                  상품(products)에 <Text code>event_price</Text>, <Text code>event_start_date</Text>, <Text code>event_end_date</Text>, <Text code>event_store_codes</Text> 필드를 직접 관리합니다.
+                  매출 등록 시 sale_type = '행사'를 선택하면 해당 상품의 행사가가 자동 적용됩니다.
+                </Paragraph>
+
+                <Divider style={{ margin: '10px 0' }} />
+
+                {/* ── 행사 상품 목록 탭 ── */}
+                <Paragraph style={{ margin: 0 }}>
+                  <Text strong style={{ color: '#1677ff', fontSize: 13 }}><TagsOutlined /> 행사 상품 탭</Text>
+                </Paragraph>
+                <Table size="small" pagination={false} style={{ margin: '6px 0 12px' }} dataSource={[
+                  { key: '1', feature: '행사가 설정', desc: 'products.event_price에 금액 직접 저장', api: 'PUT /api/products/:code/event-price' },
+                  { key: '2', feature: '행사 기간', desc: 'event_start_date ~ event_end_date (종료일 지나면 만료 표시)', api: 'PUT /api/products/:code/event-price' },
+                  { key: '3', feature: '행사 매장 지정', desc: 'event_store_codes[] 배열로 특정 매장만 적용 (비어있으면 전체)', api: 'PUT /api/products/:code/event-price' },
+                  { key: '4', feature: '일괄 설정', desc: '체크박스 선택 → 동일 행사가/매장 일괄 적용', api: 'PUT /api/products/events/bulk' },
+                  { key: '5', feature: '행사가 해제', desc: 'event_price를 NULL로 변경 → 목록에서 제거', api: 'PUT /api/products/:code/event-price (null)' },
+                  { key: '6', feature: '할인율 표시', desc: 'ROUND((1 - event_price / base_price) × 100)%', api: '클라이언트 계산' },
+                  { key: '7', feature: '매장 권한', desc: '매장 사용자는 자기 매장이 event_store_codes에 포함된 상품만 행사가 적용', api: '서버 필터링 (controller)' },
+                ]} columns={[
+                  { title: '기능', dataIndex: 'feature', width: 130, render: (v: string) => <Text strong style={{ fontSize: 11 }}>{v}</Text> },
+                  { title: '설명', dataIndex: 'desc', render: (v: string) => <span style={{ fontSize: 11 }}>{v}</span> },
+                  { title: 'API / 위치', dataIndex: 'api', width: 280, render: (v: string) => <Text code style={{ fontSize: 10 }}>{v}</Text> },
+                ]} />
+
+                {/* ── 행사 추천 탭 ── */}
+                <Paragraph style={{ margin: 0 }}>
+                  <Text strong style={{ color: '#fa541c', fontSize: 13 }}><FireOutlined /> 행사 추천 탭 (추천 점수 산출 로직)</Text>
+                </Paragraph>
+                <div style={{ background: '#f6f6f6', padding: 12, borderRadius: 6, margin: '6px 0', fontSize: 12, lineHeight: 2 }}>
+                  <div><Text strong>추천점수</Text> = <Tag color="orange" style={{ fontSize: 11, margin: 0 }}>사이즈깨짐 점수</Tag> × 깨짐 가중치(<Text code>60%</Text>) + <Tag color="purple" style={{ fontSize: 11, margin: 0 }}>저조판매 점수</Tag> × 판매 가중치(<Text code>40%</Text>)</div>
+                </div>
+                <Table size="small" pagination={false} style={{ margin: '6px 0 12px' }} dataSource={[
+                  { key: '1', step: '1. 대상 필터', condition: '판매중(sale_status=판매중) + 행사가 미설정(event_price IS NULL) + FREE 사이즈 제외', detail: '이미 행사 중인 상품은 추천에서 제외' },
+                  { key: '2', step: '2. 사이즈 분석', condition: '사이즈 3종 이상 + 재고 보유 사이즈 2종 이상', detail: 'HAVING COUNT(*) >= 3 AND stock_sizes >= 2' },
+                  { key: '3', step: '3. 깨짐 판정', condition: '재고 있는 최소~최대 사이즈 범위 내 품절 = "깨짐"', detail: '예: S(5), M(0), L(3) → M이 중간 품절 = 깨짐 1건' },
+                  { key: '4', step: '4. 깨짐 점수', condition: 'LEAST(100, 깨짐수 / (총사이즈-2) × 100)', detail: '깨짐 비율이 높을수록 점수 높음 (최대 100)' },
+                  { key: '5', step: '5. 판매 분석', condition: '최근 365일 판매량 집계', detail: '설정: EVENT_REC_SALES_PERIOD_DAYS = 365' },
+                  { key: '6', step: '6. 저조판매 점수', condition: '판매량 ≤ 기준(10개): (1 - 판매량/기준) × 100', detail: '판매량 0이면 100점, 10이면 0점' },
+                  { key: '7', step: '7. 최종 점수', condition: '깨짐점수 × 0.6 + 저조판매점수 × 0.4', detail: '가중치 합 100%' },
+                  { key: '8', step: '8. 정렬/제한', condition: '추천점수 DESC → 깨짐수 DESC → 판매량 ASC', detail: '최대 50건 (EVENT_REC_MAX_RESULTS)' },
+                ]} columns={[
+                  { title: '단계', dataIndex: 'step', width: 120, render: (v: string) => <Text strong style={{ fontSize: 11 }}>{v}</Text> },
+                  { title: '조건 / 공식', dataIndex: 'condition', render: (v: string) => <span style={{ fontSize: 11 }}>{v}</span> },
+                  { title: '비고', dataIndex: 'detail', width: 280, render: (v: string) => <span style={{ fontSize: 11, color: '#666' }}>{v}</span> },
+                ]} />
+
+                {/* ── 설정값 ── */}
+                <Paragraph style={{ margin: 0 }}>
+                  <Text strong style={{ color: '#722ed1', fontSize: 13 }}><SettingOutlined /> 시스템 설정 (master_codes)</Text>
+                </Paragraph>
+                <Table size="small" pagination={false} style={{ margin: '6px 0 12px' }} dataSource={[
+                  { key: '1', code: 'EVENT_REC_BROKEN_SIZE_WEIGHT', value: '60', desc: '사이즈 깨짐 가중치 (%)' },
+                  { key: '2', code: 'EVENT_REC_LOW_SALES_WEIGHT', value: '40', desc: '저조 판매 가중치 (%)' },
+                  { key: '3', code: 'EVENT_REC_SALES_PERIOD_DAYS', value: '365', desc: '판매량 집계 기간 (일)' },
+                  { key: '4', code: 'EVENT_REC_MIN_SALES_THRESHOLD', value: '10', desc: '저조 판매 기준 수량 (이하 시 점수 부여)' },
+                  { key: '5', code: 'EVENT_REC_MAX_RESULTS', value: '50', desc: '최대 추천 건수' },
+                ]} columns={[
+                  { title: '설정 키', dataIndex: 'code', width: 280, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
+                  { title: '기본값', dataIndex: 'value', width: 80, align: 'center' as const },
+                  { title: '설명', dataIndex: 'desc', render: (v: string) => <span style={{ fontSize: 11 }}>{v}</span> },
+                ]} />
+
+                {/* ── DB 스키마 ── */}
+                <Paragraph style={{ margin: 0 }}>
+                  <Text strong style={{ color: '#13c2c2', fontSize: 13 }}><DatabaseOutlined /> DB 컬럼 (products 테이블)</Text>
+                </Paragraph>
+                <Table size="small" pagination={false} style={{ margin: '6px 0 0' }} dataSource={[
+                  { key: '1', column: 'event_price', type: 'DECIMAL(12,2)', desc: '행사가 (NULL이면 행사 아님)' },
+                  { key: '2', column: 'event_start_date', type: 'DATE', desc: '행사 시작일' },
+                  { key: '3', column: 'event_end_date', type: 'DATE', desc: '행사 종료일 (지나면 만료 표시)' },
+                  { key: '4', column: 'event_store_codes', type: 'TEXT[]', desc: '행사 적용 매장 코드 배열 (NULL/빈배열 = 전체 매장)' },
+                ]} columns={[
+                  { title: '컬럼', dataIndex: 'column', width: 180, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
+                  { title: '타입', dataIndex: 'type', width: 140 },
+                  { title: '설명', dataIndex: 'desc', render: (v: string) => <span style={{ fontSize: 11 }}>{v}</span> },
+                ]} />
+
+                <Paragraph style={{ background: '#fffbe6', padding: 10, borderRadius: 6, margin: '12px 0 0', fontSize: 11, border: '1px solid #ffe58f' }}>
+                  <Text strong><ThunderboltOutlined /> 매출 연동: </Text>
+                  매출등록(SalesEntryPage) → sale_type '행사' 선택 시 → 해당 상품의 event_price를 자동 조회하여 판매가에 적용.
+                  매장 사용자의 경우 event_store_codes에 자기 매장이 포함된 경우에만 행사가가 노출됩니다.
+                </Paragraph>
+              </div>
+            ),
+          },
+        ]}
+      />
 
       <Tabs
         activeKey={activeTab}
@@ -410,6 +608,61 @@ export default function EventProductsPage() {
           formatter={(val) => val ? `${val}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',') : ''}
           parser={(val) => Number((val || '').replace(/,/g, ''))}
           addonAfter="원"
+        />
+      </Modal>
+
+      {/* 개별 매장 선택 모달 */}
+      <Modal
+        title={`행사 매장 설정 - ${storeModalCode}`}
+        open={storeModalOpen}
+        onOk={handleStoreSave}
+        onCancel={() => setStoreModalOpen(false)}
+        okText="저장" cancelText="취소"
+        width={480}
+      >
+        <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+          매장을 선택하지 않으면 전체 매장에 적용됩니다.
+        </div>
+        <Select
+          mode="multiple"
+          placeholder="행사 적용 매장 선택 (미선택 시 전체)"
+          value={storeModalSelected}
+          onChange={setStoreModalSelected}
+          style={{ width: '100%' }}
+          options={partners.map((p: any) => ({ label: `${p.partner_name} (${p.partner_type})`, value: p.partner_code }))}
+          filterOption={(input, option) =>
+            (option?.label as string || '').toLowerCase().includes(input.toLowerCase())
+          }
+          maxTagCount={5}
+          allowClear
+        />
+      </Modal>
+
+      {/* 일괄 매장 설정 모달 */}
+      <Modal
+        title={`행사 매장 일괄 설정 (${selectedRowKeys.length}개 상품)`}
+        open={bulkStoreModalOpen}
+        onOk={handleBulkStoreSet}
+        onCancel={() => setBulkStoreModalOpen(false)}
+        okText="적용" cancelText="취소"
+        width={480}
+      >
+        <div style={{ marginBottom: 12, color: '#666', fontSize: 13 }}>
+          선택된 {selectedRowKeys.length}개 상품에 동일한 행사 매장을 설정합니다.<br />
+          매장을 선택하지 않으면 전체 매장에 적용됩니다.
+        </div>
+        <Select
+          mode="multiple"
+          placeholder="행사 적용 매장 선택 (미선택 시 전체)"
+          value={bulkStoreCodes}
+          onChange={setBulkStoreCodes}
+          style={{ width: '100%' }}
+          options={partners.map((p: any) => ({ label: `${p.partner_name} (${p.partner_type})`, value: p.partner_code }))}
+          filterOption={(input, option) =>
+            (option?.label as string || '').toLowerCase().includes(input.toLowerCase())
+          }
+          maxTagCount={5}
+          allowClear
         />
       </Modal>
 
@@ -465,6 +718,24 @@ export default function EventProductsPage() {
             addonAfter="원"
           />
         )}
+
+        <div style={{ marginTop: 16 }}>
+          <div style={{ marginBottom: 6, fontWeight: 500, fontSize: 13 }}><ShopOutlined /> 행사 매장 지정</div>
+          <Select
+            mode="multiple"
+            placeholder="행사 적용 매장 선택 (미선택 시 전체)"
+            value={recStoreCodes}
+            onChange={setRecStoreCodes}
+            style={{ width: '100%' }}
+            options={partners.map((p: any) => ({ label: `${p.partner_name} (${p.partner_type})`, value: p.partner_code }))}
+            filterOption={(input, option) =>
+              (option?.label as string || '').toLowerCase().includes(input.toLowerCase())
+            }
+            maxTagCount={3}
+            allowClear
+          />
+          <div style={{ marginTop: 4, fontSize: 11, color: '#999' }}>미선택 시 전체 매장에 적용됩니다.</div>
+        </div>
       </Modal>
     </div>
   );

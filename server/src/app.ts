@@ -28,6 +28,11 @@ import notificationRoutes from './modules/notification/notification.routes';
 import productionRoutes from './modules/production/production.routes';
 import materialRoutes from './modules/production/material.routes';
 import fundRoutes from './modules/fund/fund.routes';
+import sizeRunRoutes from './modules/size-run/size-run.routes';
+import promotionRoutes from './modules/promotion/promotion.routes';
+import purchaseRoutes from './modules/purchase/purchase.routes';
+import customerRoutes from './modules/customer/customer.routes';
+import orderRoutes from './modules/order/order.routes';
 
 const app = express();
 
@@ -103,6 +108,11 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/productions', productionRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/funds', fundRoutes);
+app.use('/api/size-runs', sizeRunRoutes);
+app.use('/api/promotions', promotionRoutes);
+app.use('/api/purchases', purchaseRoutes);
+app.use('/api/customers', customerRoutes);
+app.use('/api/orders', orderRoutes);
 
 // Production: serve static files
 if (config.nodeEnv === 'production') {

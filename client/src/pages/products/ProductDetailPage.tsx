@@ -196,7 +196,7 @@ export default function ProductDetailPage() {
           {!isStore && <Descriptions.Item label="매입가 (원가)">{fmtPrice(product.cost_price)}</Descriptions.Item>}
           <Descriptions.Item label="할인가">{fmtPrice(product.discount_price)}</Descriptions.Item>
           <Descriptions.Item label="행사가격">{fmtPrice(product.event_price)}</Descriptions.Item>
-          <Descriptions.Item label="재고부족 알림">
+          <Descriptions.Item label="재입고 알림">
             <Tag color={product.low_stock_alert ? 'green' : 'default'}>{product.low_stock_alert ? 'ON' : 'OFF'}</Tag>
             {product.low_stock_threshold && <span style={{ marginLeft: 8, color: '#888' }}>임계값: {product.low_stock_threshold}</span>}
           </Descriptions.Item>

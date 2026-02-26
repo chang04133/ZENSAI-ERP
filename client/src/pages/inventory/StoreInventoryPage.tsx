@@ -143,7 +143,8 @@ export default function StoreInventoryPage() {
         map[key].total_qty += Number(r.qty || 0);
         map[key]._variants.push(r);
       });
-      return Object.values(map);
+      // 품번 알파벳순 정렬
+      return Object.values(map).sort((a, b) => (a.product_code || '').localeCompare(b.product_code || ''));
     }
 
     if (viewMode === 'color') {
@@ -164,11 +165,24 @@ export default function StoreInventoryPage() {
       Object.values(map).forEach((row: any) => {
         row._colorVariants.sort((a: any, b: any) => sizeSort(a.size, b.size));
       });
-      return Object.values(map);
+      // 품번 → 컬러순 정렬
+      return Object.values(map).sort((a, b) => {
+        const pc = (a.product_code || '').localeCompare(b.product_code || '');
+        if (pc !== 0) return pc;
+        return (a._color || '').localeCompare(b._color || '');
+      });
     }
 
-    // size view
-    return rawData.map((r) => ({ ...r, _rowKey: `${r.inventory_id}` }));
+    // size view: 품번 → 컬러 → 사이즈순
+    return rawData
+      .map((r) => ({ ...r, _rowKey: `${r.inventory_id}` }))
+      .sort((a, b) => {
+        const pc = (a.product_code || '').localeCompare(b.product_code || '');
+        if (pc !== 0) return pc;
+        const cc = (a.color || '').localeCompare(b.color || '');
+        if (cc !== 0) return cc;
+        return sizeSort(a.size || '', b.size || '');
+      });
   }, [viewMode, rawData]);
 
   // --- 품번별 columns ---
@@ -240,10 +254,12 @@ export default function StoreInventoryPage() {
       colorMap[c].push(v);
     });
     const rows: any[] = [];
-    Object.entries(colorMap).forEach(([, vs]) => {
-      vs.sort((a: any, b: any) => sizeSort(a.size, b.size));
-      vs.forEach((v: any) => rows.push(v));
-    });
+    Object.entries(colorMap)
+      .sort(([a], [b]) => a.localeCompare(b))  // 컬러 알파벳순
+      .forEach(([, vs]) => {
+        vs.sort((a: any, b: any) => sizeSort(a.size, b.size));
+        vs.forEach((v: any) => rows.push(v));
+      });
     const cols: any[] = [
       { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
       { title: 'Color', dataIndex: 'color', key: 'color', width: 80, render: (v: string) => v || '-' },

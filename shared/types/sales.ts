@@ -8,6 +8,11 @@ export interface Sale {
   total_price: number;
   sale_type?: string;
   tax_free?: boolean;
+  return_reason?: string;
+  promo_id?: number;
+  discount_amount?: number;
+  customer_id?: number;
+  order_id?: number;
   memo?: string | null;
   created_at: string;
   updated_at?: string;
@@ -17,6 +22,17 @@ export interface Sale {
   color?: string;
   size?: string;
   category?: string;
+}
+
+export interface SalesExchange {
+  exchange_id: number;
+  original_sale_id: number;
+  return_sale_id: number;
+  new_sale_id: number;
+  exchange_date: string;
+  memo?: string;
+  created_by?: string;
+  created_at: string;
 }
 
 export interface MonthlySalesSummary {

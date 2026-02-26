@@ -23,6 +23,15 @@ class ProductionService extends BaseService<ProductionPlan> {
   async categorySubStats(category: string) { return productionRepository.categorySubStats(category); }
   async productVariantDetail(productCode: string) { return productionRepository.productVariantDetail(productCode); }
 
+  /** 허용되는 상태 전환 정의 */
+  private static ALLOWED_TRANSITIONS: Record<string, string[]> = {
+    DRAFT: ['CONFIRMED', 'CANCELLED'],
+    CONFIRMED: ['IN_PRODUCTION', 'CANCELLED'],
+    IN_PRODUCTION: ['COMPLETED', 'CANCELLED'],
+    COMPLETED: [],
+    CANCELLED: [],
+  };
+
   async updateStatus(id: number, status: string, userId: string): Promise<ProductionPlan | null> {
     const pool = getPool();
     const client = await pool.connect();
@@ -31,6 +40,14 @@ class ProductionService extends BaseService<ProductionPlan> {
       const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1', [id]);
       if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다');
       const plan = current.rows[0];
+
+      // 상태 전환 검증
+      const oldStatus = plan.status;
+      if (oldStatus === status) throw new Error(`이미 ${status} 상태입니다.`);
+      const allowed = ProductionService.ALLOWED_TRANSITIONS[oldStatus] || [];
+      if (!allowed.includes(status)) {
+        throw new Error(`상태를 ${oldStatus}에서 ${status}(으)로 변경할 수 없습니다.`);
+      }
 
       const sets: string[] = ['status = $1', 'updated_at = NOW()'];
       const vals: any[] = [status];

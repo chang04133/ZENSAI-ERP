@@ -250,7 +250,7 @@ function RankBar({ data, history }: {
 }
 
 /* ── 같은달 연도별 비교 차트 ── */
-const YEAR_COLORS = ['#94a3b8', '#8b5cf6', '#3b82f6', '#f59e0b']; // 3년전, 2년전, 작년, 올해
+const YEAR_COLORS = ['#cbd5e1', '#94a3b8', '#a78bfa', '#8b5cf6', '#3b82f6', '#f59e0b']; // 5년전~올해
 
 function SameMonthChart({ data, currentMonth }: {
   data: Array<{ year: number; total_amount: number; total_qty: number; sale_count: number; partner_count: number }>;
@@ -265,7 +265,7 @@ function SameMonthChart({ data, currentMonth }: {
       {data.map((d) => {
         const pct = (Number(d.total_amount) / max) * 100;
         const yearDiff = curYear - Number(d.year);
-        const c = YEAR_COLORS[3 - yearDiff] || YEAR_COLORS[0];
+        const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
         const isCurrent = Number(d.year) === curYear;
         return (
           <div key={d.year}>
@@ -316,7 +316,7 @@ function SameMonthChart({ data, currentMonth }: {
 
 const PERIOD_OPTIONS = [
   { label: '이번달', value: 'month' },
-  ...Array.from({ length: 2 }, (_, i) => {
+  ...Array.from({ length: 6 }, (_, i) => {
     const y = new Date().getFullYear() - i;
     return { label: `${y}년`, value: String(y) };
   }),
@@ -330,6 +330,7 @@ export default function SalesDashboardPage() {
   const [loading, setLoading] = useState(true);
   const [period, setPeriod] = useState('month');
   const [storeComparison, setStoreComparison] = useState<any[]>([]);
+  const [yearlyData, setYearlyData] = useState<any>(null);
 
   const loadStats = async (p: string) => {
     setLoading(true);
@@ -339,6 +340,13 @@ export default function SalesDashboardPage() {
       setStats(data);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
+  };
+
+  const loadYearlyOverview = async () => {
+    try {
+      const data = await salesApi.yearlyOverview();
+      setYearlyData(data);
+    } catch { /* ignore */ }
   };
 
   const loadStoreComparison = async () => {
@@ -351,6 +359,7 @@ export default function SalesDashboardPage() {
 
   useEffect(() => {
     loadStats(period);
+    loadYearlyOverview();
     if (!isStore) loadStoreComparison();
   }, []);
 
@@ -465,7 +474,7 @@ export default function SalesDashboardPage() {
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col xs={24}>
             <Card
-              title={<span><CalendarOutlined style={{ marginRight: 8 }} />{new Date().getMonth() + 1}월 매출 — 최근 4개년 비교</span>}
+              title={<span><CalendarOutlined style={{ marginRight: 8 }} />{new Date().getMonth() + 1}월 매출 — 최근 6개년 비교</span>}
               size="small" style={{ borderRadius: 10 }} loading={loading}
             >
               <SameMonthChart
@@ -658,6 +667,276 @@ export default function SalesDashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* ── 연도별 매출현황 (6개년) ── */}
+      {yearlyData && yearlyData.yearly?.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card
+              title={<span><CalendarOutlined style={{ marginRight: 8 }} />연도별 매출현황 (최근 6개년)</span>}
+              size="small" style={{ borderRadius: 10 }}
+            >
+              {/* 연도별 총매출 비교 바 */}
+              {(() => {
+                const years: Array<{ year: number; total_amount: number; total_qty: number; sale_count: number; partner_count: number }> = yearlyData.yearly;
+                const max = Math.max(...years.map((y: any) => Number(y.total_amount)), 1);
+                const curYear = new Date().getFullYear();
+                return (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+                    {years.map((d: any, idx: number) => {
+                      const pct = (Number(d.total_amount) / max) * 100;
+                      const yearDiff = curYear - Number(d.year);
+                      const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
+                      const isCurrent = Number(d.year) === curYear;
+                      // 전년대비 증감
+                      const prevYear = years.find((y: any) => Number(y.year) === Number(d.year) - 1);
+                      const diff = prevYear ? Number(d.total_amount) - Number(prevYear.total_amount) : null;
+                      const pctChange = prevYear && Number(prevYear.total_amount) > 0
+                        ? ((diff! / Number(prevYear.total_amount)) * 100).toFixed(0) : null;
+                      return (
+                        <div key={d.year}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                            <span style={{ fontSize: 14, fontWeight: isCurrent ? 700 : 500 }}>
+                              {d.year}년
+                              {isCurrent && <Tag color="gold" style={{ marginLeft: 6, fontSize: 10 }}>올해</Tag>}
+                            </span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
+                              {fmtWon(Number(d.total_amount))}
+                              <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>
+                                {Number(d.total_qty).toLocaleString()}개 · {d.sale_count}건
+                              </span>
+                              {pctChange !== null && (
+                                <span style={{ marginLeft: 8, fontSize: 11, color: diff! > 0 ? '#1677ff' : diff! < 0 ? '#ff4d4f' : '#999' }}>
+                                  전년대비 {diff! > 0 ? '+' : ''}{pctChange}%
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                          <div style={{ background: '#f3f4f6', borderRadius: 6, height: 24, overflow: 'hidden' }}>
+                            <div style={{
+                              width: `${pct}%`, height: '100%',
+                              background: isCurrent
+                                ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
+                                : `linear-gradient(90deg, ${c}, ${c}aa)`,
+                              borderRadius: 6, transition: 'width 0.5s ease',
+                            }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* ── 연도별 월별 매출 추이 ── */}
+      {yearlyData && yearlyData.monthlyByYear?.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card
+              title={<span><RiseOutlined style={{ marginRight: 8 }} />연도별 월별 매출 비교</span>}
+              size="small" style={{ borderRadius: 10 }}
+            >
+              {(() => {
+                const curYear = new Date().getFullYear();
+                const allYears = [...new Set(yearlyData.monthlyByYear.map((r: any) => Number(r.year)))] as number[];
+                allYears.sort((a, b) => a - b);
+                const months = Array.from({ length: 12 }, (_, i) => i + 1);
+                // 월별로 각 연도의 데이터를 찾기
+                const dataMap: Record<string, number> = {};
+                for (const r of yearlyData.monthlyByYear) {
+                  dataMap[`${r.year}-${r.month}`] = Number(r.total_amount);
+                }
+                const max = Math.max(...Object.values(dataMap), 1);
+
+                return (
+                  <div>
+                    {/* 범례 */}
+                    <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+                      {allYears.map((y: number) => {
+                        const yearDiff = curYear - y;
+                        const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
+                        return (
+                          <span key={y} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
+                            <span style={{ width: 12, height: 12, borderRadius: 3, background: c, display: 'inline-block' }} />
+                            {y}년
+                          </span>
+                        );
+                      })}
+                    </div>
+                    {/* 월별 그리드 */}
+                    <div style={{ display: 'flex', gap: 4, height: 180, alignItems: 'flex-end', padding: '0 4px' }}>
+                      {months.map(m => (
+                        <div key={m} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+                          <div style={{ display: 'flex', gap: 1, alignItems: 'flex-end', height: 140, width: '100%' }}>
+                            {allYears.map((y: number) => {
+                              const val = dataMap[`${y}-${m}`] || 0;
+                              const h = Math.max((val / max) * 130, val > 0 ? 3 : 0);
+                              const yearDiff = curYear - y;
+                              const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
+                              return (
+                                <div key={y} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+                                  title={`${y}년 ${m}월: ${fmtWon(val)}`}>
+                                  <div style={{
+                                    width: '100%', maxWidth: 16, height: h,
+                                    background: y === curYear
+                                      ? 'linear-gradient(180deg, #f59e0b, #fbbf24)'
+                                      : `linear-gradient(180deg, ${c}, ${c}aa)`,
+                                    borderRadius: 2,
+                                  }} />
+                                </div>
+                              );
+                            })}
+                          </div>
+                          <div style={{ fontSize: 11, color: '#888', fontWeight: 500 }}>{m}월</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* ── 연도별 카테고리 매출 비교 테이블 ── */}
+      {yearlyData && yearlyData.categoryByYear?.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24} md={12}>
+            <Card
+              title={<span><TagsOutlined style={{ marginRight: 8 }} />연도별 카테고리 매출</span>}
+              size="small" style={{ borderRadius: 10, height: '100%' }}
+            >
+              {(() => {
+                const curYear = new Date().getFullYear();
+                const allYears = [...new Set(yearlyData.categoryByYear.map((r: any) => Number(r.year)))] as number[];
+                allYears.sort((a, b) => a - b);
+                const categories = [...new Set(yearlyData.categoryByYear.map((r: any) => r.category))] as string[];
+                const dataMap: Record<string, number> = {};
+                for (const r of yearlyData.categoryByYear) {
+                  dataMap[`${r.year}-${r.category}`] = Number(r.total_amount);
+                }
+                return (
+                  <Table
+                    dataSource={categories.map(cat => {
+                      const row: any = { category: cat };
+                      for (const y of allYears) {
+                        row[`y${y}`] = dataMap[`${y}-${cat}`] || 0;
+                      }
+                      return row;
+                    })}
+                    rowKey="category"
+                    size="small"
+                    pagination={false}
+                    scroll={{ x: 600 }}
+                    columns={[
+                      { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80, fixed: 'left',
+                        render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag> },
+                      ...allYears.map(y => ({
+                        title: `${y}`, dataIndex: `y${y}`, key: `y${y}`, width: 110, align: 'right' as const,
+                        render: (v: number) => <span style={{ fontWeight: y === curYear ? 700 : 400, color: y === curYear ? '#f59e0b' : undefined }}>{fmtWon(v)}</span>,
+                      })),
+                    ]}
+                  />
+                );
+              })()}
+            </Card>
+          </Col>
+          <Col xs={24} md={12}>
+            <Card
+              title={<span><CalendarOutlined style={{ marginRight: 8 }} />연도별 시즌 매출</span>}
+              size="small" style={{ borderRadius: 10, height: '100%' }}
+            >
+              {(() => {
+                const curYear = new Date().getFullYear();
+                const allYears = [...new Set(yearlyData.seasonByYear.map((r: any) => Number(r.year)))] as number[];
+                allYears.sort((a, b) => a - b);
+                const seasons = [...new Set(yearlyData.seasonByYear.map((r: any) => r.season_type))] as string[];
+                const SEASON_COLORS_MAP: Record<string, string> = { '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8' };
+                const dataMap: Record<string, number> = {};
+                for (const r of yearlyData.seasonByYear) {
+                  dataMap[`${r.year}-${r.season_type}`] = Number(r.total_amount);
+                }
+                return (
+                  <Table
+                    dataSource={seasons.map(s => {
+                      const row: any = { season: s };
+                      for (const y of allYears) {
+                        row[`y${y}`] = dataMap[`${y}-${s}`] || 0;
+                      }
+                      return row;
+                    })}
+                    rowKey="season"
+                    size="small"
+                    pagination={false}
+                    scroll={{ x: 600 }}
+                    columns={[
+                      { title: '시즌', dataIndex: 'season', key: 'season', width: 80, fixed: 'left',
+                        render: (v: string) => <span style={{ color: SEASON_COLORS_MAP[v] || '#666', fontWeight: 600 }}>{v}</span> },
+                      ...allYears.map(y => ({
+                        title: `${y}`, dataIndex: `y${y}`, key: `y${y}`, width: 110, align: 'right' as const,
+                        render: (v: number) => <span style={{ fontWeight: y === curYear ? 700 : 400, color: y === curYear ? '#f59e0b' : undefined }}>{fmtWon(v)}</span>,
+                      })),
+                    ]}
+                  />
+                );
+              })()}
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      {/* ── 연도별 인기상품 TOP 5 ── */}
+      {yearlyData && yearlyData.topByYear?.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card
+              title={<span><TrophyOutlined style={{ marginRight: 8 }} />연도별 인기상품 TOP 5</span>}
+              size="small" style={{ borderRadius: 10 }}
+            >
+              {(() => {
+                const curYear = new Date().getFullYear();
+                const allYears = [...new Set(yearlyData.topByYear.map((r: any) => Number(r.year)))] as number[];
+                allYears.sort((a, b) => b - a);
+                return (
+                  <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                    {allYears.map(y => {
+                      const yearItems = yearlyData.topByYear.filter((r: any) => Number(r.year) === y);
+                      const isCurrent = y === curYear;
+                      const yearDiff = curYear - y;
+                      const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
+                      return (
+                        <div key={y} style={{ flex: '1 1 280px', minWidth: 280 }}>
+                          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8, color: isCurrent ? '#f59e0b' : '#333' }}>
+                            {y}년 {isCurrent && <Tag color="gold" style={{ fontSize: 10 }}>올해</Tag>}
+                          </div>
+                          {yearItems.map((item: any, idx: number) => (
+                            <div key={item.product_code} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: '1px solid #f3f4f6' }}>
+                              <span style={{ fontSize: 12 }}>
+                                <span style={{ color: idx < 3 ? '#f59e0b' : '#aaa', fontWeight: 600, marginRight: 6 }}>{idx + 1}</span>
+                                <Tag color={CAT_COLORS[item.category] || 'default'} style={{ fontSize: 10 }}>{item.category || '-'}</Tag>
+                                {item.product_name}
+                              </span>
+                              <span style={{ fontSize: 12, fontWeight: 600, color: c, whiteSpace: 'nowrap' }}>
+                                {fmtWon(Number(item.total_amount))}
+                                <span style={{ fontWeight: 400, color: '#999', marginLeft: 4 }}>{Number(item.total_qty).toLocaleString()}개</span>
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* 매장별 성과 비교 (본사만) */}
       {!isStore && storeComparison.length > 0 && (

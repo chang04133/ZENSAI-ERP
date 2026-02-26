@@ -51,7 +51,7 @@ class ProductController extends BaseController<Product> {
     const result = await pool.query(
       `SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.price,
               p.product_code, p.product_name, p.category,
-              p.base_price, p.discount_price, p.event_price
+              p.base_price, p.discount_price, p.event_price, p.event_store_codes
        FROM product_variants pv
        JOIN products p ON pv.product_code = p.product_code
        WHERE pv.is_active = TRUE AND p.is_active = TRUE
@@ -60,7 +60,18 @@ class ProductController extends BaseController<Product> {
        LIMIT ${lim}`,
       search ? [`%${search}%`] : [],
     );
-    res.json({ success: true, data: result.rows });
+    // 행사 매장 제한: 매장 사용자이면 해당 매장이 event_store_codes에 포함되지 않은 경우 event_price 제거
+    const partnerCode = isStoreRole(req) ? req.user?.partnerCode : undefined;
+    const rows = result.rows.map((row: any) => {
+      if (row.event_price && row.event_store_codes && row.event_store_codes.length > 0 && partnerCode) {
+        if (!row.event_store_codes.includes(partnerCode)) {
+          row.event_price = null;
+        }
+      }
+      delete row.event_store_codes;
+      return row;
+    });
+    res.json({ success: true, data: rows });
   });
 
   getById = asyncHandler(async (req: Request, res: Response) => {
@@ -119,28 +130,29 @@ class ProductController extends BaseController<Product> {
   });
 
   updateEventPrice = asyncHandler(async (req: Request, res: Response) => {
-    const { event_price, event_start_date, event_end_date } = req.body;
+    const { event_price, event_start_date, event_end_date, event_store_codes } = req.body;
     const code = req.params.code as string;
     const product = await productService.updateEventPrice(
       code, event_price ?? null,
       event_start_date, event_end_date,
+      event_store_codes,
     );
     if (!product) {
       res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
       return;
     }
     audit('products', code, 'UPDATE', req.user!.userId,
-      null, { event_price, event_start_date, event_end_date });
+      null, { event_price, event_start_date, event_end_date, event_store_codes });
     res.json({ success: true, data: stripCostFromResult(product, req) });
   });
 
   bulkUpdateEventPrices = asyncHandler(async (req: Request, res: Response) => {
-    const { updates } = req.body;
+    const { updates, event_store_codes } = req.body;
     if (!Array.isArray(updates) || updates.length === 0) {
       res.status(400).json({ success: false, error: '업데이트 항목이 필요합니다.' });
       return;
     }
-    const result = await productService.bulkUpdateEventPrices(updates);
+    const result = await productService.bulkUpdateEventPrices(updates, event_store_codes);
     if (isStoreRole(req) && result?.products) {
       result.products = result.products.map(stripCost);
     }

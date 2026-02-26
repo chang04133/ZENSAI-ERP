@@ -13,28 +13,47 @@ export class ProductRepository extends BaseRepository<Product> {
     });
   }
 
-  /** 목록 조회 – inventory 합계 포함 */
+  /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20 } = options;
+    const { page = 1, limit = 20, color, size } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
-    const { whereClause, params, nextIdx } = qb.build();
+    const { whereClause, params, nextIdx: baseNextIdx } = qb.build();
 
-    const countSql = `SELECT COUNT(*) FROM ${this.table} ${whereClause}`;
+    // 컬러/사이즈 필터: product_variants JOIN
+    let variantJoin = '';
+    let variantFilter = '';
+    let nextIdx = baseNextIdx;
+    if (color || size) {
+      variantJoin = 'JOIN product_variants pv_filter ON p.product_code = pv_filter.product_code AND pv_filter.is_active = TRUE';
+      if (color) {
+        variantFilter += ` AND pv_filter.color = $${nextIdx}`;
+        params.push(color);
+        nextIdx++;
+      }
+      if (size) {
+        variantFilter += ` AND pv_filter.size = $${nextIdx}`;
+        params.push(size);
+        nextIdx++;
+      }
+    }
+
+    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${whereClause}${variantFilter}`;
     const countResult = await this.pool.query(countSql, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
     const dataSql = `
-      SELECT p.*,
+      SELECT DISTINCT p.*,
         COALESCE(inv.total_inv_qty, 0)::int AS total_inv_qty
       FROM products p
+      ${variantJoin}
       LEFT JOIN (
         SELECT pv.product_code, SUM(i.qty) AS total_inv_qty
         FROM inventory i
         JOIN product_variants pv ON i.variant_id = pv.variant_id
         GROUP BY pv.product_code
       ) inv ON p.product_code = inv.product_code
-      ${whereClause.replace(/WHERE/i, 'WHERE')}
+      ${whereClause}${variantFilter}
       ORDER BY p.created_at DESC
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const dataResult = await this.pool.query(dataSql, [...params, limit, offset]);
@@ -171,25 +190,31 @@ export class ProductRepository extends BaseRepository<Product> {
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async updateEventPrice(code: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null) {
+  async updateEventPrice(code: string, eventPrice: number | null, startDate?: string | null, endDate?: string | null, storeCodes?: string[] | null) {
     const result = await this.pool.query(
-      `UPDATE products SET event_price = $1, event_start_date = $2, event_end_date = $3, updated_at = NOW() WHERE product_code = $4 RETURNING *`,
-      [eventPrice, startDate || null, endDate || null, code],
+      `UPDATE products SET event_price = $1, event_start_date = $2, event_end_date = $3, event_store_codes = $4, updated_at = NOW() WHERE product_code = $5 RETURNING *`,
+      [eventPrice, startDate || null, endDate || null, storeCodes && storeCodes.length > 0 ? storeCodes : null, code],
     );
     return result.rows[0] || null;
   }
 
-  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>) {
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) {
     const pool = getPool();
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
       const results = [];
+      const storeArr = storeCodes && storeCodes.length > 0 ? storeCodes : null;
       for (const { product_code, event_price } of updates) {
-        const result = await client.query(
-          `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
-          [event_price, product_code],
-        );
+        const result = storeCodes !== undefined
+          ? await client.query(
+              `UPDATE products SET event_price = $1, event_store_codes = $2, updated_at = NOW() WHERE product_code = $3 RETURNING *`,
+              [event_price, storeArr, product_code],
+            )
+          : await client.query(
+              `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
+              [event_price, product_code],
+            );
         if (result.rows[0]) results.push(result.rows[0]);
       }
       await client.query('COMMIT');

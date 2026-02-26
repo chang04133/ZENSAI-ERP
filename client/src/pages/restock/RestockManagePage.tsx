@@ -1,6 +1,6 @@
 import { useEffect, useState, CSSProperties } from 'react';
-import { Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker, Input, Space, Row, Col, message } from 'antd';
-import { PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined, WarningOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker, Input, Space, Row, Col, Collapse, message } from 'antd';
+import { PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined, WarningOutlined, ExclamationCircleOutlined, QuestionCircleOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { restockApi } from '../../modules/restock/restock.api';
@@ -272,6 +272,63 @@ export default function RestockManagePage() {
           key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안</span>,
           children: (
             <>
+              {/* 로직 설명 */}
+              <Collapse
+                size="small"
+                style={{ marginBottom: 16, background: '#fafafa' }}
+                items={[{
+                  key: 'logic',
+                  label: <span><QuestionCircleOutlined /> 재입고 제안 로직 설명</span>,
+                  children: (
+                    <div style={{ fontSize: 13, lineHeight: 2, color: '#333' }}>
+                      <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>1. 데이터 수집 (5가지 소스)</p>
+                      <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 12 }}>
+                        <tbody>
+                          {[
+                            ['60일 판매 데이터', '최근 60일간 판매 실적으로 일평균 판매량과 30일 수요를 예측합니다.'],
+                            ['현재 재고', '전체 매장/창고의 재고를 합산합니다.'],
+                            ['생산 계획', '확정/생산중인 계획의 잔여 수량을 가용 재고에 포함합니다.'],
+                            ['미입고 의뢰', '이미 발주된 재입고 의뢰 수량을 가용 재고에 포함합니다.'],
+                            ['시즌 가중치', '상품 시즌과 현재 시즌에 따라 수요를 보정합니다. (예: 여름상품 × 겨울 = 0.3배)'],
+                          ].map(([title, desc], i) => (
+                            <tr key={i} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                              <td style={{ padding: '4px 8px', fontWeight: 600, whiteSpace: 'nowrap', verticalAlign: 'top' }}>{title}</td>
+                              <td style={{ padding: '4px 8px', color: '#555' }}>{desc}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+
+                      <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>2. 핵심 계산 공식</p>
+                      <div style={{ background: '#f0f5ff', padding: '10px 14px', borderRadius: 6, fontFamily: 'monospace', fontSize: 12, marginBottom: 12, lineHeight: 1.8 }}>
+                        <div>가중 수요 = 30일 예측 판매량 × 시즌 가중치</div>
+                        <div>가용 재고 = 현재고 + 생산중 수량 + 발주중 수량</div>
+                        <div>부족량 = MAX(0, 가중 수요 − 가용 재고)</div>
+                        <div><strong>권장 수량 = ⌈부족량 × 1.2⌉ (20% 안전 버퍼)</strong></div>
+                        <div>소진일 = 가용 재고 ÷ (일평균 × 시즌 가중치)</div>
+                        <div>판매율 = 판매량 ÷ (판매량 + 현재고) × 100%</div>
+                      </div>
+
+                      <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>3. 긴급도 기준</p>
+                      <Space size={12} style={{ marginBottom: 12 }}>
+                        <Tag color="red">위험: 재고 0 또는 소진 7일 미만</Tag>
+                        <Tag color="orange">주의: 소진 14일 미만</Tag>
+                        <Tag color="blue">보통: 소진 14일 이상</Tag>
+                      </Space>
+
+                      <p style={{ fontWeight: 700, fontSize: 14, marginBottom: 8 }}>4. 필터링 조건</p>
+                      <ul style={{ margin: 0, paddingLeft: 20, color: '#555' }}>
+                        <li>판매율 40% 이상인 상품만 제안 (잘 팔리는 상품 우선)</li>
+                        <li>예외: 재고 0이면 판매율 무관하게 포함 (품절 방지)</li>
+                        <li>재입고 알림 OFF 상품은 제외</li>
+                        <li>비활성 상품, 판매중지 상품은 제외</li>
+                        <li>결과는 소진일 오름차순, 부족량 내림차순으로 정렬 (최대 200건)</li>
+                      </ul>
+                    </div>
+                  ),
+                }]}
+              />
+
               {/* 요약 카드 */}
               <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={8}>

@@ -191,6 +191,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         JOIN sales s ON pv.variant_id = s.variant_id
           AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+          AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
       ),
       current_stock AS (
@@ -224,6 +225,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         JOIN products p ON pv.product_code = p.product_code
         LEFT JOIN inventory i ON pv.variant_id = i.variant_id
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+          AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
           AND COALESCE(i.qty, 0) = 0
           AND pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
           AND pv.variant_id NOT IN (SELECT variant_id FROM pending_restocks WHERE pending_qty > 0)

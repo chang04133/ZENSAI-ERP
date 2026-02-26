@@ -18,13 +18,25 @@ function buildMenuItems(items: MenuItem[], role: string): any[] {
     .filter((item) => item.roles.includes(role))
     .map((item) => {
       if (item.children) {
-        const children = item.children
-          .filter((child) => child.roles.includes(role))
-          .map((child) => ({ key: child.key, icon: getIcon(child.icon), label: child.label }));
+        const children = buildMenuItems(item.children, role);
+        if (children.length === 0) return null;
         return { key: item.key, icon: getIcon(item.icon), label: item.label, children };
       }
       return { key: item.key, icon: getIcon(item.icon), label: item.label };
-    });
+    })
+    .filter(Boolean);
+}
+
+/** 현재 선택된 메뉴의 모든 상위 키를 찾아 defaultOpenKeys로 사용 */
+function findOpenKeys(items: MenuItem[], targetKey: string, parents: string[] = []): string[] | null {
+  for (const item of items) {
+    if (item.key === targetKey) return parents;
+    if (item.children) {
+      const result = findOpenKeys(item.children, targetKey, [...parents, item.key]);
+      if (result !== null) return result;
+    }
+  }
+  return null;
 }
 
 export default function MainLayout() {
@@ -40,7 +52,7 @@ export default function MainLayout() {
   const selectedKey = pathParts.length >= 2
     ? '/' + pathParts.slice(0, 2).join('/')
     : '/' + (pathParts[0] || '');
-  const openKey = pathParts.length >= 2 ? '/' + pathParts[0] : '';
+  const defaultOpen = findOpenKeys(menuItems, selectedKey) || (pathParts.length >= 2 ? ['/' + pathParts[0]] : []);
 
   const handleLogout = async () => {
     await logout();
@@ -63,7 +75,7 @@ export default function MainLayout() {
           theme="dark"
           mode="inline"
           selectedKeys={[selectedKey]}
-          defaultOpenKeys={[openKey]}
+          defaultOpenKeys={defaultOpen}
           items={filteredMenu}
           onClick={({ key }) => navigate(key)}
         />

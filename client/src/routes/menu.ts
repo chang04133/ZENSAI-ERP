@@ -42,13 +42,28 @@ export const menuItems: MenuItem[] = [
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/my-store', label: '내 매장 재고', icon: 'ShopOutlined', roles: [ROLES.STORE_MANAGER] },
-      { key: '/inventory/warehouse', label: '창고 재고', icon: 'HomeOutlined', roles: [ROLES.STORE_MANAGER] },
-      { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/count', label: '재고실사', icon: 'AuditOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/restock', label: '재입고 관리', icon: 'PlusSquareOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/restock-progress', label: '재입고 진행', icon: 'ClockCircleOutlined', roles: ADMIN_HQ },
+      {
+        key: 'inv-store', label: '매장 재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE,
+        children: [
+          { key: '/inventory/my-store', label: '내 매장 재고', icon: 'ShopOutlined', roles: [ROLES.STORE_MANAGER] },
+          { key: '/inventory/warehouse', label: '창고 재고', icon: 'HomeOutlined', roles: [ROLES.STORE_MANAGER] },
+          { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
+        ],
+      },
+      {
+        key: 'inv-adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ,
+        children: [
+          { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
+          { key: '/inventory/count', label: '재고실사', icon: 'AuditOutlined', roles: ADMIN_HQ },
+        ],
+      },
+      {
+        key: 'inv-restock', label: '재입고', icon: 'PlusSquareOutlined', roles: ADMIN_HQ,
+        children: [
+          { key: '/inventory/restock', label: '재입고 관리', icon: 'PlusSquareOutlined', roles: ADMIN_HQ },
+          { key: '/inventory/restock-progress', label: '재입고 진행', icon: 'ClockCircleOutlined', roles: ADMIN_HQ },
+        ],
+      },
     ],
   },
   {

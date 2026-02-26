@@ -85,9 +85,6 @@ const SettlementPage = lazy(() => import('../pages/settlement/SettlementPage'));
 // Claim (클레임/AS)
 const ClaimManagePage = lazy(() => import('../pages/claim/ClaimManagePage'));
 
-// Store (매장관리)
-const StoreManagePage = lazy(() => import('../pages/store/StoreManagePage'));
-
 // Closing (마감)
 const DailyClosingPage = lazy(() => import('../pages/closing/DailyClosingPage'));
 const MonthlyClosingPage = lazy(() => import('../pages/closing/MonthlyClosingPage'));
@@ -95,22 +92,8 @@ const MonthlyClosingPage = lazy(() => import('../pages/closing/MonthlyClosingPag
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
 
-// Online (온라인채널)
-const OnlineOrderPage = lazy(() => import('../pages/online/OnlineOrderPage'));
-const ChannelManagePage = lazy(() => import('../pages/online/ChannelManagePage'));
-
-// HR (인사/급여)
-const AttendancePage = lazy(() => import('../pages/hr/AttendancePage'));
-const PayrollPage = lazy(() => import('../pages/hr/PayrollPage'));
-
 // Notice (공지사항)
 const NoticeBoardPage = lazy(() => import('../pages/notice/NoticeBoardPage'));
-
-// Promotion (할인/프로모션)
-const PromotionManagePage = lazy(() => import('../pages/promotion/PromotionManagePage'));
-
-// Delivery (배송추적)
-const DeliveryTrackingPage = lazy(() => import('../pages/delivery/DeliveryTrackingPage'));
 
 
 // ── Route Definition ──
@@ -205,9 +188,6 @@ export const appRoutes: AppRoute[] = [
   // Claim (클레임/AS)
   { path: '/claims', element: <ClaimManagePage />, roles: ADMIN_HQ_STORE },
 
-  // Store (매장관리)
-  { path: '/stores', element: <StoreManagePage />, roles: ADMIN_HQ },
-
   // Closing (마감)
   { path: '/closing/daily', element: <DailyClosingPage />, roles: ADMIN_HQ_STORE },
   { path: '/closing/monthly', element: <MonthlyClosingPage />, roles: ADMIN_HQ },
@@ -215,22 +195,8 @@ export const appRoutes: AppRoute[] = [
   // Season (시즌/컬렉션)
   { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },
 
-  // Online (온라인채널)
-  { path: '/online/orders', element: <OnlineOrderPage />, roles: ADMIN_HQ },
-  { path: '/online/channels', element: <ChannelManagePage />, roles: ADMIN_HQ },
-
-  // HR (인사/급여)
-  { path: '/hr/attendance', element: <AttendancePage />, roles: ADMIN_HQ_STORE },
-  { path: '/hr/payroll', element: <PayrollPage />, roles: ADMIN_HQ },
-
   // Notice (공지사항)
   { path: '/notices', element: <NoticeBoardPage />, roles: ALL },
-
-  // Promotion (할인/프로모션)
-  { path: '/promotions', element: <PromotionManagePage />, roles: ADMIN_HQ },
-
-  // Delivery (배송추적)
-  { path: '/delivery', element: <DeliveryTrackingPage />, roles: ADMIN_HQ_STORE },
 
   // System (마스터 + 시스템관리자 전용)
   { path: '/system/settings', element: <SystemSettingsPage />, roles: ADMIN_SYS },

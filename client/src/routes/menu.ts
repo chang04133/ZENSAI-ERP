@@ -61,7 +61,6 @@ export const menuItems: MenuItem[] = [
       { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
-  { key: '/delivery', label: '배송 추적', icon: 'CarOutlined', roles: ADMIN_HQ_STORE },
   {
     key: '/sales', label: '판매관리', icon: 'LineChartOutlined', roles: STORE_ALL,
     children: [
@@ -82,14 +81,6 @@ export const menuItems: MenuItem[] = [
     ],
   },
   { key: '/claims', label: '클레임/AS', icon: 'ToolOutlined', roles: ADMIN_HQ_STORE },
-  { key: '/promotions', label: '할인/프로모션', icon: 'GiftOutlined', roles: ADMIN_HQ },
-  {
-    key: '/online', label: '온라인채널', icon: 'GlobalOutlined', roles: ADMIN_HQ,
-    children: [
-      { key: '/online/orders', label: '주문 관리', icon: 'ShoppingCartOutlined', roles: ADMIN_HQ },
-      { key: '/online/channels', label: '채널 관리', icon: 'ClusterOutlined', roles: ADMIN_HQ },
-    ],
-  },
   {
     key: '/production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
     children: [
@@ -108,14 +99,6 @@ export const menuItems: MenuItem[] = [
   },
   { key: '/settlement', label: '정산 관리', icon: 'TransactionOutlined', roles: ADMIN_HQ },
   { key: '/fund', label: '자금계획', icon: 'FundOutlined', roles: ADMIN_ONLY },
-  { key: '/stores', label: '매장 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
-  {
-    key: '/hr', label: '인사관리', icon: 'SolutionOutlined', roles: ADMIN_HQ_STORE,
-    children: [
-      { key: '/hr/attendance', label: '근태 관리', icon: 'ClockCircleOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/hr/payroll', label: '급여 관리', icon: 'DollarOutlined', roles: ADMIN_HQ },
-    ],
-  },
   { key: '/users', label: '직원 관리', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
   {
     key: '/system', label: '시스템관리', icon: 'ToolOutlined', roles: ADMIN_SYS,

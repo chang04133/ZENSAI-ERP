@@ -3,7 +3,7 @@ import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, Input
 import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
   StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
-  FileTextOutlined, CheckCircleOutlined,
+  FileTextOutlined, CheckCircleOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { codeApi } from '../../modules/code/code.api';
@@ -321,11 +321,13 @@ export default function ProductionPlanPage() {
         })}
       </div>
 
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="계획명/상품명 검색" prefix={<SearchOutlined />} value={search}
+          onChange={(e) => setSearch(e.target.value)} onPressEnter={() => {}} style={{ width: 250 }} />
+        <Button onClick={() => {}}>조회</Button>
+      </Space>
       <Card title={`생산계획 관리${statusFilter ? ` - ${STATUS_LABELS[statusFilter]}` : ''}`} extra={
-        <Space>
-          <Input.Search placeholder="검색" onSearch={setSearch} allowClear style={{ width: 180 }} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
           size="small" scroll={{ x: 1100, y: 'calc(100vh - 350px)' }}

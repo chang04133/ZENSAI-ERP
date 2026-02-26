@@ -170,21 +170,19 @@ export default function CustomerListPage() {
     <div>
       <PageHeader
         title="고객 관리"
-        extra={
-          <Space>
-            <Input
-              placeholder="이름/전화번호 검색"
-              prefix={<SearchOutlined />}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onPressEnter={() => { setPage(1); load(); }}
-              style={{ width: 220 }}
-            />
-            <Button onClick={() => { setPage(1); load(); }}>조회</Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>고객 등록</Button>
-          </Space>
-        }
+        extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>고객 등록</Button>}
       />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input
+          placeholder="이름/전화번호 검색"
+          prefix={<SearchOutlined />}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          onPressEnter={() => { setPage(1); load(); }}
+          style={{ width: 250 }}
+        />
+        <Button onClick={() => { setPage(1); load(); }}>조회</Button>
+      </Space>
 
       <Table
         columns={columns}

@@ -315,16 +315,16 @@ export default function MyStoreInventoryPage() {
           onPressEnter={doSearch} style={{ width: 220 }}
           allowClear
         />
-        <Select size="small" placeholder="카테고리" allowClear value={category} onChange={(v) => { setCategory(v); setPage(1); }}
-          style={{ width: 110 }} options={CATEGORY_OPTIONS} />
-        <Select size="small" placeholder="시즌" allowClear value={season} onChange={(v) => { setSeason(v); setPage(1); }}
-          style={{ width: 140 }} options={seasonOptions} />
-        <Select size="small" placeholder="사이즈" allowClear value={size} onChange={(v) => { setSize(v); setPage(1); }}
-          style={{ width: 100 }} options={SIZE_OPTIONS} />
+        <Select size="small" value={category || ''} onChange={(v) => { setCategory(v || undefined); setPage(1); }}
+          style={{ width: 120 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} />
+        <Select size="small" value={season || ''} onChange={(v) => { setSeason(v || undefined); setPage(1); }}
+          style={{ width: 140 }} options={[{ label: '전체 보기', value: '' }, ...seasonOptions]} />
+        <Select size="small" value={size || ''} onChange={(v) => { setSize(v || undefined); setPage(1); }}
+          style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} />
         <Input size="small" placeholder="색상" value={color} onChange={(e) => setColor(e.target.value)}
           onPressEnter={doSearch} style={{ width: 90 }} allowClear />
-        <Select size="small" placeholder="재고수준" allowClear value={stockLevel} onChange={(v) => { setStockLevel(v); setPage(1); }}
-          style={{ width: 130 }} options={STOCK_LEVELS.filter(s => s.value)} />
+        <Select size="small" value={stockLevel || ''} onChange={(v) => { setStockLevel(v || undefined); setPage(1); }}
+          style={{ width: 130 }} options={STOCK_LEVELS} />
         <Button size="small" onClick={doSearch} type="primary">조회</Button>
         <Button size="small" icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
       </Space>

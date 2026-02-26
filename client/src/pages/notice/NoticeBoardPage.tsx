@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Table, Card, Tag, Button, Space, Input, Modal, Form, Select, message, Badge, Typography } from 'antd';
-import { PlusOutlined, PushpinOutlined, BellOutlined, EyeOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, PushpinOutlined, BellOutlined, EyeOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 
 const TYPE_COLOR: Record<string, string> = { NOTICE: 'blue', URGENT: 'red', EVENT: 'green', SYSTEM: 'purple', HR: 'orange' };
@@ -60,13 +60,14 @@ export default function NoticeBoardPage() {
   return (
     <div>
       <PageHeader title="공지사항" extra={
-        <Space>
-          <Select placeholder="구분" allowClear style={{ width: 100 }} onChange={v => setTypeFilter(v || '')}
-            options={Object.entries(TYPE_LABEL).map(([k, v]) => ({ value: k, label: v }))} />
-          <Input.Search placeholder="제목/내용 검색" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>작성</Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>작성</Button>
       } />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="제목/내용 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
+        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, ...Object.entries(TYPE_LABEL).map(([k, v]) => ({ value: k, label: v }))]} />
+        <Button onClick={() => {}}>조회</Button>
+      </Space>
 
       <Card size="small">
         <Table dataSource={sorted} columns={columns} rowKey="id" size="small"

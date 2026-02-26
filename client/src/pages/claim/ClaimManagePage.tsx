@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Table, Card, Tag, Button, Space, Input, Row, Col, Statistic, Select, Modal, Form, DatePicker, Descriptions, Tabs, Timeline, message } from 'antd';
-import { PlusOutlined, ToolOutlined, ExclamationCircleOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, ToolOutlined, ExclamationCircleOutlined, CheckCircleOutlined, ClockCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 
 const STATUS_COLOR: Record<string, string> = { RECEIVED: 'orange', PROCESSING: 'blue', COMPLETED: 'green', REJECTED: 'red' };
@@ -55,15 +55,16 @@ export default function ClaimManagePage() {
   return (
     <div>
       <PageHeader title="클레임/AS 관리" extra={
-        <Space>
-          <Select placeholder="유형" allowClear style={{ width: 100 }} onChange={v => setTypeFilter(v || '')}
-            options={[{ value: 'DEFECT', label: '불량' }, { value: 'EXCHANGE', label: '교환' }, { value: 'AS', label: 'A/S' }, { value: 'COMPLAINT', label: '컴플레인' }]} />
-          <Select placeholder="상태" allowClear style={{ width: 100 }} onChange={v => setStatusFilter(v || '')}
-            options={[{ value: 'RECEIVED', label: '접수' }, { value: 'PROCESSING', label: '처리중' }, { value: 'COMPLETED', label: '완료' }]} />
-          <Input.Search placeholder="클레임번호/고객명/상품 검색" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 280 }} />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>클레임 접수</Button>
-        </Space>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>클레임 접수</Button>
       } />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="클레임번호/고객명/상품 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
+        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, { value: 'DEFECT', label: '불량' }, { value: 'EXCHANGE', label: '교환' }, { value: 'AS', label: 'A/S' }, { value: 'COMPLAINT', label: '컴플레인' }]} />
+        <Select value={statusFilter} onChange={v => setStatusFilter(v)} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, { value: 'RECEIVED', label: '접수' }, { value: 'PROCESSING', label: '처리중' }, { value: 'COMPLETED', label: '완료' }]} />
+        <Button onClick={() => {}}>조회</Button>
+      </Space>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="미처리 건" value={mockClaims.filter(c => c.status === 'RECEIVED').length} suffix="건" valueStyle={{ color: '#fa8c16' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>

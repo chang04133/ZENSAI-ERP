@@ -20,8 +20,8 @@ export default function ShipmentHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string | undefined>();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [typeFilter, setTypeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -79,16 +79,17 @@ export default function ShipmentHistoryPage() {
       <Space style={{ marginBottom: 16 }} wrap>
         <Input size="small" placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
           onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }} />
-        <Select size="small" placeholder="유형" allowClear value={typeFilter}
+        <Select size="small" value={typeFilter}
           onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
           options={[
+            { label: '전체 보기', value: '' },
             { label: '출고', value: '출고' },
             { label: '반품', value: '반품' },
             { label: '수평이동', value: '수평이동' },
           ]} />
-        <Select size="small" placeholder="상태" allowClear value={statusFilter}
+        <Select size="small" value={statusFilter}
           onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
+          options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]} />
         <RangePicker size="small" presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />
         <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
       </Space>

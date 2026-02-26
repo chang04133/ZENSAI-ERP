@@ -306,11 +306,11 @@ export default function OrderManagePage() {
         }
       />
 
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Input size="small" placeholder="주문번호, 고객명 검색" prefix={<SearchOutlined />}
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="주문번호, 고객명 검색" prefix={<SearchOutlined />}
           value={search} onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={handleSearch} style={{ width: 220 }} />
-        <Button size="small" onClick={handleSearch}>조회</Button>
+          onPressEnter={handleSearch} style={{ width: 250 }} />
+        <Button onClick={handleSearch}>조회</Button>
       </Space>
 
       <Table

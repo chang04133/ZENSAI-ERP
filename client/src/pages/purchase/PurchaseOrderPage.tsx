@@ -320,10 +320,10 @@ export default function PurchaseOrderPage() {
         }}>신규 발주</Button>
       } />
 
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Input size="small" placeholder="발주번호/업체명 검색" prefix={<SearchOutlined />} value={search}
-          onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: 240 }} />
-        <Button size="small" onClick={handleSearch}>조회</Button>
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="발주번호/업체명 검색" prefix={<SearchOutlined />} value={search}
+          onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: 250 }} />
+        <Button onClick={handleSearch}>조회</Button>
       </Space>
 
       <Table

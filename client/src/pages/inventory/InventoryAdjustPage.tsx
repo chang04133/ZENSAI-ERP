@@ -27,8 +27,8 @@ export default function InventoryAdjustPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
-  const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
+  const [partnerFilter, setPartnerFilter] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
   const [partners, setPartners] = useState<any[]>([]);
 
   // 조정 모달
@@ -52,8 +52,8 @@ export default function InventoryAdjustPage() {
   const [txLoading, setTxLoading] = useState(false);
   const [txPage, setTxPage] = useState(1);
   const [txSearch, setTxSearch] = useState('');
-  const [txTypeFilter, setTxTypeFilter] = useState<string | undefined>();
-  const [txPartnerFilter, setTxPartnerFilter] = useState<string | undefined>();
+  const [txTypeFilter, setTxTypeFilter] = useState('');
+  const [txPartnerFilter, setTxPartnerFilter] = useState('');
 
   // 재고 목록 로드
   const load = async (p?: number) => {
@@ -293,19 +293,28 @@ export default function InventoryAdjustPage() {
       } />
 
       {/* 필터바 */}
-      <Space style={{ marginBottom: 12 }} wrap>
-        <Select placeholder="거래처" allowClear showSearch optionFilterProp="label"
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="상품명/SKU 검색" prefix={<SearchOutlined />} size="small"
+          value={viewMode === 'inventory' ? search : txSearch}
+          onChange={(e) => viewMode === 'inventory' ? setSearch(e.target.value) : setTxSearch(e.target.value)}
+          onPressEnter={() => {
+            if (viewMode === 'inventory') { setPage(1); load(1); }
+            else { setTxPage(1); loadTx(1); }
+          }}
+          style={{ width: 220 }} />
+        <Select showSearch optionFilterProp="label" size="small"
           value={viewMode === 'inventory' ? partnerFilter : txPartnerFilter}
           onChange={(v) => {
             if (viewMode === 'inventory') { setPartnerFilter(v); setPage(1); }
             else { setTxPartnerFilter(v); setTxPage(1); }
           }}
-          style={{ width: 200 }} size="small" options={partnerOptions} />
+          style={{ width: 200 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} />
         {viewMode === 'inventory' && (
-          <Select placeholder="카테고리" allowClear size="small" style={{ width: 120 }}
+          <Select size="small" style={{ width: 120 }}
             value={categoryFilter}
             onChange={(v) => { setCategoryFilter(v); setPage(1); }}
             options={[
+              { label: '전체 보기', value: '' },
               { label: 'TOP', value: 'TOP' },
               { label: 'BOTTOM', value: 'BOTTOM' },
               { label: 'OUTER', value: 'OUTER' },
@@ -314,19 +323,11 @@ export default function InventoryAdjustPage() {
             ]} />
         )}
         {viewMode === 'history' && (
-          <Select placeholder="유형" allowClear size="small" style={{ width: 120 }}
+          <Select size="small" style={{ width: 120 }}
             value={txTypeFilter}
             onChange={(v) => { setTxTypeFilter(v); setTxPage(1); }}
-            options={Object.entries(TX_TYPE_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
+            options={[{ label: '전체 보기', value: '' }, ...Object.entries(TX_TYPE_LABELS).map(([k, v]) => ({ label: v, value: k }))]} />
         )}
-        <Input placeholder="상품명/SKU 검색" prefix={<SearchOutlined />} size="small"
-          value={viewMode === 'inventory' ? search : txSearch}
-          onChange={(e) => viewMode === 'inventory' ? setSearch(e.target.value) : setTxSearch(e.target.value)}
-          onPressEnter={() => {
-            if (viewMode === 'inventory') { setPage(1); load(1); }
-            else { setTxPage(1); loadTx(1); }
-          }}
-          style={{ width: 200 }} />
         <Button size="small" onClick={() => {
           if (viewMode === 'inventory') { setPage(1); load(1); }
           else { setTxPage(1); loadTx(1); }

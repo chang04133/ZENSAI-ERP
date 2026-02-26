@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, InputNumber, Space, Popconfirm, Tabs, message, Typography } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined, SearchOutlined } from '@ant-design/icons';
 import { materialApi } from '../../modules/production/material.api';
 import type { Material } from '../../../../shared/types/production';
 
@@ -123,19 +123,22 @@ export default function MaterialManagePage() {
     <div>
       <Tabs defaultActiveKey="list" items={[
         { key: 'list', label: '자재 목록', children: (
+          <>
+          <Space style={{ marginBottom: 16 }} wrap>
+            <Input placeholder="자재명/코드 검색" prefix={<SearchOutlined />} value={search}
+              onChange={(e) => setSearch(e.target.value)} style={{ width: 250 }} />
+            <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
+              options={[{ label: '전체 보기', value: '' }, ...MATERIAL_TYPES.map(t => ({ label: TYPE_LABELS[t], value: t }))]} />
+            <Button onClick={() => {}}>조회</Button>
+          </Space>
           <Card extra={
-            <Space>
-              <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 100 }} allowClear placeholder="유형">
-                {MATERIAL_TYPES.map(t => <Select.Option key={t} value={t}>{TYPE_LABELS[t]}</Select.Option>)}
-              </Select>
-              <Input.Search placeholder="검색" onSearch={setSearch} allowClear style={{ width: 160 }} />
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>자재 등록</Button>
-            </Space>
+            <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>자재 등록</Button>
           }>
             <Table columns={columns} dataSource={materials} rowKey="material_id" loading={loading}
               size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
               pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />
           </Card>
+          </>
         )},
         { key: 'lowstock', label: (
           <span><WarningOutlined style={{ color: '#ef4444' }} /> 부족 자재 {lowStock.length > 0 && <Tag color="red">{lowStock.length}</Tag>}</span>

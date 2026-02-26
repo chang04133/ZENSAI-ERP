@@ -13,7 +13,7 @@ export default function PartnerListPage() {
   const { data: partners, total, loading, fetchList: fetchPartners } = usePartnerStore();
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
-  const [partnerType, setPartnerType] = useState<string | undefined>();
+  const [partnerType, setPartnerType] = useState('');
   const [page, setPage] = useState(1);
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const canDelete = user && user.role === ROLES.ADMIN;
@@ -81,12 +81,11 @@ export default function PartnerListPage() {
         />
         <Select
           size="small"
-          placeholder="거래유형"
-          allowClear
           value={partnerType}
           onChange={setPartnerType}
           style={{ width: 130 }}
           options={[
+            { label: '전체 보기', value: '' },
             { label: '본사', value: '본사' },
             { label: '대리점', value: '대리점' },
             { label: '직영점', value: '직영점' },

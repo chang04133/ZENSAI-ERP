@@ -1,6 +1,14 @@
 import { useState } from 'react';
 import { Table, Card, Tag, Button, Space, Input, Row, Col, Statistic, DatePicker, Select, Modal, InputNumber, message, Descriptions } from 'antd';
 import { CheckOutlined, SearchOutlined, ExclamationCircleOutlined, EyeOutlined } from '@ant-design/icons';
+
+const STATUS_OPTIONS = [
+  { label: '전체 보기', value: '' },
+  { label: '입고대기', value: 'WAITING' },
+  { label: '검수중', value: 'INSPECTING' },
+  { label: '검수완료', value: 'PASSED' },
+  { label: '불합격', value: 'REJECTED' },
+];
 import PageHeader from '../../components/PageHeader';
 
 const STATUS_COLOR: Record<string, string> = { WAITING: 'orange', INSPECTING: 'blue', PASSED: 'green', REJECTED: 'red' };
@@ -23,12 +31,15 @@ const mockInspectItems = [
 
 export default function PurchaseReceivePage() {
   const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [inspectModal, setInspectModal] = useState(false);
   const [selected, setSelected] = useState<any>(null);
 
-  const filtered = mockReceives.filter(r =>
-    r.receive_no.includes(search) || r.order_no.includes(search) || r.partner_name.includes(search)
-  );
+  const filtered = mockReceives.filter(r => {
+    const matchSearch = r.receive_no.includes(search) || r.order_no.includes(search) || r.partner_name.includes(search);
+    const matchStatus = !statusFilter || r.status === statusFilter;
+    return matchSearch && matchStatus;
+  });
 
   const columns = [
     { title: '입고번호', dataIndex: 'receive_no', width: 140, render: (v: string, r: any) => <a onClick={() => { setSelected(r); setInspectModal(true); }}>{v}</a> },
@@ -61,11 +72,12 @@ export default function PurchaseReceivePage() {
 
   return (
     <div>
-      <PageHeader title="입고/검수 관리" extra={
-        <Space>
-          <Input.Search placeholder="입고번호/발주번호 검색" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 280 }} />
-        </Space>
-      } />
+      <PageHeader title="입고/검수 관리" />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="입고번호/발주번호 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
+        <Select value={statusFilter} onChange={v => setStatusFilter(v)} style={{ width: 120 }} options={STATUS_OPTIONS} />
+        <Button onClick={() => {}}>조회</Button>
+      </Space>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="입고대기" value={mockReceives.filter(r => r.status === 'WAITING').length} suffix="건" valueStyle={{ color: '#fa8c16' }} /></Card></Col>

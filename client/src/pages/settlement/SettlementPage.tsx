@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Table, Card, Tag, Button, Space, Input, Row, Col, Statistic, Select, DatePicker, Modal, Descriptions, Tabs, message } from 'antd';
-import { DollarOutlined, CheckCircleOutlined, ClockCircleOutlined, PrinterOutlined, FileExcelOutlined } from '@ant-design/icons';
+import { DollarOutlined, CheckCircleOutlined, ClockCircleOutlined, PrinterOutlined, FileExcelOutlined, SearchOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 
 const STATUS_COLOR: Record<string, string> = { PENDING: 'orange', CONFIRMED: 'blue', PAID: 'green', OVERDUE: 'red' };
@@ -72,13 +72,14 @@ export default function SettlementPage() {
   return (
     <div>
       <PageHeader title="정산 관리" extra={
-        <Space>
-          <Select placeholder="유형" allowClear style={{ width: 120 }} onChange={v => setTypeFilter(v || '')}
-            options={[{ value: '매출정산', label: '매출정산' }, { value: '매입정산', label: '매입정산' }]} />
-          <Input.Search placeholder="정산번호/거래처 검색" value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-          <Button icon={<FileExcelOutlined />}>엑셀 다운로드</Button>
-        </Space>
+        <Button icon={<FileExcelOutlined />}>엑셀 다운로드</Button>
       } />
+      <Space style={{ marginBottom: 16 }} wrap>
+        <Input placeholder="정산번호/거래처 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
+        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, { value: '매출정산', label: '매출정산' }, { value: '매입정산', label: '매입정산' }]} />
+        <Button onClick={() => {}}>조회</Button>
+      </Space>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="정산 대기" value={pendingAmount} suffix="원" valueStyle={{ color: '#fa8c16' }} prefix={<ClockCircleOutlined />} /></Card></Col>

@@ -37,7 +37,7 @@ export default function RestockManagePage() {
 
   const [tab, setTab] = useState('suggestions');
   const [partners, setPartners] = useState<any[]>([]);
-  const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
+  const [partnerFilter, setPartnerFilter] = useState('');
 
   // 제안 탭
   const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
@@ -50,7 +50,7 @@ export default function RestockManagePage() {
   // 의뢰 목록 탭
   const { data: requests, total, loading: reqLoading, fetchList } = useRestockStore();
   const [reqPage, setReqPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState('');
 
   // 생성 모달
   const [createOpen, setCreateOpen] = useState(false);
@@ -253,9 +253,9 @@ export default function RestockManagePage() {
         extra={
           <Space>
             {tab === 'velocity' && (
-              <Select placeholder="거래처 필터" allowClear value={partnerFilter}
+              <Select value={partnerFilter}
                 onChange={setPartnerFilter} style={{ width: 150 }}
-                options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+                options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]}
               />
             )}
             {tab === 'suggestions' && selectedItems.length > 0 && (
@@ -393,13 +393,13 @@ export default function RestockManagePage() {
           children: (
             <>
               <Space style={{ marginBottom: 12 }}>
-                <Select placeholder="상태" allowClear value={statusFilter}
+                <Select value={statusFilter}
                   onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
-                  options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))}
+                  options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]}
                 />
-                <Select placeholder="거래처" allowClear value={partnerFilter}
+                <Select value={partnerFilter}
                   onChange={setPartnerFilter} style={{ width: 150 }}
-                  options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+                  options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]}
                 />
               </Space>
               <Table

@@ -19,9 +19,9 @@ export default function WarehouseInventoryPage() {
 
   // Filters
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState<string | undefined>();
-  const [season, setSeason] = useState<string | undefined>();
-  const [size, setSize] = useState<string | undefined>();
+  const [category, setCategory] = useState('');
+  const [season, setSeason] = useState('');
+  const [size, setSize] = useState('');
   const [color, setColor] = useState('');
   const [sortField, setSortField] = useState('qty');
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('DESC');
@@ -49,8 +49,8 @@ export default function WarehouseInventoryPage() {
   const doSearch = () => { setPage(1); load(1); };
 
   const resetFilters = () => {
-    setSearch(''); setCategory(undefined); setSeason(undefined);
-    setSize(undefined); setColor('');
+    setSearch(''); setCategory(''); setSeason('');
+    setSize(''); setColor('');
     setSortField('qty'); setSortDir('DESC');
     setPage(1);
   };
@@ -245,12 +245,12 @@ export default function WarehouseInventoryPage() {
           onPressEnter={doSearch} style={{ width: 220 }}
           allowClear
         />
-        <Select size="small" placeholder="카테고리" allowClear value={category} onChange={(v) => { setCategory(v); setPage(1); }}
-          style={{ width: 110 }} options={CATEGORY_OPTIONS} />
-        <Select size="small" placeholder="시즌" allowClear value={season} onChange={(v) => { setSeason(v); setPage(1); }}
-          style={{ width: 110 }} />
-        <Select size="small" placeholder="사이즈" allowClear value={size} onChange={(v) => { setSize(v); setPage(1); }}
-          style={{ width: 100 }} options={SIZE_OPTIONS} />
+        <Select size="small" value={category} onChange={(v) => { setCategory(v); setPage(1); }}
+          style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} />
+        <Select size="small" value={season} onChange={(v) => { setSeason(v); setPage(1); }}
+          style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }]} />
+        <Select size="small" value={size} onChange={(v) => { setSize(v); setPage(1); }}
+          style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} />
         <Input size="small" placeholder="색상" value={color} onChange={(e) => setColor(e.target.value)}
           onPressEnter={doSearch} style={{ width: 90 }} allowClear />
         <Button size="small" onClick={doSearch} type="primary">조회</Button>

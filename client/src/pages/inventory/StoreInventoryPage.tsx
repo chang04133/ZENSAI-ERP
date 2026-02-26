@@ -20,7 +20,7 @@ export default function StoreInventoryPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
+  const [partnerFilter, setPartnerFilter] = useState('');
   const [partners, setPartners] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('product');
 
@@ -311,12 +311,11 @@ export default function StoreInventoryPage() {
 
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
-          size="small" placeholder="거래처 선택"
-          allowClear showSearch optionFilterProp="label"
+          size="small" showSearch optionFilterProp="label"
           value={partnerFilter}
           onChange={(v) => { setPartnerFilter(v); setPage(1); }}
           style={{ width: 220 }}
-          options={partnerOptions}
+          options={[{ label: '전체 보기', value: '' }, ...partnerOptions]}
         />
         <Input
           size="small" placeholder="상품명/SKU 검색"

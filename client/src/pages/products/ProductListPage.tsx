@@ -23,13 +23,13 @@ export default function ProductListPage() {
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [categoryFilter, setCategoryFilter] = useState<string | undefined>();
-  const [seasonFilter, setSeasonFilter] = useState<string | undefined>();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
-  const [fitFilter, setFitFilter] = useState<string | undefined>();
-  const [subCategoryFilter, setSubCategoryFilter] = useState<string | undefined>();
-  const [colorFilter, setColorFilter] = useState<string | undefined>();
-  const [sizeFilter, setSizeFilter] = useState<string | undefined>();
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [colorFilter, setColorFilter] = useState('');
+  const [sizeFilter, setSizeFilter] = useState('');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
@@ -77,9 +77,9 @@ export default function ProductListPage() {
 
   useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
 
-  const handleCategoryFilterChange = (value: string | undefined) => {
+  const handleCategoryFilterChange = (value: string) => {
     setCategoryFilter(value);
-    setSubCategoryFilter(undefined);
+    setSubCategoryFilter('');
     setPage(1);
     if (!value) { setSubCategoryOptions([]); return; }
     const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
@@ -305,25 +305,26 @@ export default function ProductListPage() {
           onPressEnter={load}
           style={{ width: 250 }}
         />
-        <Select placeholder="카테고리" allowClear value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
-          options={categoryOptions} />
-        <Select placeholder="세부카테고리" allowClear value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-          options={subCategoryOptions} disabled={!categoryFilter} />
-        <Select placeholder="시즌" allowClear value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
+        <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} />
+        <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+          options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} />
+        <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
           options={[
+            { label: '전체 보기', value: '' },
             { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
             { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
           ]} />
-        <Select placeholder="핏" allowClear value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-          options={fitOptions} />
-        <Select showSearch optionFilterProp="label" placeholder="컬러" allowClear value={colorFilter}
+        <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+          options={[{ label: '전체 보기', value: '' }, ...fitOptions]} />
+        <Select showSearch optionFilterProp="label" value={colorFilter}
           onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={colorOptions} />
-        <Select showSearch optionFilterProp="label" placeholder="사이즈" allowClear value={sizeFilter}
+          options={[{ label: '전체 보기', value: '' }, ...colorOptions]} />
+        <Select showSearch optionFilterProp="label" value={sizeFilter}
           onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
-          options={sizeOptions} />
-        <Select placeholder="판매상태" allowClear value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
+          options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} />
+        <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+          options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
         <Button onClick={load}>조회</Button>
       </Space>
       {canWrite && selectedRowKeys.length > 0 && (

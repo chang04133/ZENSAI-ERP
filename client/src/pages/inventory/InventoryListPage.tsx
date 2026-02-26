@@ -13,7 +13,7 @@ export default function InventoryListPage() {
   const [exporting, setExporting] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
+  const [partnerFilter, setPartnerFilter] = useState('');
   const [partners, setPartners] = useState<any[]>([]);
 
   const load = async (p?: number) => {
@@ -79,11 +79,11 @@ export default function InventoryListPage() {
       } />
       <Space style={{ marginBottom: 16 }} wrap>
         <Select
-          size="small" placeholder="거래처" allowClear showSearch optionFilterProp="label"
+          size="small" showSearch optionFilterProp="label"
           value={partnerFilter}
           onChange={(v) => { setPartnerFilter(v); setPage(1); }}
           style={{ width: 200 }}
-          options={partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }))}
+          options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }))]}
         />
         <Input
           size="small" placeholder="상품명/SKU 검색" prefix={<SearchOutlined />}

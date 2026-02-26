@@ -9,10 +9,6 @@ export interface Sale {
   sale_type?: string;
   tax_free?: boolean;
   return_reason?: string;
-  promo_id?: number;
-  discount_amount?: number;
-  customer_id?: number;
-  order_id?: number;
   memo?: string | null;
   created_at: string;
   updated_at?: string;

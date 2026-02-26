@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { Card, Table, Tag, DatePicker, Space, Spin, message, Row, Col, Button } from 'antd';
 import {
   DollarOutlined, ShoppingCartOutlined, SearchOutlined,
-  ShopOutlined, TagOutlined, SkinOutlined,
+  ShopOutlined, TagOutlined, SkinOutlined, FilterOutlined,
 } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
@@ -18,10 +19,25 @@ const CAT_COLORS: Record<string, string> = {
 
 const fmt = (v: number) => Number(v).toLocaleString();
 
+const FILTER_LABELS: Record<string, string> = {
+  category: '카테고리', fit: '핏', length: '기장', season: '시즌',
+};
+
 export default function ProductSalesPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+
+  // URL에서 필터 파라미터 읽기
+  const filterKey = (['category', 'fit', 'length', 'season'] as const).find(k => searchParams.get(k));
+  const filterValue = filterKey ? searchParams.get(filterKey)! : '';
+
+  const clearFilter = () => {
+    const next = new URLSearchParams(searchParams);
+    ['category', 'fit', 'length', 'season'].forEach(k => next.delete(k));
+    setSearchParams(next, { replace: true });
+  };
 
   const load = async (from: Dayjs, to: Dayjs) => {
     setLoading(true);
@@ -43,11 +59,31 @@ export default function ProductSalesPage() {
   const today = dayjs();
 
   const totals = data?.totals || {};
-  const summary = data?.summary || [];
+  const rawSummary = data?.summary || [];
+
+  // 필터 적용
+  const summary = filterKey
+    ? rawSummary.filter((r: any) => {
+        if (filterKey === 'category') return r.category === filterValue;
+        if (filterKey === 'fit') return r.fit === filterValue;
+        if (filterKey === 'length') return r.length === filterValue;
+        if (filterKey === 'season') return r.season_type === filterValue;
+        return true;
+      })
+    : rawSummary;
+
+  // 필터 적용 시 합계 재계산
+  const displayTotals = filterKey
+    ? {
+        total_amount: summary.reduce((s: number, r: any) => s + Number(r.total_amount), 0),
+        total_qty: summary.reduce((s: number, r: any) => s + Number(r.total_qty), 0),
+        partner_count: new Set(summary.flatMap((r: any) => r.partners || [])).size || totals.partner_count || 0,
+      }
+    : totals;
 
   return (
     <div>
-      <PageHeader title="종합매출" />
+      <PageHeader title={filterKey ? `종합매출 — ${FILTER_LABELS[filterKey]}: ${filterValue}` : '종합매출'} />
 
       {/* 필터 바 */}
       <div style={{
@@ -76,8 +112,14 @@ export default function ProductSalesPage() {
       </div>
 
       {/* 기간 표시 */}
-      <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
-        조회기간: <b>{range[0].format('YYYY-MM-DD')}</b> ~ <b>{range[1].format('YYYY-MM-DD')}</b>
+      <div style={{ marginBottom: 12, fontSize: 12, color: '#666', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <span>조회기간: <b>{range[0].format('YYYY-MM-DD')}</b> ~ <b>{range[1].format('YYYY-MM-DD')}</b></span>
+        {filterKey && (
+          <Tag color="blue" closable onClose={clearFilter} style={{ fontSize: 12 }}>
+            <FilterOutlined style={{ marginRight: 4 }} />
+            {FILTER_LABELS[filterKey]}: {filterValue}
+          </Tag>
+        )}
       </div>
 
       {loading && !data ? (
@@ -87,10 +129,10 @@ export default function ProductSalesPage() {
           {/* 요약 카드 */}
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
             {[
-              { label: '총 매출', value: `${fmt(totals.total_amount || 0)}원`, icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
-              { label: '판매 수량', value: `${fmt(totals.total_qty || 0)}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
+              { label: '총 매출', value: `${fmt(displayTotals.total_amount || 0)}원`, icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
+              { label: '판매 수량', value: `${fmt(displayTotals.total_qty || 0)}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
               { label: '판매 상품', value: `${summary.length}종`, icon: <SkinOutlined />, color: '#fa8c16', bg: '#fff7e6' },
-              { label: '거래처', value: `${totals.partner_count || 0}곳`, icon: <ShopOutlined />, color: '#722ed1', bg: '#f9f0ff' },
+              { label: '거래처', value: `${displayTotals.partner_count || 0}곳`, icon: <ShopOutlined />, color: '#722ed1', bg: '#f9f0ff' },
             ].map((item) => (
               <Col xs={12} sm={6} key={item.label}>
                 <div style={{ background: item.bg, borderRadius: 8, padding: '12px 14px' }}>
@@ -120,6 +162,7 @@ export default function ProductSalesPage() {
                   render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
                 { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
                 { title: '기장', dataIndex: 'length', key: 'len', width: 70, render: (v: string) => v || '-' },
+                { title: '시즌', dataIndex: 'season_type', key: 'season', width: 75, render: (v: string) => v || '-' },
                 { title: '판매수량', dataIndex: 'total_qty', key: 'qty', width: 90, align: 'right' as const,
                   render: (v: number) => <strong>{fmt(v)}</strong>,
                   sorter: (a: any, b: any) => a.total_qty - b.total_qty },
@@ -153,11 +196,11 @@ export default function ProductSalesPage() {
                 const avgPrice = totalQty > 0 ? Math.round(totalAmt / totalQty) : 0;
                 return (
                   <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 700 }}>
-                    <Table.Summary.Cell index={0} colSpan={6}>합계</Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">{fmt(totalQty)}</Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} align="right">{fmt(totalAmt)}원</Table.Summary.Cell>
-                    <Table.Summary.Cell index={8} align="right">{fmt(avgPrice)}원</Table.Summary.Cell>
-                    <Table.Summary.Cell index={9} colSpan={2} />
+                    <Table.Summary.Cell index={0} colSpan={7}>합계</Table.Summary.Cell>
+                    <Table.Summary.Cell index={7} align="right">{fmt(totalQty)}</Table.Summary.Cell>
+                    <Table.Summary.Cell index={8} align="right">{fmt(totalAmt)}원</Table.Summary.Cell>
+                    <Table.Summary.Cell index={9} align="right">{fmt(avgPrice)}원</Table.Summary.Cell>
+                    <Table.Summary.Cell index={10} colSpan={2} />
                   </Table.Summary.Row>
                 );
               }}

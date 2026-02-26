@@ -15,7 +15,6 @@ const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
 const EventProductsPage = lazy(() => import('../pages/products/EventProductsPage'));
-const SizeRunPage = lazy(() => import('../pages/products/SizeRunPage'));
 
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
@@ -70,24 +69,11 @@ const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage
 const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
 
 // ── NEW: 신규 모듈 ──
-// Purchase (구매/발주)
-const PurchaseOrderPage = lazy(() => import('../pages/purchase/PurchaseOrderPage'));
-const PurchaseReceivePage = lazy(() => import('../pages/purchase/PurchaseReceivePage'));
-
-// Customer (고객 CRM)
-const CustomerListPage = lazy(() => import('../pages/customer/CustomerListPage'));
-const CustomerAnalyticsPage = lazy(() => import('../pages/customer/CustomerAnalyticsPage'));
-const OrderManagePage = lazy(() => import('../pages/order/OrderManagePage'));
-
 // Settlement (정산)
 const SettlementPage = lazy(() => import('../pages/settlement/SettlementPage'));
 
 // Claim (클레임/AS)
 const ClaimManagePage = lazy(() => import('../pages/claim/ClaimManagePage'));
-
-// Closing (마감)
-const DailyClosingPage = lazy(() => import('../pages/closing/DailyClosingPage'));
-const MonthlyClosingPage = lazy(() => import('../pages/closing/MonthlyClosingPage'));
 
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
@@ -124,8 +110,6 @@ export const appRoutes: AppRoute[] = [
   { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
   { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
-  { path: '/products/size-runs', element: <SizeRunPage />, roles: ADMIN_HQ },
-
   // Codes
   { path: '/codes', element: <CodeManagePage />, roles: ADMIN_HQ },
 
@@ -173,24 +157,11 @@ export const appRoutes: AppRoute[] = [
 
   // ── NEW: 신규 모듈 라우트 ──
 
-  // Purchase (구매/발주)
-  { path: '/purchase/orders', element: <PurchaseOrderPage />, roles: ADMIN_HQ },
-  { path: '/purchase/receive', element: <PurchaseReceivePage />, roles: ADMIN_HQ },
-
-  // Customer (고객 CRM)
-  { path: '/customers', element: <CustomerListPage />, roles: ADMIN_HQ_STORE },
-  { path: '/customers/analytics', element: <CustomerAnalyticsPage />, roles: ADMIN_HQ },
-  { path: '/orders', element: <OrderManagePage />, roles: ADMIN_HQ_STORE },
-
   // Settlement (정산)
   { path: '/settlement', element: <SettlementPage />, roles: ADMIN_HQ },
 
   // Claim (클레임/AS)
   { path: '/claims', element: <ClaimManagePage />, roles: ADMIN_HQ_STORE },
-
-  // Closing (마감)
-  { path: '/closing/daily', element: <DailyClosingPage />, roles: ADMIN_HQ_STORE },
-  { path: '/closing/monthly', element: <MonthlyClosingPage />, roles: ADMIN_HQ },
 
   // Season (시즌/컬렉션)
   { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },

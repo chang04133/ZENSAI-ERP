@@ -26,18 +26,9 @@ export const menuItems: MenuItem[] = [
     key: '/products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ,
     children: [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ },
-      { key: '/products/size-runs', label: '사이즈 런', icon: 'ColumnWidthOutlined', roles: ADMIN_HQ },
     ],
   },
   { key: '/products/events', label: '행사 상품', icon: 'FireOutlined', roles: ADMIN_HQ_STORE },
-  { key: '/seasons', label: '시즌/컬렉션', icon: 'CalendarOutlined', roles: ADMIN_HQ },
-  {
-    key: '/purchase', label: '구매/발주', icon: 'ShoppingCartOutlined', roles: ADMIN_HQ,
-    children: [
-      { key: '/purchase/orders', label: '발주 관리', icon: 'FileTextOutlined', roles: ADMIN_HQ },
-      { key: '/purchase/receive', label: '입고/검수', icon: 'CheckSquareOutlined', roles: ADMIN_HQ },
-    ],
-  },
   {
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
@@ -87,14 +78,6 @@ export const menuItems: MenuItem[] = [
       { key: '/sales/sell-through', label: '판매율 분석', icon: 'PercentageOutlined', roles: STORE_ALL },
     ],
   },
-  {
-    key: '/customers', label: '고객/주문', icon: 'TeamOutlined', roles: ADMIN_HQ_STORE,
-    children: [
-      { key: '/customers', label: '고객 목록', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/customers/analytics', label: '고객 분석', icon: 'PieChartOutlined', roles: ADMIN_HQ },
-      { key: '/orders', label: '주문 관리', icon: 'ShoppingCartOutlined', roles: ADMIN_HQ_STORE },
-    ],
-  },
   { key: '/claims', label: '클레임/AS', icon: 'ToolOutlined', roles: ADMIN_HQ_STORE },
   {
     key: '/production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
@@ -103,13 +86,6 @@ export const menuItems: MenuItem[] = [
       { key: '/production/plans', label: '생산계획 관리', icon: 'ScheduleOutlined', roles: ADMIN_HQ },
       { key: '/production/progress', label: '생산진행 현황', icon: 'SyncOutlined', roles: ADMIN_HQ },
       { key: '/production/materials', label: '원단/자재 관리', icon: 'GoldOutlined', roles: ADMIN_HQ },
-    ],
-  },
-  {
-    key: '/closing', label: '마감관리', icon: 'LockOutlined', roles: ADMIN_HQ_STORE,
-    children: [
-      { key: '/closing/daily', label: '일마감', icon: 'CalendarOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/closing/monthly', label: '월마감/결산', icon: 'AccountBookOutlined', roles: ADMIN_HQ },
     ],
   },
   { key: '/settlement', label: '정산 관리', icon: 'TransactionOutlined', roles: ADMIN_HQ },

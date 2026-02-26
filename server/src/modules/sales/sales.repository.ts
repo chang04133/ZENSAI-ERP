@@ -593,6 +593,12 @@ export class SalesRepository {
     // 상품별 집계
     const summarySql = `
       SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length,
+             CASE
+               WHEN p.season LIKE '%SA' THEN '봄/가을'
+               WHEN p.season LIKE '%SM' THEN '여름'
+               WHEN p.season LIKE '%WN' THEN '겨울'
+               ELSE '기타'
+             END AS season_type,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
              COUNT(*)::int AS sale_count,
@@ -601,7 +607,7 @@ export class SalesRepository {
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
-      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, season_type
       ORDER BY total_amount DESC`;
     const summary = (await this.pool.query(summarySql, params)).rows;
 

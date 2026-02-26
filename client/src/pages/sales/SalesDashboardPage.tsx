@@ -81,10 +81,11 @@ function DailyChart({ data }: { data: Array<{ date: string; revenue: number; qty
 }
 
 /* ── Horizontal Bar ── */
-function HBar({ data, colorKey, history }: {
+function HBar({ data, colorKey, history, onItemClick }: {
   data: Array<{ label: string; value: number; sub?: string }>;
   colorKey?: Record<string, string>;
   history?: Array<{ year: number; label: string; total_amount: number }>;
+  onItemClick?: (label: string) => void;
 }) {
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
   const max = Math.max(...data.map(d => d.value), 1);
@@ -100,7 +101,10 @@ function HBar({ data, colorKey, history }: {
           return { year: y, amount: h ? h.total_amount : 0 };
         });
         return (
-          <div key={d.label}>
+          <div key={d.label} onClick={() => onItemClick?.(d.label)}
+            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 6, padding: '4px 6px', margin: '-4px -6px', transition: 'background 0.15s' }}
+            onMouseEnter={(e) => onItemClick && (e.currentTarget.style.background = '#f8f9fa')}
+            onMouseLeave={(e) => onItemClick && (e.currentTarget.style.background = 'transparent')}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
               <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
@@ -174,9 +178,10 @@ function MonthlyChart({ data }: { data: Array<{ month: string; revenue: number; 
 }
 
 /* ── Rank Bar (평균 매출 기준, 1등 강조 — '미지정' 제외) ── */
-function RankBar({ data, history }: {
+function RankBar({ data, history, onItemClick }: {
   data: Array<{ label: string; avg: number; total: number; qty: number; count: number; activeCount: number }>;
   history?: Array<{ year: number; label: string; total_amount: number }>;
+  onItemClick?: (label: string) => void;
 }) {
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
   const maxAvg = Math.max(...data.map(d => d.avg), 1);
@@ -195,7 +200,10 @@ function RankBar({ data, history }: {
           return { year: y, amount: h ? h.total_amount : 0 };
         });
         return (
-          <div key={d.label}>
+          <div key={d.label} onClick={() => onItemClick?.(d.label)}
+            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 6, padding: '4px 6px', margin: '-4px -6px', transition: 'background 0.15s' }}
+            onMouseEnter={(e) => onItemClick && (e.currentTarget.style.background = '#f8f9fa')}
+            onMouseLeave={(e) => onItemClick && (e.currentTarget.style.background = 'transparent')}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <span style={{ fontSize: 13, fontWeight: isTop ? 700 : 500 }}>
                 {isTop && <CrownOutlined style={{ color: '#f59e0b', marginRight: 4 }} />}
@@ -525,7 +533,10 @@ export default function SalesDashboardPage() {
                       const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
                       const c = SEASON_COLORS_MAP[d.season_type] || '#94a3b8';
                       return (
-                        <div key={d.season_type} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6' }}>
+                        <div key={d.season_type} onClick={() => navigate(`/sales/product-sales?season=${encodeURIComponent(d.season_type)}`)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', borderRadius: 4, transition: 'background 0.15s' }}
+                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
+                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ width: 12, height: 12, borderRadius: 3, background: c, display: 'inline-block' }} />
                             <span style={{ fontSize: 14, fontWeight: 500 }}>{d.season_type}</span>
@@ -564,6 +575,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byCategory || []).map((r: any) => ({
                 year: Number(r.year), label: r.category, total_amount: Number(r.total_amount),
               })) : undefined}
+              onItemClick={(label) => navigate(`/sales/product-sales?category=${encodeURIComponent(label)}`)}
             />
           </Card>
         </Col>
@@ -599,6 +611,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byFit || []).map((r: any) => ({
                 year: Number(r.year), label: r.fit, total_amount: Number(r.total_amount),
               })) : undefined}
+              onItemClick={(label) => navigate(`/sales/product-sales?fit=${encodeURIComponent(label)}`)}
             />
           </Card>
         </Col>
@@ -617,6 +630,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byLength || []).map((r: any) => ({
                 year: Number(r.year), label: r.length, total_amount: Number(r.total_amount),
               })) : undefined}
+              onItemClick={(label) => navigate(`/sales/product-sales?length=${encodeURIComponent(label)}`)}
             />
           </Card>
         </Col>

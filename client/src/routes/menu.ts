@@ -107,14 +107,6 @@ export const menuItems: MenuItem[] = [
     ],
   },
   { key: '/settlement', label: '정산 관리', icon: 'TransactionOutlined', roles: ADMIN_HQ },
-  {
-    key: '/accounting', label: '회계/재무', icon: 'AccountBookOutlined', roles: ADMIN_HQ,
-    children: [
-      { key: '/accounting/ledger', label: '매입/매출 장부', icon: 'ReadOutlined', roles: ADMIN_HQ },
-      { key: '/accounting/tax', label: '세금계산서', icon: 'FileProtectOutlined', roles: ADMIN_HQ },
-      { key: '/accounting/pnl', label: '손익계산서', icon: 'FundOutlined', roles: ADMIN_HQ },
-    ],
-  },
   { key: '/fund', label: '자금계획', icon: 'FundOutlined', roles: ADMIN_ONLY },
   { key: '/stores', label: '매장 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
   {

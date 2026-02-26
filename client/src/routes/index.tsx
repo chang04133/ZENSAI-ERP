@@ -95,11 +95,6 @@ const MonthlyClosingPage = lazy(() => import('../pages/closing/MonthlyClosingPag
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
 
-// Accounting (회계)
-const AccountingLedgerPage = lazy(() => import('../pages/accounting/AccountingLedgerPage'));
-const TaxInvoicePage = lazy(() => import('../pages/accounting/TaxInvoicePage'));
-const ProfitLossPage = lazy(() => import('../pages/accounting/ProfitLossPage'));
-
 // Online (온라인채널)
 const OnlineOrderPage = lazy(() => import('../pages/online/OnlineOrderPage'));
 const ChannelManagePage = lazy(() => import('../pages/online/ChannelManagePage'));
@@ -219,11 +214,6 @@ export const appRoutes: AppRoute[] = [
 
   // Season (시즌/컬렉션)
   { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },
-
-  // Accounting (회계)
-  { path: '/accounting/ledger', element: <AccountingLedgerPage />, roles: ADMIN_HQ },
-  { path: '/accounting/tax', element: <TaxInvoicePage />, roles: ADMIN_HQ },
-  { path: '/accounting/pnl', element: <ProfitLossPage />, roles: ADMIN_HQ },
 
   // Online (온라인채널)
   { path: '/online/orders', element: <OnlineOrderPage />, roles: ADMIN_HQ },

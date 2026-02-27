@@ -57,14 +57,17 @@ export default function ClaimManagePage() {
       <PageHeader title="클레임/AS 관리" extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>클레임 접수</Button>
       } />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input placeholder="클레임번호/고객명/상품 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, { value: 'DEFECT', label: '불량' }, { value: 'EXCHANGE', label: '교환' }, { value: 'AS', label: 'A/S' }, { value: 'COMPLAINT', label: '컴플레인' }]} />
-        <Select value={statusFilter} onChange={v => setStatusFilter(v)} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, { value: 'RECEIVED', label: '접수' }, { value: 'PROCESSING', label: '처리중' }, { value: 'COMPLETED', label: '완료' }]} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="클레임번호/고객명/상품 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
+          <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { value: 'DEFECT', label: '불량' }, { value: 'EXCHANGE', label: '교환' }, { value: 'AS', label: 'A/S' }, { value: 'COMPLAINT', label: '컴플레인' }]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter} onChange={v => setStatusFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { value: 'RECEIVED', label: '접수' }, { value: 'PROCESSING', label: '처리중' }, { value: 'COMPLETED', label: '완료' }]} /></div>
         <Button onClick={() => {}}>조회</Button>
-      </Space>
+      </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="미처리 건" value={mockClaims.filter(c => c.status === 'RECEIVED').length} suffix="건" valueStyle={{ color: '#fa8c16' }} prefix={<ExclamationCircleOutlined />} /></Card></Col>

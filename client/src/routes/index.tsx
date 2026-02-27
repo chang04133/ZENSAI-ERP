@@ -32,15 +32,8 @@ const ShipmentViewPage = lazy(() => import('../pages/shipment/ShipmentViewPage')
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
-const StoreInventoryPage = lazy(() => import('../pages/inventory/StoreInventoryPage'));
-const InventoryAdjustPage = lazy(() => import('../pages/inventory/InventoryAdjustPage'));
 const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
 const WarehouseInventoryPage = lazy(() => import('../pages/inventory/WarehouseInventoryPage'));
-const InventoryCountPage = lazy(() => import('../pages/inventory/InventoryCountPage'));
-
-// Restock
-const RestockManagePage = lazy(() => import('../pages/restock/RestockManagePage'));
-const RestockProgressPage = lazy(() => import('../pages/restock/RestockProgressPage'));
 
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
@@ -127,14 +120,11 @@ export const appRoutes: AppRoute[] = [
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: [ROLES.STORE_MANAGER] },
-  { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
-  { path: '/inventory/adjust', element: <InventoryAdjustPage />, roles: ADMIN_HQ },
-  { path: '/inventory/count', element: <InventoryCountPage />, roles: ADMIN_HQ },
-  { path: '/inventory/restock', element: <RestockManagePage />, roles: ADMIN_HQ },
-  { path: '/inventory/restock-progress', element: <RestockProgressPage />, roles: ADMIN_HQ },
-
   // Sales — 매출등록은 STORE_STAFF도 가능
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },

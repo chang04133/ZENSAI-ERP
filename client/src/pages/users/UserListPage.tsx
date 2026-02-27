@@ -70,18 +70,18 @@ export default function UserListPage() {
         title={isStoreManager ? '직원 관리' : '사용자 관리'}
         extra={<Button size="small" type="primary" icon={<PlusOutlined />} onClick={() => navigate('/users/new')}>{isStoreManager ? '직원 등록' : '사용자 등록'}</Button>}
       />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          size="small"
-          placeholder="아이디 또는 이름 검색"
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={load}
-          style={{ width: 250 }}
-        />
-        <Button size="small" onClick={load}>조회</Button>
-      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input
+            placeholder="아이디 또는 이름 검색"
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={load}
+            style={{ width: '100%' }}
+          /></div>
+        <Button onClick={load}>조회</Button>
+      </div>
       <Table
         columns={columns}
         dataSource={users}

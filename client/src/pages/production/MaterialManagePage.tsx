@@ -124,13 +124,15 @@ export default function MaterialManagePage() {
       <Tabs defaultActiveKey="list" items={[
         { key: 'list', label: '자재 목록', children: (
           <>
-          <Space style={{ marginBottom: 16 }} wrap>
-            <Input placeholder="자재명/코드 검색" prefix={<SearchOutlined />} value={search}
-              onChange={(e) => setSearch(e.target.value)} style={{ width: 250 }} />
-            <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
-              options={[{ label: '전체 보기', value: '' }, ...MATERIAL_TYPES.map(t => ({ label: TYPE_LABELS[t], value: t }))]} />
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+            <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+              <Input placeholder="자재명/코드 검색" prefix={<SearchOutlined />} value={search}
+                onChange={(e) => setSearch(e.target.value)} style={{ width: '100%' }} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>자재유형</div>
+              <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
+                options={[{ label: '전체 보기', value: '' }, ...MATERIAL_TYPES.map(t => ({ label: TYPE_LABELS[t], value: t }))]} /></div>
             <Button onClick={() => {}}>조회</Button>
-          </Space>
+          </div>
           <Card extra={
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>자재 등록</Button>
           }>

@@ -321,11 +321,12 @@ export default function ProductionPlanPage() {
         })}
       </div>
 
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input placeholder="계획명/상품명 검색" prefix={<SearchOutlined />} value={search}
-          onChange={(e) => setSearch(e.target.value)} onPressEnter={() => {}} style={{ width: 250 }} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="계획명/상품명 검색" prefix={<SearchOutlined />} value={search}
+            onChange={(e) => setSearch(e.target.value)} onPressEnter={() => {}} style={{ width: '100%' }} /></div>
         <Button onClick={() => {}}>조회</Button>
-      </Space>
+      </div>
       <Card title={`생산계획 관리${statusFilter ? ` - ${STATUS_LABELS[statusFilter]}` : ''}`} extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
       }>

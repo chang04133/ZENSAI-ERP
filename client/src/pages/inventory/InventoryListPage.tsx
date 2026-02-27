@@ -77,21 +77,20 @@ export default function InventoryListPage() {
       <PageHeader title="전체 재고현황" extra={
         <Button icon={<DownloadOutlined />} size="small" loading={exporting} onClick={handleExport}>엑셀 다운로드</Button>
       } />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Select
-          size="small" showSearch optionFilterProp="label"
-          value={partnerFilter}
-          onChange={(v) => { setPartnerFilter(v); setPage(1); }}
-          style={{ width: 200 }}
-          options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }))]}
-        />
-        <Input
-          size="small" placeholder="상품명/SKU 검색" prefix={<SearchOutlined />}
-          value={search} onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }}
-        />
-        <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
-      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="상품명/SKU 검색" prefix={<SearchOutlined />}
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={() => { setPage(1); load(1); }} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+          <Select showSearch optionFilterProp="label"
+            value={partnerFilter}
+            onChange={(v) => { setPartnerFilter(v); setPage(1); }}
+            style={{ width: 200 }}
+            options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }))]}
+          /></div>
+        <Button onClick={() => { setPage(1); load(1); }}>조회</Button>
+      </div>
       <Table
         columns={columns}
         dataSource={data}

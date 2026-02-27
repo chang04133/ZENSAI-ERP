@@ -69,33 +69,33 @@ export default function PartnerListPage() {
           </Button>
         )}
       />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          size="small"
-          placeholder="코드 또는 이름 검색"
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={load}
-          style={{ width: 250 }}
-        />
-        <Select
-          size="small"
-          value={partnerType}
-          onChange={setPartnerType}
-          style={{ width: 130 }}
-          options={[
-            { label: '전체 보기', value: '' },
-            { label: '본사', value: '본사' },
-            { label: '대리점', value: '대리점' },
-            { label: '직영점', value: '직영점' },
-            { label: '백화점', value: '백화점' },
-            { label: '아울렛', value: '아울렛' },
-            { label: '온라인', value: '온라인' },
-          ]}
-        />
-        <Button size="small" onClick={load}>조회</Button>
-      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input
+            placeholder="코드 또는 이름 검색"
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={load}
+            style={{ width: '100%' }}
+          /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
+          <Select
+            value={partnerType}
+            onChange={setPartnerType}
+            style={{ width: 130 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '본사', value: '본사' },
+              { label: '대리점', value: '대리점' },
+              { label: '직영점', value: '직영점' },
+              { label: '백화점', value: '백화점' },
+              { label: '아울렛', value: '아울렛' },
+              { label: '온라인', value: '온라인' },
+            ]}
+          /></div>
+        <Button onClick={load}>조회</Button>
+      </div>
       <Table
         columns={columns}
         dataSource={partners}

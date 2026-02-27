@@ -76,23 +76,27 @@ export default function ShipmentHistoryPage() {
   return (
     <div>
       <PageHeader title="출고내역" />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input size="small" placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
-          onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: 200 }} />
-        <Select size="small" value={typeFilter}
-          onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[
-            { label: '전체 보기', value: '' },
-            { label: '출고', value: '출고' },
-            { label: '반품', value: '반품' },
-            { label: '수평이동', value: '수평이동' },
-          ]} />
-        <Select size="small" value={statusFilter}
-          onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]} />
-        <RangePicker size="small" presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />
-        <Button size="small" onClick={() => { setPage(1); load(1); }}>조회</Button>
-      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+            onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
+          <Select value={typeFilter}
+            onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '출고', value: '출고' },
+              { label: '반품', value: '반품' },
+              { label: '수평이동', value: '수평이동' },
+            ]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter}
+            onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
+          <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
+        <Button onClick={() => { setPage(1); load(1); }}>조회</Button>
+      </div>
       <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}
         size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }} />

@@ -245,12 +245,15 @@ export default function WarehouseInventoryPage() {
           onPressEnter={doSearch} style={{ width: 220 }}
           allowClear
         />
-        <Select size="small" value={category} onChange={(v) => { setCategory(v); setPage(1); }}
-          style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} />
-        <Select size="small" value={season} onChange={(v) => { setSeason(v); setPage(1); }}
-          style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }]} />
-        <Select size="small" value={size} onChange={(v) => { setSize(v); setPage(1); }}
-          style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} />
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select size="small" value={category} onChange={(v) => { setCategory(v); setPage(1); }}
+            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select size="small" value={season} onChange={(v) => { setSeason(v); setPage(1); }}
+            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
+          <Select size="small" value={size} onChange={(v) => { setSize(v); setPage(1); }}
+            style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} /></div>
         <Input size="small" placeholder="색상" value={color} onChange={(e) => setColor(e.target.value)}
           onPressEnter={doSearch} style={{ width: 90 }} allowClear />
         <Button size="small" onClick={doSearch} type="primary">조회</Button>

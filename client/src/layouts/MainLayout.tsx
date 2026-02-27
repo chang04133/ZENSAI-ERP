@@ -19,7 +19,10 @@ function buildMenuItems(items: MenuItem[], role: string): any[] {
     .map((item) => {
       if (item.children) {
         const children = buildMenuItems(item.children, role);
-        if (children.length === 0) return null;
+        if (children.length === 0) {
+          // children이 모두 필터링되면 부모를 단독 링크로 표시
+          return { key: item.key, icon: getIcon(item.icon), label: item.label };
+        }
         return { key: item.key, icon: getIcon(item.icon), label: item.label, children };
       }
       return { key: item.key, icon: getIcon(item.icon), label: item.label };

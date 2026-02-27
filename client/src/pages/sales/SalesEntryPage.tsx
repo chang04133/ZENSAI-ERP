@@ -706,7 +706,7 @@ export default function SalesEntryPage() {
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
             <Switch checked={allTaxFree} onChange={handleToggleAllTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
           </div>
-          <div style={{ flex: 1, minWidth: 200 }}>
+          <div style={{ minWidth: 200, maxWidth: 320 }}>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>메모</div>
             <Input placeholder="택스프리, 현금결제 등" value={memo} onChange={(e) => setMemo(e.target.value)} allowClear />
           </div>

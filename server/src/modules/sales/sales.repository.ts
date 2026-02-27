@@ -581,14 +581,43 @@ export class SalesRepository {
   }
 
   /** 기간별 판매 상품 리스트 (일별/주별/월별) */
-  async salesProductsByRange(dateFrom: string, dateTo: string, partnerCode?: string) {
+  async salesProductsByRange(
+    dateFrom: string,
+    dateTo: string,
+    partnerCode?: string,
+    filters?: { category?: string; sub_category?: string; season?: string; fit?: string; length?: string; color?: string; size?: string; search?: string },
+  ) {
     const params: any[] = [dateFrom, dateTo];
+    let nextIdx = 3;
+
+    // 동적 필터 빌드 (JOIN 포함 쿼리용: s.partner_code, p.*, pv.*)
     let pcFilter = '';
-    if (partnerCode) {
-      params.push(partnerCode);
-      pcFilter = `AND s.partner_code = $3`;
+    if (partnerCode) { params.push(partnerCode); pcFilter = `AND s.partner_code = $${nextIdx++}`; }
+
+    let productFilters = '';
+    let variantFilters = '';
+    if (filters?.category) { params.push(filters.category); productFilters += ` AND p.category = $${nextIdx++}`; }
+    if (filters?.sub_category) { params.push(filters.sub_category); productFilters += ` AND p.sub_category = $${nextIdx++}`; }
+    if (filters?.season) { params.push(filters.season); productFilters += ` AND p.season = $${nextIdx++}`; }
+    if (filters?.fit) { params.push(filters.fit); productFilters += ` AND p.fit = $${nextIdx++}`; }
+    if (filters?.length) { params.push(filters.length); productFilters += ` AND p.length = $${nextIdx++}`; }
+    if (filters?.color) { params.push(filters.color); variantFilters += ` AND pv.color = $${nextIdx++}`; }
+    if (filters?.size) { params.push(filters.size); variantFilters += ` AND pv.size = $${nextIdx++}`; }
+    if (filters?.search) {
+      const like = `%${filters.search}%`;
+      params.push(like, like);
+      productFilters += ` AND (p.product_code ILIKE $${nextIdx++} OR p.product_name ILIKE $${nextIdx++})`;
     }
-    const pcFilterSimple = partnerCode ? `AND partner_code = $3` : '';
+
+    const joinFilter = `${pcFilter}${productFilters}${variantFilters}`;
+
+    // 간단 쿼리용(sales 단독) 필터: partner_code만
+    const simpleParams: any[] = [dateFrom, dateTo];
+    let simpleFilter = '';
+    let simpleIdx = 3;
+    if (partnerCode) { simpleParams.push(partnerCode); simpleFilter = `AND partner_code = $${simpleIdx++}`; }
+    // 간단 쿼리에서도 product 필터가 있으면 서브쿼리로 variant_id 제한
+    const hasProductFilter = !!(filters?.category || filters?.sub_category || filters?.season || filters?.fit || filters?.length || filters?.color || filters?.size || filters?.search);
 
     // 상품별 집계
     const summarySql = `
@@ -606,7 +635,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, season_type
       ORDER BY total_amount DESC`;
     const summary = (await this.pool.query(summarySql, params)).rows;
@@ -623,32 +652,63 @@ export class SalesRepository {
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON s.partner_code = pt.partner_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
       ORDER BY s.sale_date DESC, s.created_at DESC`;
     const details = (await this.pool.query(detailSql, params)).rows;
 
-    // 총합
-    const totalSql = `
-      SELECT COUNT(*)::int AS sale_count,
-             COALESCE(SUM(qty), 0)::int AS total_qty,
-             COALESCE(SUM(total_price), 0)::bigint AS total_amount,
-             COUNT(DISTINCT partner_code)::int AS partner_count,
-             COUNT(DISTINCT variant_id)::int AS variant_count
-      FROM sales
-      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}`;
-    const totals = (await this.pool.query(totalSql, params)).rows[0];
+    // 총합 — 필터가 있을 경우 JOIN 쿼리 사용
+    let totals;
+    if (hasProductFilter) {
+      const totalSql = `
+        SELECT COUNT(*)::int AS sale_count,
+               COALESCE(SUM(s.qty), 0)::int AS total_qty,
+               COALESCE(SUM(s.total_price), 0)::bigint AS total_amount,
+               COUNT(DISTINCT s.partner_code)::int AS partner_count,
+               COUNT(DISTINCT s.variant_id)::int AS variant_count
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}`;
+      totals = (await this.pool.query(totalSql, params)).rows[0];
+    } else {
+      const totalSql = `
+        SELECT COUNT(*)::int AS sale_count,
+               COALESCE(SUM(qty), 0)::int AS total_qty,
+               COALESCE(SUM(total_price), 0)::bigint AS total_amount,
+               COUNT(DISTINCT partner_code)::int AS partner_count,
+               COUNT(DISTINCT variant_id)::int AS variant_count
+        FROM sales
+        WHERE sale_date >= $1::date AND sale_date <= $2::date ${simpleFilter}`;
+      totals = (await this.pool.query(totalSql, simpleParams)).rows[0];
+    }
 
-    // 일별 추이 (기간내)
-    const dailySql = `
-      SELECT sale_date::text AS date,
-             SUM(total_price)::bigint AS revenue,
-             SUM(qty)::int AS qty,
-             COUNT(*)::int AS cnt
-      FROM sales
-      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple}
-      GROUP BY sale_date
-      ORDER BY sale_date`;
-    const dailyTrend = (await this.pool.query(dailySql, params)).rows;
+    // 일별 추이
+    let dailyTrend;
+    if (hasProductFilter) {
+      const dailySql = `
+        SELECT s.sale_date::text AS date,
+               SUM(s.total_price)::bigint AS revenue,
+               SUM(s.qty)::int AS qty,
+               COUNT(*)::int AS cnt
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
+        GROUP BY s.sale_date
+        ORDER BY s.sale_date`;
+      dailyTrend = (await this.pool.query(dailySql, params)).rows;
+    } else {
+      const dailySql = `
+        SELECT sale_date::text AS date,
+               SUM(total_price)::bigint AS revenue,
+               SUM(qty)::int AS qty,
+               COUNT(*)::int AS cnt
+        FROM sales
+        WHERE sale_date >= $1::date AND sale_date <= $2::date ${simpleFilter}
+        GROUP BY sale_date
+        ORDER BY sale_date`;
+      dailyTrend = (await this.pool.query(dailySql, simpleParams)).rows;
+    }
 
     return { dateFrom, dateTo, summary, details, totals, dailyTrend };
   }

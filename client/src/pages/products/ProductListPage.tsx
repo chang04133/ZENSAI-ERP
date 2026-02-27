@@ -296,37 +296,45 @@ export default function ProductListPage() {
           </Space>
         )}
       />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input
-          placeholder="코드 또는 이름 검색"
-          prefix={<SearchOutlined />}
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={load}
-          style={{ width: 250 }}
-        />
-        <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} />
-        <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-          options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} />
-        <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[
-            { label: '전체 보기', value: '' },
-            { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-            { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-          ]} />
-        <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-          options={[{ label: '전체 보기', value: '' }, ...fitOptions]} />
-        <Select showSearch optionFilterProp="label" value={colorFilter}
-          onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, ...colorOptions]} />
-        <Select showSearch optionFilterProp="label" value={sizeFilter}
-          onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
-          options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} />
-        <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input
+            placeholder="코드 또는 이름 검색"
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={load}
+            style={{ width: '100%' }}
+          /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
+              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+            ]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select showSearch optionFilterProp="label" value={colorFilter}
+            onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
+          <Select showSearch optionFilterProp="label" value={sizeFilter}
+            onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
         <Button onClick={load}>조회</Button>
-      </Space>
+      </div>
       {canWrite && selectedRowKeys.length > 0 && (
         <Space style={{ marginBottom: 8 }}>
           <Tag>{selectedRowKeys.length}개 선택</Tag>

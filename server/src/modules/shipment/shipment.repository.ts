@@ -33,10 +33,27 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
 
     const dataSql = `
-      SELECT sr.*, fp.partner_name as from_partner_name, tp.partner_name as to_partner_name
+      SELECT sr.*, fp.partner_name as from_partner_name, tp.partner_name as to_partner_name,
+        COALESCE(agg.item_count, 0)::int as item_count,
+        COALESCE(agg.total_request_qty, 0)::int as total_request_qty,
+        COALESCE(agg.total_shipped_qty, 0)::int as total_shipped_qty,
+        COALESCE(agg.total_received_qty, 0)::int as total_received_qty,
+        agg.item_summary
       FROM shipment_requests sr
       LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+      LEFT JOIN (
+        SELECT si.request_id,
+          COUNT(*) as item_count,
+          SUM(si.request_qty) as total_request_qty,
+          SUM(si.shipped_qty) as total_shipped_qty,
+          SUM(si.received_qty) as total_received_qty,
+          STRING_AGG(DISTINCT p.product_name, ', ') as item_summary
+        FROM shipment_request_items si
+        JOIN product_variants pv ON si.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        GROUP BY si.request_id
+      ) agg ON agg.request_id = sr.request_id
       ${whereClause} ORDER BY sr.created_at DESC LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, limit, offset]);
     return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };

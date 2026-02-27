@@ -1,12 +1,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Input, Select, Space, Modal, Form, Popconfirm,
-  InputNumber, DatePicker, Badge, Card, message,
+  InputNumber, DatePicker, Badge, Card, Tag, message,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined,
   DeleteOutlined, SendOutlined, CheckCircleOutlined,
   ClockCircleOutlined, StopOutlined, ArrowLeftOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
@@ -102,12 +103,12 @@ export default function ShipmentRequestPage() {
   const loadList = useCallback(async (status: string, page: number) => {
     setListLoading(true);
     try {
-      const params = { ...buildParams(), status, page: String(page), limit: '50' };
+      const params: Record<string, string> = { ...buildParams(), page: String(page), limit: '50' };
+      if (status !== 'ALL') params.status = status;
       const result = await shipmentApi.list(params);
       setListData(result.data);
       setListTotal(result.total);
-      // 카운트도 동기화
-      setCounts((prev) => ({ ...prev, [status]: result.total }));
+      if (status !== 'ALL') setCounts((prev) => ({ ...prev, [status]: result.total }));
     } catch (e: any) { message.error(e.message); }
     finally { setListLoading(false); }
   }, [buildParams]);
@@ -123,10 +124,31 @@ export default function ShipmentRequestPage() {
   const backToDashboard = () => {
     setView('dashboard');
     loadCounts();
+    setAllPage(1);
+    loadAll(1, statusFilter);
   };
 
+  /* 대시보드 전체목록 */
+  const [allData, setAllData] = useState<any[]>([]);
+  const [allTotal, setAllTotal] = useState(0);
+  const [allPage, setAllPage] = useState(1);
+  const [allLoading, setAllLoading] = useState(false);
+  const [statusFilter, setStatusFilter] = useState('');
+
+  const loadAll = useCallback(async (page: number, status?: string) => {
+    setAllLoading(true);
+    try {
+      const params: Record<string, string> = { ...buildParams(), page: String(page), limit: '50' };
+      if (status) params.status = status;
+      const result = await shipmentApi.list(params);
+      setAllData(result.data);
+      setAllTotal(result.total);
+    } catch (e: any) { message.error(e.message); }
+    finally { setAllLoading(false); }
+  }, [buildParams]);
+
   /* 초기 로드 */
-  useEffect(() => { loadCounts(); }, []);
+  useEffect(() => { loadCounts(); loadAll(1); }, []);
   useEffect(() => {
     (async () => {
       try {
@@ -139,7 +161,7 @@ export default function ShipmentRequestPage() {
   }, []);
 
   const handleSearch = () => {
-    if (view === 'dashboard') loadCounts();
+    if (view === 'dashboard') { loadCounts(); setAllPage(1); loadAll(1, statusFilter); }
     else { setListPage(1); loadList(view, 1); }
   };
 
@@ -172,7 +194,9 @@ export default function ShipmentRequestPage() {
       message.success('출고의뢰가 등록되었습니다.');
       setModalOpen(false); form.resetFields(); setItems([]);
       if (view === 'PENDING') loadList('PENDING', 1);
-      else { loadCounts(); }
+      else if (view === 'ALL') loadList('ALL', listPage);
+      loadCounts();
+      if (view === 'dashboard') { setAllPage(1); loadAll(1, statusFilter); }
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -242,17 +266,96 @@ export default function ShipmentRequestPage() {
 
   const partnerOptions = partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }));
 
+  /* ══════════ 확장 행 (품목 상세) ══════════ */
+  const [expandedDetails, setExpandedDetails] = useState<Record<number, any[]>>({});
+  const [expandLoading, setExpandLoading] = useState<Record<number, boolean>>({});
+
+  const handleExpand = async (expanded: boolean, record: any) => {
+    if (!expanded || expandedDetails[record.request_id]) return;
+    setExpandLoading((prev) => ({ ...prev, [record.request_id]: true }));
+    try {
+      const d = await shipmentApi.get(record.request_id);
+      setExpandedDetails((prev) => ({ ...prev, [record.request_id]: (d as any).items || [] }));
+    } catch {}
+    setExpandLoading((prev) => ({ ...prev, [record.request_id]: false }));
+  };
+
+  const expandedRowRender = (record: any) => {
+    const items = expandedDetails[record.request_id];
+    if (expandLoading[record.request_id]) return <div style={{ textAlign: 'center', padding: 12 }}>로딩 중...</div>;
+    if (!items || items.length === 0) return <div style={{ textAlign: 'center', padding: 12, color: '#999' }}>품목 없음</div>;
+    return (
+      <Table size="small" dataSource={items} rowKey="variant_id" pagination={false}
+        columns={[
+          { title: 'SKU', dataIndex: 'sku', width: 150 },
+          { title: '상품명', dataIndex: 'product_name' },
+          { title: '색상', dataIndex: 'color', width: 80 },
+          { title: '사이즈', dataIndex: 'size', width: 70 },
+          { title: '의뢰', dataIndex: 'request_qty', width: 70, align: 'right' as const },
+          { title: '출고', dataIndex: 'shipped_qty', width: 70, align: 'right' as const,
+            render: (v: number, r: any) => <span style={{ color: v > 0 ? '#52c41a' : '#ccc' }}>{v ?? 0}</span> },
+          { title: '수령', dataIndex: 'received_qty', width: 70, align: 'right' as const,
+            render: (v: number) => <span style={{ color: v > 0 ? '#13c2c2' : '#ccc' }}>{v ?? 0}</span> },
+        ]}
+      />
+    );
+  };
+
   /* ══════════ 컬럼 정의 ══════════ */
   const baseColumns = [
-    { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 140 },
-    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 100,
+    { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 130 },
+    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 95,
       render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-    { title: '출고처', dataIndex: 'from_partner_name', key: 'from_partner_name', render: (v: string) => v || '-' },
-    ...(!isStore ? [{ title: '입고처', dataIndex: 'to_partner_name', key: 'to_partner_name', render: (v: string) => v || '-' }] : []),
-    { title: '메모', dataIndex: 'memo', key: 'memo', render: (v: string) => v || '-', ellipsis: true },
+    { title: '출고처', dataIndex: 'from_partner_name', key: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
+    ...(!isStore ? [{ title: '입고처', dataIndex: 'to_partner_name', key: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' }] : []),
+    { title: '품목', dataIndex: 'item_summary', key: 'item_summary', ellipsis: true,
+      render: (v: string, r: any) => v ? <span>{v} <span style={{ color: '#999' }}>({r.item_count}종)</span></span> : '-' },
+    { title: '의뢰수량', dataIndex: 'total_request_qty', key: 'req_qty', width: 80, align: 'right' as const,
+      render: (v: number) => <strong>{v || 0}</strong> },
+    { title: '출고수량', dataIndex: 'total_shipped_qty', key: 'ship_qty', width: 80, align: 'right' as const,
+      render: (v: number) => <span style={{ color: v > 0 ? '#52c41a' : '#ccc' }}>{v || 0}</span> },
+    { title: '수령수량', dataIndex: 'total_received_qty', key: 'recv_qty', width: 80, align: 'right' as const,
+      render: (v: number) => <span style={{ color: v > 0 ? '#13c2c2' : '#ccc' }}>{v || 0}</span> },
+    { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, render: (v: string) => v || '-', ellipsis: true },
   ];
 
+  const STATUS_TAG: Record<string, { color: string; label: string }> = {
+    PENDING: { color: 'default', label: '대기' },
+    SHIPPED: { color: 'green', label: '출고완료' },
+    RECEIVED: { color: 'cyan', label: '입고완료' },
+    CANCELLED: { color: 'red', label: '취소' },
+  };
+
+  const allActionColumn = {
+    title: '', key: 'action', width: 200, render: (_: any, record: any) => {
+      const st = record.status;
+      if (st === 'PENDING') return (
+        <Space>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+          {isAdmin && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShippedModal(record)}>출고확인</Button>}
+          {isAdmin && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+        </Space>
+      );
+      if (st === 'SHIPPED') {
+        const canReceive = isAdmin || record.to_partner === user?.partnerCode;
+        return (
+          <Space>
+            <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+            {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
+          </Space>
+        );
+      }
+      return <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>;
+    },
+  };
+
+  const statusColumn = {
+    title: '상태', dataIndex: 'status', key: 'status', width: 90,
+    render: (v: string) => <Tag color={STATUS_TAG[v]?.color || 'default'}>{STATUS_TAG[v]?.label || v}</Tag>,
+  };
+
   const columnsByStatus: Record<string, any[]> = {
+    ALL: [...baseColumns.slice(0, 2), statusColumn, ...baseColumns.slice(2), allActionColumn],
     PENDING: [...baseColumns, { title: '', key: 'action', width: 200, render: (_: any, record: any) => (
       <Space>
         <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
@@ -275,7 +378,9 @@ export default function ShipmentRequestPage() {
 
   /* ══════════ 대시보드 렌더 ══════════ */
   const renderDashboard = () => (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      {/* 상태별 카드 */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
       {STEPS.map((step) => {
         const count = counts[step.key] || 0;
         const needsAction = (step.key === 'PENDING' || step.key === 'SHIPPED') && count > 0;
@@ -283,8 +388,18 @@ export default function ShipmentRequestPage() {
           <Card
             key={step.key}
             hoverable
-            onClick={() => openStatus(step.key)}
-            style={{ cursor: 'pointer', borderColor: '#f0f0f0', transition: 'all 0.2s' }}
+            onClick={() => {
+              const next = statusFilter === step.key ? '' : step.key;
+              setStatusFilter(next);
+              setAllPage(1);
+              loadAll(1, next || undefined);
+            }}
+            style={{
+              cursor: 'pointer',
+              borderColor: statusFilter === step.key ? step.color : '#f0f0f0',
+              boxShadow: statusFilter === step.key ? `0 0 0 2px ${step.color}30` : 'none',
+              transition: 'all 0.2s',
+            }}
             styles={{ body: { padding: '20px 24px' } }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -307,12 +422,38 @@ export default function ShipmentRequestPage() {
           </Card>
         );
       })}
+      </div>
+
+      {/* 전체 의뢰 목록 */}
+      <div style={{ marginTop: 16 }}>
+        <Table
+          columns={columnsByStatus['ALL']}
+          dataSource={allData}
+          rowKey="request_id"
+          loading={allLoading}
+          size="small"
+          scroll={{ x: 1200, y: 'calc(100vh - 420px)' }}
+          pagination={{
+            current: allPage, total: allTotal, pageSize: 50,
+            onChange: (p) => { setAllPage(p); loadAll(p, statusFilter || undefined); },
+            showTotal: (t) => `총 ${t}건`,
+          }}
+          expandable={{
+            expandedRowRender,
+            onExpand: handleExpand,
+            rowExpandable: () => true,
+          }}
+        />
+      </div>
     </div>
   );
 
   /* ══════════ 상태별 상세뷰 렌더 ══════════ */
   const renderStatusView = () => {
-    const step = STEPS.find((s) => s.key === view)!;
+    const isAll = view === 'ALL';
+    const step = isAll
+      ? { key: 'ALL', label: '전체 의뢰', desc: '모든 출고의뢰 목록', icon: <UnorderedListOutlined />, color: '#6366f1', bg: '#eef2ff' }
+      : STEPS.find((s) => s.key === view)!;
     return (
       <div>
         {/* 헤더 */}
@@ -322,7 +463,7 @@ export default function ShipmentRequestPage() {
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <Button size="small" icon={<ArrowLeftOutlined />} onClick={backToDashboard}>전체</Button>
+            <Button size="small" icon={<ArrowLeftOutlined />} onClick={backToDashboard}>대시보드</Button>
             <span style={{ fontSize: 20, color: step.color }}>{step.icon}</span>
             <div>
               <span style={{ fontWeight: 700, fontSize: 16, color: step.color }}>{step.label}</span>
@@ -330,7 +471,7 @@ export default function ShipmentRequestPage() {
             </div>
             <Badge count={listTotal} style={{ backgroundColor: step.color, marginLeft: 4 }} showZero />
           </div>
-          {view === 'PENDING' && (
+          {(view === 'PENDING' || isAll) && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields();
               if (isStore && user?.partnerCode) form.setFieldsValue({ to_partner: user.partnerCode });
@@ -346,10 +487,15 @@ export default function ShipmentRequestPage() {
           rowKey="request_id"
           loading={listLoading}
           size="small"
-          scroll={{ x: 900, y: 'calc(100vh - 310px)' }}
+          scroll={{ x: 1200, y: 'calc(100vh - 310px)' }}
           pagination={{
             current: listPage, total: listTotal, pageSize: 50,
             onChange: handlePageChange, showTotal: (t) => `총 ${t}건`,
+          }}
+          expandable={{
+            expandedRowRender,
+            onExpand: handleExpand,
+            rowExpandable: () => true,
           }}
         />
       </div>
@@ -367,12 +513,14 @@ export default function ShipmentRequestPage() {
       ) : undefined} />
 
       {/* ── 검색 ── */}
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input size="small" placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
-          onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: 200 }} />
-        <RangePicker size="small" presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />
-        <Button size="small" onClick={handleSearch}>조회</Button>
-      </Space>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+            onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
+          <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
+        <Button onClick={handleSearch}>조회</Button>
+      </div>
 
       {/* ── 대시보드 or 상세뷰 ── */}
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}

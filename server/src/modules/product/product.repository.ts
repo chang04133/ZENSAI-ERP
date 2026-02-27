@@ -156,19 +156,39 @@ export class ProductRepository extends BaseRepository<Product> {
   }
 
   async listEventProducts(options: any = {}) {
-    const { page = 1, limit = 50, search } = options;
+    const { page = 1, limit = 50, search, category, season, fit, sub_category } = options;
     const offset = (page - 1) * limit;
     const params: any[] = [];
     let nextIdx = 1;
-    let searchFilter = '';
+    let extraFilters = '';
 
     if (search) {
       params.push(`%${search}%`);
-      searchFilter = `AND (p.product_code ILIKE $${nextIdx} OR p.product_name ILIKE $${nextIdx})`;
+      extraFilters += ` AND (p.product_code ILIKE $${nextIdx} OR p.product_name ILIKE $${nextIdx})`;
+      nextIdx++;
+    }
+    if (category) {
+      params.push(category);
+      extraFilters += ` AND p.category = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (sub_category) {
+      params.push(sub_category);
+      extraFilters += ` AND p.sub_category = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (season) {
+      params.push(season);
+      extraFilters += ` AND p.season = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (fit) {
+      params.push(fit);
+      extraFilters += ` AND p.fit = $${nextIdx}`;
       nextIdx++;
     }
 
-    const whereClause = `WHERE p.event_price IS NOT NULL AND p.is_active = TRUE ${searchFilter}`;
+    const whereClause = `WHERE p.event_price IS NOT NULL AND p.is_active = TRUE ${extraFilters}`;
 
     const countSql = `SELECT COUNT(*) FROM products p ${whereClause}`;
     const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);

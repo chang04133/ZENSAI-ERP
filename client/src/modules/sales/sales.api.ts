@@ -42,8 +42,12 @@ export const salesApi = {
   },
 
   // 판매 리스트 (기간별)
-  productsByRange: async (dateFrom: string, dateTo: string) => {
-    return parse(await apiFetch(`/api/sales/products-by-range?date_from=${dateFrom}&date_to=${dateTo}`));
+  productsByRange: async (dateFrom: string, dateTo: string, filters?: Record<string, string>) => {
+    const params = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+    if (filters) {
+      Object.entries(filters).forEach(([k, v]) => { if (v) params.set(k, v); });
+    }
+    return parse(await apiFetch(`/api/sales/products-by-range?${params}`));
   },
 
   // 스타일별 판매현황 (기간별)

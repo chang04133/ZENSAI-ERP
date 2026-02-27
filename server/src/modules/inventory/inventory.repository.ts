@@ -19,7 +19,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   async listWithDetails(options: any = {}) {
-    const { page = 1, limit = 20, partner_code, search, category, season, size, color, fit, stock_level, sort_field, sort_dir } = options;
+    const { page = 1, limit = 20, partner_code, search, category, season, size, color, fit, length, stock_level, sort_field, sort_dir } = options;
     const offset = (page - 1) * limit;
 
     // stock_level 필터에 시스템 설정 임계값 사용
@@ -38,6 +38,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     if (size) qb.raw('pv.size = ?', size);
     if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
     if (fit) qb.raw('p.fit = ?', fit);
+    if (length) qb.raw('p.length = ?', length);
     if (stock_level === 'zero') qb.raw('i.qty = 0');
     else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
     else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);

@@ -74,12 +74,14 @@ export default function SettlementPage() {
       <PageHeader title="정산 관리" extra={
         <Button icon={<FileExcelOutlined />}>엑셀 다운로드</Button>
       } />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input placeholder="정산번호/거래처 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, { value: '매출정산', label: '매출정산' }, { value: '매입정산', label: '매입정산' }]} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="정산번호/거래처 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
+          <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { value: '매출정산', label: '매출정산' }, { value: '매입정산', label: '매입정산' }]} /></div>
         <Button onClick={() => {}}>조회</Button>
-      </Space>
+      </div>
 
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={6}><Card size="small"><Statistic title="정산 대기" value={pendingAmount} suffix="원" valueStyle={{ color: '#fa8c16' }} prefix={<ClockCircleOutlined />} /></Card></Col>

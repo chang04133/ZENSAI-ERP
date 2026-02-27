@@ -152,7 +152,7 @@ router.put('/events/bulk', ...write, productController.bulkUpdateEventPrices);
 router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) => {
   const pool = getPool();
   const colors = await pool.query("SELECT DISTINCT color FROM product_variants WHERE is_active = TRUE AND color IS NOT NULL ORDER BY color");
-  const sizes = await pool.query("SELECT DISTINCT size FROM product_variants WHERE is_active = TRUE AND size IS NOT NULL ORDER BY CASE size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END");
+  const sizes = await pool.query("SELECT size FROM (SELECT DISTINCT size FROM product_variants WHERE is_active = TRUE AND size IS NOT NULL) sub ORDER BY CASE size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END");
   res.json({ success: true, data: { colors: colors.rows.map((r: any) => r.color), sizes: sizes.rows.map((r: any) => r.size) } });
 }));
 router.get('/',      authMiddleware, productController.list);

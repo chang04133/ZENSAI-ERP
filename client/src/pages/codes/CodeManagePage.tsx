@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Tabs, Table, Button, Modal, Form, Input, InputNumber, Switch, Select, Space, Tag, Popconfirm, message } from 'antd';
+import { Tabs, Table, Button, Modal, Form, Input, Switch, Select, Space, Tag, Popconfirm, message } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { codeApi } from '../../modules/code/code.api';
@@ -25,7 +25,6 @@ interface CodeItem {
   code_type: string;
   code_value: string;
   code_label: string;
-  sort_order: number;
   is_active: boolean;
   parent_code: number | null;
 }
@@ -57,7 +56,7 @@ export default function CodeManagePage() {
   const openAdd = () => {
     setEditItem(null);
     form.resetFields();
-    form.setFieldsValue({ code_type: activeTab, sort_order: 0, is_active: true });
+    form.setFieldsValue({ code_type: activeTab, is_active: true });
     setModalOpen(true);
   };
 
@@ -96,12 +95,12 @@ export default function CodeManagePage() {
   // Build hierarchical display for CATEGORY tab
   const getDisplayData = (items: CodeItem[]): CodeItem[] => {
     if (activeTab !== 'CATEGORY') return items;
-    const parents = items.filter((i) => !i.parent_code).sort((a, b) => a.sort_order - b.sort_order);
+    const parents = items.filter((i) => !i.parent_code).sort((a, b) => a.code_id - b.code_id);
     const children = items.filter((i) => i.parent_code);
     const result: CodeItem[] = [];
     for (const parent of parents) {
       result.push(parent);
-      result.push(...children.filter((c) => c.parent_code === parent.code_id).sort((a, b) => a.sort_order - b.sort_order));
+      result.push(...children.filter((c) => c.parent_code === parent.code_id).sort((a, b) => a.code_id - b.code_id));
     }
     // Orphan children (parent not in current list)
     const usedIds = new Set(result.map((r) => r.code_id));
@@ -122,7 +121,6 @@ export default function CodeManagePage() {
           : <strong>{v}</strong>;
       },
     },
-    { title: '정렬순서', dataIndex: 'sort_order', key: 'sort_order', width: 100 },
     {
       title: '상태', dataIndex: 'is_active', key: 'is_active', width: 80,
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? '활성' : '비활성'}</Tag>,
@@ -188,7 +186,7 @@ export default function CodeManagePage() {
         okText={editItem ? '수정' : '추가'}
         cancelText="취소"
       >
-        <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ sort_order: 0, is_active: true }}>
+        <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ is_active: true }}>
           <Form.Item name="code_type" label="코드타입">
             <Input disabled value={activeTab} />
           </Form.Item>
@@ -206,9 +204,6 @@ export default function CodeManagePage() {
           </Form.Item>
           <Form.Item name="code_label" label="코드명" rules={[{ required: true, message: '코드명을 입력해주세요' }]}>
             <Input placeholder="예: 블랙, 2025, Spring/Summer" />
-          </Form.Item>
-          <Form.Item name="sort_order" label="정렬순서">
-            <InputNumber min={0} style={{ width: '100%' }} />
           </Form.Item>
           {editItem && (
             <Form.Item name="is_active" label="사용여부" valuePropName="checked">

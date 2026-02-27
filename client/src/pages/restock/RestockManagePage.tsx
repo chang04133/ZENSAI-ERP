@@ -1,8 +1,15 @@
 import { useEffect, useState, CSSProperties } from 'react';
-import { Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker, Input, Space, Row, Col, message } from 'antd';
-import { PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined, WarningOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import {
+  Table, Tag, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker,
+  Input, Space, Row, Col, Popconfirm, message,
+} from 'antd';
+import {
+  PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined,
+  WarningOutlined, ExclamationCircleOutlined, FileTextOutlined,
+  CheckCircleOutlined, ShoppingCartOutlined, InboxOutlined, DownloadOutlined,
+} from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import PageHeader from '../../components/PageHeader';
+import { exportToExcel } from '../../utils/export-excel';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
@@ -14,8 +21,8 @@ const URGENCY_LABELS: Record<string, string> = { CRITICAL: '위험', WARNING: '�
 const STATUS_COLORS: Record<string, string> = { DRAFT: 'default', APPROVED: 'blue', ORDERED: 'cyan', RECEIVED: 'green', CANCELLED: 'red' };
 const STATUS_LABELS: Record<string, string> = { DRAFT: '작성중', APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소' };
 
-function SummaryCard({ title, count, icon, bg, color }: {
-  title: string; count: number; icon: React.ReactNode; bg: string; color: string;
+function SummaryCard({ title, count, icon, bg, color, sub }: {
+  title: string; count: number; icon: React.ReactNode; bg: string; color: string; sub?: string;
 }) {
   const style: CSSProperties = {
     background: bg, borderRadius: 12, padding: '14px 18px',
@@ -26,6 +33,7 @@ function SummaryCard({ title, count, icon, bg, color }: {
       <div>
         <div style={{ fontSize: 11, color: color + 'cc' }}>{title}</div>
         <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.3 }}>{count}건</div>
+        {sub && <div style={{ fontSize: 11, color: color + '99', marginTop: 2 }}>{sub}</div>}
       </div>
       <div style={{ fontSize: 26, color: color + '44' }}>{icon}</div>
     </div>
@@ -39,51 +47,62 @@ export default function RestockManagePage() {
   const [partners, setPartners] = useState<any[]>([]);
   const [partnerFilter, setPartnerFilter] = useState('');
 
-  // 제안 탭
+  // ── 제안 탭 ──
   const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
   const [sugLoading, setSugLoading] = useState(false);
 
-  // 판매속도 탭
+  // ── 판매속도 탭 ──
   const [velocity, setVelocity] = useState<SellingVelocity[]>([]);
   const [velLoading, setVelLoading] = useState(false);
 
-  // 의뢰 목록 탭
+  // ── 의뢰 목록 탭 ──
   const { data: requests, total, loading: reqLoading, fetchList } = useRestockStore();
   const [reqPage, setReqPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
 
-  // 생성 모달
+  // ── 진행관리 탭 (from RestockProgressPage) ──
+  const [progressPartnerFilter, setProgressPartnerFilter] = useState<string | undefined>();
+  const [progressStatusFilter, setProgressStatusFilter] = useState<string | undefined>();
+  const [progressStats, setProgressStats] = useState<any[]>([]);
+  const [progressPage, setProgressPage] = useState(1);
+  // 진행관리 전용 store (별도 인스턴스가 필요 → 직접 state 관리)
+  const [progressData, setProgressData] = useState<any[]>([]);
+  const [progressTotal, setProgressTotal] = useState(0);
+  const [progressLoading, setProgressLoading] = useState(false);
+
+  // ── 생성 모달 ──
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm] = Form.useForm();
   const [selectedItems, setSelectedItems] = useState<RestockSuggestion[]>([]);
   const [itemQtys, setItemQtys] = useState<Record<number, number>>({});
   const [creating, setCreating] = useState(false);
 
-  // 상세 모달
+  // ── 상세 모달 ──
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailData, setDetailData] = useState<RestockRequest | null>(null);
+
+  // ── 수령 모달 (진행관리) ──
+  const [receiveOpen, setReceiveOpen] = useState(false);
+  const [receiveItems, setReceiveItems] = useState<any[]>([]);
 
   useEffect(() => {
     apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
       if (d.success) setPartners(d.data?.data || d.data || []);
-    }).catch((e: any) => { message.error('거래처 로드 실패: ' + (e.message || '')); });
+    }).catch(() => {});
   }, []);
 
+  /* ── 데이터 로드 함수들 ── */
   const loadSuggestions = async () => {
     setSugLoading(true);
-    try {
-      const data = await restockApi.getRestockSuggestions();
-      setSuggestions(data);
-    } catch (e: any) { message.error(e.message); }
+    try { setSuggestions(await restockApi.getRestockSuggestions()); }
+    catch (e: any) { message.error(e.message); }
     finally { setSugLoading(false); }
   };
 
   const loadVelocity = async () => {
     setVelLoading(true);
-    try {
-      const data = await restockApi.getSellingVelocity(partnerFilter);
-      setVelocity(data);
-    } catch (e: any) { message.error(e.message); }
+    try { setVelocity(await restockApi.getSellingVelocity(partnerFilter)); }
+    catch (e: any) { message.error(e.message); }
     finally { setVelLoading(false); }
   };
 
@@ -94,10 +113,32 @@ export default function RestockManagePage() {
     fetchList(params);
   };
 
+  const loadProgressStats = async () => {
+    try { setProgressStats(await restockApi.getProgressStats(progressPartnerFilter)); }
+    catch (e: any) { message.error(e.message); }
+  };
+
+  const loadProgressList = async () => {
+    setProgressLoading(true);
+    try {
+      const params: Record<string, string> = { page: String(progressPage), limit: '50' };
+      if (progressStatusFilter) params.status = progressStatusFilter;
+      if (progressPartnerFilter) params.partner_code = progressPartnerFilter;
+      const res = await apiFetch(`/api/restocks?${new URLSearchParams(params)}`);
+      const d = await res.json();
+      if (d.success) {
+        setProgressData(d.data?.data || d.data || []);
+        setProgressTotal(d.data?.total || d.total || 0);
+      }
+    } catch (e: any) { message.error(e.message); }
+    finally { setProgressLoading(false); }
+  };
+
   useEffect(() => {
     if (tab === 'suggestions') loadSuggestions();
     else if (tab === 'velocity') loadVelocity();
-    else loadRequests();
+    else if (tab === 'requests') loadRequests();
+    else if (tab === 'progress') { loadProgressStats(); loadProgressList(); }
   }, [tab]);
 
   useEffect(() => {
@@ -106,7 +147,10 @@ export default function RestockManagePage() {
   }, [partnerFilter]);
 
   useEffect(() => { if (tab === 'requests') loadRequests(); }, [reqPage, statusFilter]);
+  useEffect(() => { if (tab === 'progress') { loadProgressStats(); loadProgressList(); } }, [progressPartnerFilter]);
+  useEffect(() => { if (tab === 'progress') loadProgressList(); }, [progressPage, progressStatusFilter]);
 
+  /* ── 의뢰 생성 ── */
   const openCreateModal = () => {
     if (selectedItems.length === 0) { message.warning('제안 목록에서 품목을 선택해주세요.'); return; }
     const qtys: Record<number, number> = {};
@@ -138,27 +182,67 @@ export default function RestockManagePage() {
     finally { setCreating(false); }
   };
 
+  /* ── 상세 ── */
   const openDetail = async (id: number) => {
     try {
-      const data = await restockApi.get(id);
-      setDetailData(data);
+      setDetailData(await restockApi.get(id));
       setDetailOpen(true);
     } catch (e: any) { message.error(e.message); }
   };
 
-  // 제안 요약 통계
+  /* ── 진행관리: 상태변경 ── */
+  const handleStatusChange = async (id: number, newStatus: string) => {
+    try {
+      await restockApi.update(id, { status: newStatus });
+      message.success(`상태가 ${STATUS_LABELS[newStatus]}(으)로 변경되었습니다.`);
+      loadProgressStats();
+      loadProgressList();
+      if (detailData?.request_id === id) {
+        setDetailData(await restockApi.get(id));
+      }
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  /* ── 수령확인 ── */
+  const openReceive = () => {
+    if (!detailData?.items) return;
+    setReceiveItems(detailData.items.map(i => ({ ...i, received_qty: i.request_qty })));
+    setReceiveOpen(true);
+  };
+
+  const handleReceive = async () => {
+    if (!detailData) return;
+    try {
+      const items = receiveItems.map(i => ({ variant_id: i.variant_id, received_qty: i.received_qty }));
+      await restockApi.receive(detailData.request_id, items);
+      message.success('수령확인 완료. 재고가 자동 반영되었습니다.');
+      setReceiveOpen(false);
+      loadProgressStats();
+      loadProgressList();
+      setDetailData(await restockApi.get(detailData.request_id));
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  /* ── 제안 통계 ── */
   const criticalCount = suggestions.filter(s => s.urgency === 'CRITICAL').length;
   const warningCount = suggestions.filter(s => s.urgency === 'WARNING').length;
   const totalCount = suggestions.length;
 
+  /* ── 진행관리 통계 ── */
+  const getStat = (status: string) => {
+    const s = progressStats.find(p => p.status === status);
+    return { count: s?.count || 0, qty: s?.total_qty || 0 };
+  };
+  const draft = getStat('DRAFT');
+  const approved = getStat('APPROVED');
+  const ordered = getStat('ORDERED');
+  const received = getStat('RECEIVED');
+
+  /* ── 컬럼 정의 ── */
   const sugColumns = [
     { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 70,
       render: (v: string) => <Tag color={URGENCY_COLORS[v]}>{URGENCY_LABELS[v]}</Tag>,
-      filters: [
-        { text: '위험', value: 'CRITICAL' },
-        { text: '주의', value: 'WARNING' },
-        { text: '보통', value: 'NORMAL' },
-      ],
+      filters: [{ text: '위험', value: 'CRITICAL' }, { text: '주의', value: 'WARNING' }, { text: '보통', value: 'NORMAL' }],
       onFilter: (value: any, record: RestockSuggestion) => record.urgency === value,
     },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120,
@@ -175,9 +259,7 @@ export default function RestockManagePage() {
       sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.total_sold - b.total_sold,
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 600 }}>{v}</span> : '-',
     },
-    { title: '30일수요', dataIndex: 'demand_30d', key: 'demand_30d', width: 75,
-      render: (v: number) => v > 0 ? v : '-',
-    },
+    { title: '30일수요', dataIndex: 'demand_30d', key: 'demand_30d', width: 75, render: (v: number) => v > 0 ? v : '-' },
     { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 70,
       render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'default'}>{v}</Tag>,
     },
@@ -216,14 +298,10 @@ export default function RestockManagePage() {
       render: (v: number) => v > 0 ? v.toFixed(2) : '-',
     },
     { title: '소진예상(7일)', dataIndex: 'days_until_out_7d', key: 'days_until_out_7d', width: 120,
-      render: (v: number | null) => v != null
-        ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag>
-        : '-',
+      render: (v: number | null) => v != null ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag> : '-',
     },
     { title: '소진예상(30일)', dataIndex: 'days_until_out_30d', key: 'days_until_out_30d', width: 120,
-      render: (v: number | null) => v != null
-        ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag>
-        : '-',
+      render: (v: number | null) => v != null ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag> : '-',
     },
   ];
 
@@ -246,33 +324,76 @@ export default function RestockManagePage() {
     { title: '메모', dataIndex: 'memo', key: 'memo', ellipsis: true },
   ];
 
+  const progressColumns = [
+    { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no',
+      render: (v: string, r: any) => <a onClick={() => openDetail(r.request_id)}>{v}</a>,
+    },
+    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
+    { title: '상태', dataIndex: 'status', key: 'status', width: 90,
+      render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v] || v}</Tag>,
+    },
+    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 100,
+      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
+    },
+    { title: '입고예정', dataIndex: 'expected_date', key: 'expected_date', width: 100,
+      render: (v: string | null) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
+    },
+    { title: '입고일', dataIndex: 'received_date', key: 'received_date', width: 100,
+      render: (v: string | null) => v ? dayjs(v).format('YYYY-MM-DD') : '-',
+    },
+    { title: '품목수', dataIndex: 'item_count', key: 'item_count', width: 70 },
+    { title: '총수량', dataIndex: 'total_qty', key: 'total_qty', width: 80 },
+    { title: '관리', key: 'actions', width: 180,
+      render: (_: any, r: any) => (
+        <Space size="small">
+          {r.status === 'DRAFT' && <Button size="small" type="primary" onClick={() => handleStatusChange(r.request_id, 'APPROVED')}>승인</Button>}
+          {r.status === 'APPROVED' && <Button size="small" onClick={() => handleStatusChange(r.request_id, 'ORDERED')}>발주</Button>}
+          {r.status === 'ORDERED' && <Button size="small" type="primary" onClick={() => openDetail(r.request_id)}>수령확인</Button>}
+          {['DRAFT', 'APPROVED'].includes(r.status) && (
+            <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleStatusChange(r.request_id, 'CANCELLED')}>
+              <Button size="small" danger>취소</Button>
+            </Popconfirm>
+          )}
+        </Space>
+      ),
+    },
+  ];
+
   return (
     <div>
-      <PageHeader
-        title="재입고 관리"
-        extra={
-          <Space>
-            {tab === 'velocity' && (
-              <Select value={partnerFilter}
-                onChange={setPartnerFilter} style={{ width: 150 }}
-                options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]}
-              />
-            )}
-            {tab === 'suggestions' && selectedItems.length > 0 && (
-              <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>
-                재입고 의뢰 ({selectedItems.length}건)
-              </Button>
-            )}
-          </Space>
-        }
-      />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
+        {tab === 'velocity' && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+            <Select value={partnerFilter} onChange={setPartnerFilter} style={{ width: 150 }}
+              options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} />
+          </div>
+        )}
+        {tab === 'suggestions' && selectedItems.length > 0 && (
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>재입고 의뢰 ({selectedItems.length}건)</Button>
+        )}
+        {tab === 'progress' && (
+          <>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+              <Select placeholder="거래처" allowClear value={progressPartnerFilter}
+                onChange={setProgressPartnerFilter} style={{ width: 150 }}
+                options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} /></div>
+            <Button icon={<DownloadOutlined />} onClick={() => exportToExcel(progressData, [
+              { title: '의뢰번호', key: 'request_no' }, { title: '거래처', key: 'partner_name' },
+              { title: '상태', key: 'status' }, { title: '의뢰일', key: 'request_date' },
+              { title: '입고예정', key: 'expected_date' }, { title: '품목수', key: 'item_count' },
+              { title: '총수량', key: 'total_qty' },
+            ], `재입고진행_${new Date().toISOString().slice(0, 10)}`)}>엑셀</Button>
+            <Button icon={<ReloadOutlined />} onClick={() => { loadProgressStats(); loadProgressList(); }}>새로고침</Button>
+          </>
+        )}
+      </div>
 
       <Tabs activeKey={tab} onChange={setTab} items={[
+        /* ── Tab: 재입고 제안 ── */
         {
           key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안</span>,
           children: (
             <>
-              {/* 요약 카드 */}
               <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={8}>
                   <SummaryCard title="긴급 보충 (7일 미만)" count={criticalCount}
@@ -287,96 +408,98 @@ export default function RestockManagePage() {
                     icon={<AlertOutlined />} bg="linear-gradient(135deg, #1890ff22 0%, #1890ff11 100%)" color="#096dd9" />
                 </Col>
               </Row>
-              <Table
-                dataSource={suggestions}
-                columns={sugColumns}
-                rowKey="variant_id"
-                loading={sugLoading}
-                size="small"
-                scroll={{ x: 1200, y: 'calc(100vh - 380px)' }}
+              <Table dataSource={suggestions} columns={sugColumns} rowKey="variant_id"
+                loading={sugLoading} size="small" scroll={{ x: 1200, y: 'calc(100vh - 380px)' }}
                 pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-                rowSelection={{
-                  selectedRowKeys: selectedItems.map(i => i.variant_id),
-                  onChange: (_keys, rows) => setSelectedItems(rows),
-                }}
+                rowSelection={{ selectedRowKeys: selectedItems.map(i => i.variant_id), onChange: (_keys, rows) => setSelectedItems(rows) }}
                 title={() => (
                   <Space>
-                    <span style={{ color: '#888', fontSize: 12 }}>
-                      60일 판매 기반 · 판매율 ≥40% · 계절가중치 적용 · 소진일 오름차순
-                    </span>
+                    <span style={{ color: '#888', fontSize: 12 }}>60일 판매 기반 · 판매율 &ge;40% · 계절가중치 적용 · 소진일 오름차순</span>
                     <Button size="small" icon={<ReloadOutlined />} onClick={loadSuggestions}>새로고침</Button>
                   </Space>
-                )}
-              />
+                )} />
             </>
           ),
         },
+        /* ── Tab: 판매속도 ── */
         {
           key: 'velocity', label: <span><FireOutlined /> 판매속도</span>,
           children: (
-            <Table
-              dataSource={velocity}
-              columns={velColumns}
-              rowKey="variant_id"
-              loading={velLoading}
-              size="small"
-              scroll={{ x: 1200, y: 'calc(100vh - 280px)' }}
+            <Table dataSource={velocity} columns={velColumns} rowKey="variant_id"
+              loading={velLoading} size="small" scroll={{ x: 1200, y: 'calc(100vh - 280px)' }}
               pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
               title={() => (
                 <Space>
                   <span style={{ color: '#888' }}>판매 실적이 있는 품목 ({velocity.length}건)</span>
                   <Button size="small" icon={<ReloadOutlined />} onClick={loadVelocity}>새로고침</Button>
                 </Space>
-              )}
-            />
+              )} />
           ),
         },
+        /* ── Tab: 의뢰 목록 ── */
         {
           key: 'requests', label: '의뢰 목록',
           children: (
             <>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
+                <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+                  <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
+                    options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]} /></div>
+                <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+                  <Select value={partnerFilter} onChange={setPartnerFilter} style={{ width: 150 }}
+                    options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} /></div>
+              </div>
+              <Table dataSource={requests} columns={reqColumns} rowKey="request_id"
+                loading={reqLoading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+                pagination={{ current: reqPage, total, pageSize: 50, onChange: setReqPage, showTotal: (t) => `총 ${t}건` }} />
+            </>
+          ),
+        },
+        /* ── Tab: 진행관리 (from RestockProgressPage) ── */
+        {
+          key: 'progress', label: '진행관리',
+          children: (
+            <>
+              <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+                <Col xs={24} sm={12} lg={6}>
+                  <SummaryCard title="작성중" count={draft.count} sub={`${draft.qty.toLocaleString()}개`}
+                    icon={<FileTextOutlined />} bg="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" color="#333" />
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <SummaryCard title="승인완료" count={approved.count} sub={`${approved.qty.toLocaleString()}개`}
+                    icon={<CheckCircleOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff" />
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <SummaryCard title="발주진행" count={ordered.count} sub={`${ordered.qty.toLocaleString()}개`}
+                    icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff" />
+                </Col>
+                <Col xs={24} sm={12} lg={6}>
+                  <SummaryCard title="입고완료" count={received.count} sub={`${received.qty.toLocaleString()}개`}
+                    icon={<InboxOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff" />
+                </Col>
+              </Row>
               <Space style={{ marginBottom: 12 }}>
-                <Select value={statusFilter}
-                  onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
-                  options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]}
-                />
-                <Select value={partnerFilter}
-                  onChange={setPartnerFilter} style={{ width: 150 }}
-                  options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]}
-                />
+                <Select placeholder="상태" allowClear value={progressStatusFilter}
+                  onChange={(v) => { setProgressStatusFilter(v); setProgressPage(1); }} style={{ width: 120 }}
+                  options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
               </Space>
-              <Table
-                dataSource={requests}
-                columns={reqColumns}
-                rowKey="request_id"
-                loading={reqLoading}
-                size="small"
-                scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
-                pagination={{ current: reqPage, total, pageSize: 50, onChange: setReqPage, showTotal: (t) => `총 ${t}건` }}
-              />
+              <Table dataSource={progressData} columns={progressColumns} rowKey="request_id"
+                loading={progressLoading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+                pagination={{ current: progressPage, total: progressTotal, pageSize: 50, onChange: setProgressPage, showTotal: (t) => `총 ${t}건` }} />
             </>
           ),
         },
       ]} />
 
-      {/* 의뢰 생성 모달 */}
-      <Modal
-        title="재입고 의뢰 생성"
-        open={createOpen}
-        onCancel={() => setCreateOpen(false)}
-        onOk={() => createForm.submit()}
-        okText="생성"
-        cancelText="취소"
-        confirmLoading={creating}
-        width={700}
-      >
+      {/* ── 의뢰 생성 모달 ── */}
+      <Modal title="재입고 의뢰 생성" open={createOpen} onCancel={() => setCreateOpen(false)}
+        onOk={() => createForm.submit()} okText="생성" cancelText="취소" confirmLoading={creating} width={700}>
         <Form form={createForm} layout="vertical" onFinish={handleCreate}>
           <Row gutter={16}>
             <Col span={12}>
               <Form.Item name="partner_code" label="입고 거래처" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
                 <Select showSearch placeholder="거래처" optionFilterProp="label"
-                  options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
-                />
+                  options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
               </Form.Item>
             </Col>
             <Col span={12}>
@@ -390,12 +513,7 @@ export default function RestockManagePage() {
           </Form.Item>
         </Form>
         <div style={{ marginTop: 8, fontWeight: 600, marginBottom: 8 }}>선택 품목 ({selectedItems.length}건)</div>
-        <Table
-          dataSource={selectedItems}
-          rowKey="variant_id"
-          size="small"
-          pagination={false}
-          scroll={{ y: 300 }}
+        <Table dataSource={selectedItems} rowKey="variant_id" size="small" pagination={false} scroll={{ y: 300 }}
           columns={[
             { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
             { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
@@ -408,22 +526,29 @@ export default function RestockManagePage() {
               render: (_: any, r: RestockSuggestion) => (
                 <InputNumber min={1} value={itemQtys[r.variant_id] || r.suggested_qty}
                   onChange={(v) => setItemQtys(prev => ({ ...prev, [r.variant_id]: v || 1 }))}
-                  size="small" style={{ width: 80 }}
-                />
+                  size="small" style={{ width: 80 }} />
               ),
             },
-          ]}
-        />
+          ]} />
       </Modal>
 
-      {/* 상세 모달 */}
+      {/* ── 상세 모달 ── */}
       <Modal
         title={detailData ? `재입고 의뢰 - ${detailData.request_no}` : '상세'}
-        open={detailOpen}
-        onCancel={() => setDetailOpen(false)}
-        footer={<Button onClick={() => setDetailOpen(false)}>닫기</Button>}
-        width={700}
-      >
+        open={detailOpen} onCancel={() => setDetailOpen(false)} width={750}
+        footer={
+          <Space>
+            {detailData?.status === 'DRAFT' && <Button type="primary" onClick={() => handleStatusChange(detailData.request_id, 'APPROVED')}>승인</Button>}
+            {detailData?.status === 'APPROVED' && <Button onClick={() => handleStatusChange(detailData.request_id, 'ORDERED')}>발주 처리</Button>}
+            {detailData?.status === 'ORDERED' && <Button type="primary" onClick={openReceive}>수령확인</Button>}
+            {detailData && ['DRAFT', 'APPROVED'].includes(detailData.status) && (
+              <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleStatusChange(detailData.request_id, 'CANCELLED')}>
+                <Button danger>취소</Button>
+              </Popconfirm>
+            )}
+            <Button onClick={() => setDetailOpen(false)}>닫기</Button>
+          </Space>
+        }>
         {detailData && (
           <>
             <Row gutter={16} style={{ marginBottom: 16 }}>
@@ -431,26 +556,59 @@ export default function RestockManagePage() {
               <Col span={8}>상태: <Tag color={STATUS_COLORS[detailData.status]}>{STATUS_LABELS[detailData.status]}</Tag></Col>
               <Col span={8}>의뢰일: {dayjs(detailData.request_date).format('YYYY-MM-DD')}</Col>
             </Row>
-            {detailData.expected_date && <div style={{ marginBottom: 8 }}>입고예정: {dayjs(detailData.expected_date).format('YYYY-MM-DD')}</div>}
-            {detailData.memo && <div style={{ marginBottom: 8, color: '#888' }}>메모: {detailData.memo}</div>}
-            <Table
-              dataSource={detailData.items}
-              rowKey="item_id"
-              size="small"
-              pagination={false}
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={8}>입고예정: {detailData.expected_date ? dayjs(detailData.expected_date).format('YYYY-MM-DD') : '-'}</Col>
+              <Col span={8}>입고일: {detailData.received_date ? dayjs(detailData.received_date).format('YYYY-MM-DD') : '-'}</Col>
+              <Col span={8}>요청자: {detailData.requested_by || '-'}</Col>
+            </Row>
+            {detailData.memo && <div style={{ marginBottom: 12, color: '#888' }}>메모: {detailData.memo}</div>}
+            <Table dataSource={detailData.items} rowKey="item_id" size="small" pagination={false}
               columns={[
                 { title: '상품', dataIndex: 'product_name', key: 'product_name' },
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
-                { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
-                { title: 'Size', dataIndex: 'size', key: 'size', width: 60 },
+                { title: '컬러', dataIndex: 'color', key: 'color', width: 60 },
+                { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> },
                 { title: '요청수량', dataIndex: 'request_qty', key: 'request_qty', width: 80 },
                 { title: '입고수량', dataIndex: 'received_qty', key: 'received_qty', width: 80,
                   render: (v: number) => v > 0 ? <Tag color="green">{v}</Tag> : '-',
                 },
               ]}
-            />
+              summary={(data) => {
+                const totalReq = data.reduce((s, r) => s + (r.request_qty || 0), 0);
+                const totalRec = data.reduce((s, r) => s + (r.received_qty || 0), 0);
+                return (
+                  <Table.Summary.Row>
+                    <Table.Summary.Cell index={0} colSpan={4} align="right"><strong>합계</strong></Table.Summary.Cell>
+                    <Table.Summary.Cell index={4}><strong>{totalReq}</strong></Table.Summary.Cell>
+                    <Table.Summary.Cell index={5}>{totalRec > 0 ? <Tag color="green"><strong>{totalRec}</strong></Tag> : '-'}</Table.Summary.Cell>
+                  </Table.Summary.Row>
+                );
+              }} />
           </>
         )}
+      </Modal>
+
+      {/* ── 수령확인 모달 ── */}
+      <Modal title="수령확인 - 입고수량 입력" open={receiveOpen} onCancel={() => setReceiveOpen(false)}
+        onOk={handleReceive} okText="수령확인" cancelText="취소" width={600}>
+        <p style={{ color: '#888', marginBottom: 12 }}>각 품목의 실제 입고 수량을 입력해주세요. 확인 시 재고에 자동 반영됩니다.</p>
+        <Table dataSource={receiveItems} rowKey="variant_id" size="small" pagination={false}
+          columns={[
+            { title: '상품', dataIndex: 'product_name', key: 'product_name' },
+            { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 130 },
+            { title: '사이즈', dataIndex: 'size', key: 'size', width: 60 },
+            { title: '요청', dataIndex: 'request_qty', key: 'request_qty', width: 60 },
+            { title: '입고수량', key: 'received_qty', width: 100,
+              render: (_: any, record: any, index: number) => (
+                <InputNumber min={0} max={record.request_qty * 2} value={record.received_qty}
+                  onChange={(v) => {
+                    const updated = [...receiveItems];
+                    updated[index] = { ...updated[index], received_qty: v || 0 };
+                    setReceiveItems(updated);
+                  }} size="small" style={{ width: 80 }} />
+              ),
+            },
+          ]} />
       </Modal>
     </div>
   );

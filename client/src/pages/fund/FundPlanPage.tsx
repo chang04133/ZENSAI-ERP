@@ -25,7 +25,9 @@ interface PlanEntry {
 }
 
 const cellKey = (catId: number, month: number) => `${catId}-${month}`;
-const fmt = (v: number) => v.toLocaleString();
+const toK = (v: number) => Math.round(v / 1000);
+const fromK = (v: number) => v * 1000;
+const fmt = (v: number) => toK(v).toLocaleString();
 
 export default function FundPlanPage() {
   const currentYear = new Date().getFullYear();
@@ -143,7 +145,7 @@ export default function FundPlanPage() {
       return next;
     });
     setDirty(true);
-    message.success(`${fmt(val)} 으로 12개월 채움`);
+    message.success(`${fmt(val)}천원 으로 12개월 채움`);
   };
 
   // 재귀: 서브트리 월별 합계 (리프면 자기 값, 아니면 자식 합)
@@ -317,8 +319,8 @@ export default function FundPlanPage() {
             return (
               <td key={m} style={tdS}>
                 <InputNumber size="small" style={{ width: 90 }} controls={false}
-                  value={planMap[cellKey(cat.category_id, m)]?.[field] || 0}
-                  onChange={(v) => updateCell(cat.category_id, m, field, v || 0)}
+                  value={toK(planMap[cellKey(cat.category_id, m)]?.[field] || 0)}
+                  onChange={(v) => updateCell(cat.category_id, m, field, fromK(v || 0))}
                   formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                   parser={(v) => Number((v || '').replace(/,/g, ''))} />
               </td>
@@ -398,12 +400,12 @@ export default function FundPlanPage() {
       <Row gutter={16} style={{ marginBottom: 16 }}>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="지출 계획" value={grandTotal.plan} formatter={(v) => `${fmt(Number(v))}원`} prefix={<FundOutlined />} />
+            <Statistic title="지출 계획" value={grandTotal.plan} formatter={(v) => `${fmt(Number(v))}천원`} prefix={<FundOutlined />} />
           </Card>
         </Col>
         <Col span={8}>
           <Card size="small">
-            <Statistic title="지출 실적" value={grandTotal.actual} formatter={(v) => `${fmt(Number(v))}원`} valueStyle={{ color: '#cf1322' }} />
+            <Statistic title="지출 실적" value={grandTotal.actual} formatter={(v) => `${fmt(Number(v))}천원`} valueStyle={{ color: '#cf1322' }} />
           </Card>
         </Col>
         <Col span={8}>
@@ -411,8 +413,8 @@ export default function FundPlanPage() {
             <Statistic title="달성률" value={rate} suffix="%" valueStyle={{ color: rate > 100 ? '#cf1322' : rate >= 80 ? '#fa8c16' : '#389e0d' }} />
             <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
               {grandTotal.actual > grandTotal.plan
-                ? <Tag color="red">초과 {fmt(grandTotal.actual - grandTotal.plan)}원</Tag>
-                : <Tag color="green">잔여 {fmt(grandTotal.plan - grandTotal.actual)}원</Tag>}
+                ? <Tag color="red">초과 {fmt(grandTotal.actual - grandTotal.plan)}천원</Tag>
+                : <Tag color="green">잔여 {fmt(grandTotal.plan - grandTotal.actual)}천원</Tag>}
             </div>
           </Card>
         </Col>
@@ -424,7 +426,7 @@ export default function FundPlanPage() {
             <thead>
               <tr>
                 <th style={{ ...thS, textAlign: 'left', minWidth: 180, position: 'sticky', left: 0, background: '#e8edf5', zIndex: 2 }}>
-                  지출 항목
+                  지출 항목 <span style={{ fontWeight: 400, fontSize: 10, color: '#888' }}>(단위: 천원)</span>
                 </th>
                 {MONTHS.map(m => <th key={m} style={{ ...thS, minWidth: 95 }}>{ML[m - 1]}</th>)}
                 <th style={thS}>합계</th>

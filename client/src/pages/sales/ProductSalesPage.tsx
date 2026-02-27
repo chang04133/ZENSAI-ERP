@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
-import { Card, Table, Tag, DatePicker, Space, Spin, message, Row, Col, Button } from 'antd';
+import { Card, Table, Tag, DatePicker, Space, Spin, Select, Input, message, Row, Col, Button } from 'antd';
 import {
   DollarOutlined, ShoppingCartOutlined, SearchOutlined,
-  ShopOutlined, TagOutlined, SkinOutlined, FilterOutlined,
+  ShopOutlined, TagOutlined, SkinOutlined,
 } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
+import { codeApi } from '../../modules/code/code.api';
+import { productApi } from '../../modules/product/product.api';
+import { partnerApi } from '../../modules/partner/partner.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import dayjs, { Dayjs } from 'dayjs';
-
 import { datePresets } from '../../utils/date-presets';
 
 const { RangePicker } = DatePicker;
@@ -19,30 +22,91 @@ const CAT_COLORS: Record<string, string> = {
 
 const fmt = (v: number) => Number(v).toLocaleString();
 
-const FILTER_LABELS: Record<string, string> = {
-  category: '카테고리', fit: '핏', length: '기장', season: '시즌',
-};
-
 export default function ProductSalesPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const user = useAuthStore((s) => s.user);
+  const isHQ = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
 
-  // URL에서 필터 파라미터 읽기
-  const filterKey = (['category', 'fit', 'length', 'season'] as const).find(k => searchParams.get(k));
-  const filterValue = filterKey ? searchParams.get(filterKey)! : '';
+  // 필터 상태
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
+  const [colorFilter, setColorFilter] = useState('');
+  const [sizeFilter, setSizeFilter] = useState('');
+  const [partnerFilter, setPartnerFilter] = useState('');
 
-  const clearFilter = () => {
-    const next = new URLSearchParams(searchParams);
-    ['category', 'fit', 'length', 'season'].forEach(k => next.delete(k));
-    setSearchParams(next, { replace: true });
+  // 옵션 데이터
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
+  const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
+  const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
+  const [partners, setPartners] = useState<any[]>([]);
+
+  // 옵션 로드
+  useEffect(() => {
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setAllCategoryCodes(data);
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('FIT').then((data: any[]) => {
+      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    productApi.variantOptions().then((data: any) => {
+      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
+      setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
+    }).catch(() => {});
+    if (isHQ) {
+      partnerApi.list({ limit: '1000' }).then((r: any) => {
+        setPartners(r.data || []);
+      }).catch(() => {});
+    }
+  }, []);
+
+  const handleCategoryChange = (value: string) => {
+    setCategoryFilter(value);
+    setSubCategoryFilter('');
+    if (!value) { setSubCategoryOptions([]); return; }
+    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
+    if (parent) {
+      setSubCategoryOptions(
+        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+    } else {
+      setSubCategoryOptions([]);
+    }
+  };
+
+  const buildFilters = () => {
+    const f: Record<string, string> = {};
+    if (search) f.search = search;
+    if (categoryFilter) f.category = categoryFilter;
+    if (subCategoryFilter) f.sub_category = subCategoryFilter;
+    if (seasonFilter) f.season = seasonFilter;
+    if (fitFilter) f.fit = fitFilter;
+    if (lengthFilter) f.length = lengthFilter;
+    if (colorFilter) f.color = colorFilter;
+    if (sizeFilter) f.size = sizeFilter;
+    if (partnerFilter) f.partner_code = partnerFilter;
+    return Object.keys(f).length > 0 ? f : undefined;
   };
 
   const load = async (from: Dayjs, to: Dayjs) => {
     setLoading(true);
     try {
-      const result = await salesApi.productsByRange(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'));
+      const result = await salesApi.productsByRange(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'), buildFilters());
       setData(result);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
@@ -59,36 +123,19 @@ export default function ProductSalesPage() {
   const today = dayjs();
 
   const totals = data?.totals || {};
-  const rawSummary = data?.summary || [];
+  const summary = data?.summary || [];
 
-  // 필터 적용
-  const summary = filterKey
-    ? rawSummary.filter((r: any) => {
-        if (filterKey === 'category') return r.category === filterValue;
-        if (filterKey === 'fit') return r.fit === filterValue;
-        if (filterKey === 'length') return r.length === filterValue;
-        if (filterKey === 'season') return r.season_type === filterValue;
-        return true;
-      })
-    : rawSummary;
-
-  // 필터 적용 시 합계 재계산
-  const displayTotals = filterKey
-    ? {
-        total_amount: summary.reduce((s: number, r: any) => s + Number(r.total_amount), 0),
-        total_qty: summary.reduce((s: number, r: any) => s + Number(r.total_qty), 0),
-        partner_count: new Set(summary.flatMap((r: any) => r.partners || [])).size || totals.partner_count || 0,
-      }
-    : totals;
+  // 활성 필터 개수
+  const activeFilterCount = [categoryFilter, subCategoryFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, partnerFilter, search].filter(Boolean).length;
 
   return (
     <div>
-      <PageHeader title={filterKey ? `종합매출 — ${FILTER_LABELS[filterKey]}: ${filterValue}` : '종합매출'} />
+      <PageHeader title="종합매출" />
 
-      {/* 필터 바 */}
+      {/* 기간 + 빠른 선택 */}
       <div style={{
         display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
-        marginBottom: 16, padding: '10px 14px',
+        marginBottom: 8, padding: '10px 14px',
         background: '#f5f7fa', borderRadius: 8, border: '1px solid #e0e4ea',
       }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>조회기간</span>
@@ -108,18 +155,66 @@ export default function ProductSalesPage() {
           <Button size="small" onClick={() => quickRange(today.subtract(1, 'month').startOf('month'), today.subtract(1, 'month').endOf('month'))}>전월</Button>
           <Button size="small" onClick={() => quickRange(today.startOf('year'), today)}>올해</Button>
         </Space>
-        <Button type="primary" size="small" icon={<SearchOutlined />} onClick={handleSearch}>검색</Button>
+      </div>
+
+      {/* 세부 필터 바 */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input
+            placeholder="코드 또는 이름 검색"
+            prefix={<SearchOutlined />}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={handleSearch}
+            style={{ width: '100%' }}
+          /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select value={categoryFilter} onChange={handleCategoryChange} style={{ width: 120 }}
+            options={[{ label: '전체', value: '' }, ...categoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+          <Select value={subCategoryFilter} onChange={setSubCategoryFilter} style={{ width: 140 }}
+            options={[{ label: '전체', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select value={seasonFilter} onChange={setSeasonFilter} style={{ width: 120 }}
+            options={[
+              { label: '전체', value: '' },
+              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
+              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+            ]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+          <Select value={fitFilter} onChange={setFitFilter} style={{ width: 120 }}
+            options={[{ label: '전체', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={setLengthFilter} style={{ width: 120 }}
+            options={[{ label: '전체', value: '' }, ...lengthOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select showSearch optionFilterProp="label" value={colorFilter}
+            onChange={setColorFilter} style={{ width: 120 }}
+            options={[{ label: '전체', value: '' }, ...colorOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
+          <Select showSearch optionFilterProp="label" value={sizeFilter}
+            onChange={setSizeFilter} style={{ width: 100 }}
+            options={[{ label: '전체', value: '' }, ...sizeOptions]} /></div>
+        {isHQ && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+            <Select showSearch optionFilterProp="label" value={partnerFilter}
+              onChange={setPartnerFilter} style={{ width: 160 }}
+              options={[{ label: '전체', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} /></div>
+        )}
+        <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch}>검색</Button>
+        {activeFilterCount > 0 && (
+          <Button size="small" onClick={() => {
+            setSearch(''); setCategoryFilter(''); setSubCategoryFilter(''); setSubCategoryOptions([]);
+            setSeasonFilter(''); setFitFilter(''); setLengthFilter('');
+            setColorFilter(''); setSizeFilter(''); setPartnerFilter('');
+          }}>필터 초기화 ({activeFilterCount})</Button>
+        )}
       </div>
 
       {/* 기간 표시 */}
-      <div style={{ marginBottom: 12, fontSize: 12, color: '#666', display: 'flex', alignItems: 'center', gap: 12 }}>
-        <span>조회기간: <b>{range[0].format('YYYY-MM-DD')}</b> ~ <b>{range[1].format('YYYY-MM-DD')}</b></span>
-        {filterKey && (
-          <Tag color="blue" closable onClose={clearFilter} style={{ fontSize: 12 }}>
-            <FilterOutlined style={{ marginRight: 4 }} />
-            {FILTER_LABELS[filterKey]}: {filterValue}
-          </Tag>
-        )}
+      <div style={{ marginBottom: 12, fontSize: 12, color: '#666' }}>
+        조회기간: <b>{range[0].format('YYYY-MM-DD')}</b> ~ <b>{range[1].format('YYYY-MM-DD')}</b>
+        {activeFilterCount > 0 && <Tag color="blue" style={{ marginLeft: 8 }}>필터 {activeFilterCount}개 적용중</Tag>}
       </div>
 
       {loading && !data ? (
@@ -129,10 +224,10 @@ export default function ProductSalesPage() {
           {/* 요약 카드 */}
           <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
             {[
-              { label: '총 매출', value: `${fmt(displayTotals.total_amount || 0)}원`, icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
-              { label: '판매 수량', value: `${fmt(displayTotals.total_qty || 0)}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
+              { label: '총 매출', value: `${fmt(totals.total_amount || 0)}원`, icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
+              { label: '판매 수량', value: `${fmt(totals.total_qty || 0)}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
               { label: '판매 상품', value: `${summary.length}종`, icon: <SkinOutlined />, color: '#fa8c16', bg: '#fff7e6' },
-              { label: '거래처', value: `${displayTotals.partner_count || 0}곳`, icon: <ShopOutlined />, color: '#722ed1', bg: '#f9f0ff' },
+              { label: '거래처', value: `${totals.partner_count || 0}곳`, icon: <ShopOutlined />, color: '#722ed1', bg: '#f9f0ff' },
             ].map((item) => (
               <Col xs={12} sm={6} key={item.label}>
                 <div style={{ background: item.bg, borderRadius: 8, padding: '12px 14px' }}>

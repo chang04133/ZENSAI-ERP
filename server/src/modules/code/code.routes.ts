@@ -9,7 +9,7 @@ const VALID_TYPES = ['CATEGORY', 'BRAND', 'YEAR', 'SEASON', 'ITEM', 'COLOR', 'SI
 
 router.get('/', authMiddleware, asyncHandler(async (_req, res) => {
   const pool = getPool();
-  const result = await pool.query('SELECT * FROM master_codes ORDER BY code_type, sort_order, code_value');
+  const result = await pool.query('SELECT * FROM master_codes ORDER BY code_type, code_id');
   const grouped: Record<string, any[]> = {};
   for (const row of result.rows) {
     if (!grouped[row.code_type]) grouped[row.code_type] = [];
@@ -22,7 +22,7 @@ router.get('/:type', authMiddleware, asyncHandler(async (req, res) => {
   const type = (req.params.type as string).toUpperCase();
   if (!VALID_TYPES.includes(type)) { res.status(400).json({ success: false, error: '유효하지 않은 코드 타입입니다.' }); return; }
   const pool = getPool();
-  const result = await pool.query('SELECT * FROM master_codes WHERE code_type = $1 ORDER BY sort_order, code_value', [type]);
+  const result = await pool.query('SELECT * FROM master_codes WHERE code_type = $1 ORDER BY code_id', [type]);
   res.json({ success: true, data: result.rows });
 }));
 

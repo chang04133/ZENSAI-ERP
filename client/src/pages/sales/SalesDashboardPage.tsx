@@ -1,11 +1,12 @@
 import { useEffect, useState, CSSProperties } from 'react';
-import { Card, Col, Row, Table, Tag, Progress, Select, message } from 'antd';
+import { Card, Col, Row, Table, Tag, Progress, Select, Modal, Spin, message } from 'antd';
 import {
   DollarOutlined, RiseOutlined, ShoppingCartOutlined,
   CalendarOutlined, TagsOutlined, ShopOutlined, TrophyOutlined,
-  SkinOutlined, ColumnHeightOutlined, CrownOutlined,
+  SkinOutlined, ColumnHeightOutlined, CrownOutlined, FilterOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
 import { salesApi } from '../../modules/sales/sales.api';
@@ -102,9 +103,9 @@ function HBar({ data, colorKey, history, onItemClick }: {
         });
         return (
           <div key={d.label} onClick={() => onItemClick?.(d.label)}
-            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 6, padding: '4px 6px', margin: '-4px -6px', transition: 'background 0.15s' }}
-            onMouseEnter={(e) => onItemClick && (e.currentTarget.style.background = '#f8f9fa')}
-            onMouseLeave={(e) => onItemClick && (e.currentTarget.style.background = 'transparent')}>
+            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 8, padding: '6px 8px', margin: '-6px -8px', transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
+            onMouseEnter={(e) => { if (!onItemClick) return; e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
+            onMouseLeave={(e) => { if (!onItemClick) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
               <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
               <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
@@ -201,9 +202,9 @@ function RankBar({ data, history, onItemClick }: {
         });
         return (
           <div key={d.label} onClick={() => onItemClick?.(d.label)}
-            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 6, padding: '4px 6px', margin: '-4px -6px', transition: 'background 0.15s' }}
-            onMouseEnter={(e) => onItemClick && (e.currentTarget.style.background = '#f8f9fa')}
-            onMouseLeave={(e) => onItemClick && (e.currentTarget.style.background = 'transparent')}>
+            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 8, padding: '6px 8px', margin: '-6px -8px', transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
+            onMouseEnter={(e) => { if (!onItemClick) return; e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
+            onMouseLeave={(e) => { if (!onItemClick) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
               <span style={{ fontSize: 13, fontWeight: isTop ? 700 : 500 }}>
                 {isTop && <CrownOutlined style={{ color: '#f59e0b', marginRight: 4 }} />}
@@ -339,6 +340,44 @@ export default function SalesDashboardPage() {
   const [period, setPeriod] = useState('month');
   const [storeComparison, setStoreComparison] = useState<any[]>([]);
   const [yearlyData, setYearlyData] = useState<any>(null);
+  const [drillFilter, setDrillFilter] = useState<{ type: string; value: string } | null>(null);
+  const [drillData, setDrillData] = useState<any[]>([]);
+  const [drillLoading, setDrillLoading] = useState(false);
+
+  const DRILL_LABELS: Record<string, string> = { category: '카테고리', fit: '핏', length: '기장', season: '시즌' };
+
+  const handleDrill = async (type: string, value: string) => {
+    setDrillFilter({ type, value });
+    setDrillData([]);
+    setDrillLoading(true);
+    try {
+      const from = period === 'month' ? dayjs().startOf('month').format('YYYY-MM-DD') : `${period}-01-01`;
+      const to = period === 'month' ? dayjs().format('YYYY-MM-DD') : `${period}-12-31`;
+
+      // 서버 필터 (category/fit/length는 서버에서 직접 필터링)
+      const serverFilters: Record<string, string> = {};
+      const isNullLabel = value === '미분류' || value === '미지정';
+      if (!isNullLabel && (type === 'category' || type === 'fit' || type === 'length')) {
+        serverFilters[type] = value;
+      }
+
+      const result = await salesApi.productsByRange(from, to, Object.keys(serverFilters).length > 0 ? serverFilters : undefined);
+      const all = result?.summary || [];
+
+      // 시즌은 클라이언트 필터 (서버는 raw season code 사용), 미분류/미지정은 null 매칭
+      let filtered: any[];
+      if (type === 'season') {
+        filtered = all.filter((r: any) => r.season_type === value);
+      } else if (isNullLabel) {
+        filtered = all.filter((r: any) => !r[type]);
+      } else {
+        filtered = all; // 서버에서 이미 필터됨
+      }
+
+      setDrillData(filtered);
+    } catch (e: any) { message.error(e.message); }
+    finally { setDrillLoading(false); }
+  };
 
   const loadStats = async (p: string) => {
     setLoading(true);
@@ -533,10 +572,10 @@ export default function SalesDashboardPage() {
                       const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
                       const c = SEASON_COLORS_MAP[d.season_type] || '#94a3b8';
                       return (
-                        <div key={d.season_type} onClick={() => navigate(`/sales/product-sales?season=${encodeURIComponent(d.season_type)}`)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', borderRadius: 4, transition: 'background 0.15s' }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = '#f8f9fa')}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = 'transparent')}>
+                        <div key={d.season_type} onClick={() => handleDrill('season', d.season_type)}
+                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', margin: '0 -10px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', borderRadius: 6, transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
+                          onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                             <span style={{ width: 12, height: 12, borderRadius: 3, background: c, display: 'inline-block' }} />
                             <span style={{ fontSize: 14, fontWeight: 500 }}>{d.season_type}</span>
@@ -575,7 +614,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byCategory || []).map((r: any) => ({
                 year: Number(r.year), label: r.category, total_amount: Number(r.total_amount),
               })) : undefined}
-              onItemClick={(label) => navigate(`/sales/product-sales?category=${encodeURIComponent(label)}`)}
+              onItemClick={(label) => handleDrill('category', label)}
             />
           </Card>
         </Col>
@@ -611,7 +650,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byFit || []).map((r: any) => ({
                 year: Number(r.year), label: r.fit, total_amount: Number(r.total_amount),
               })) : undefined}
-              onItemClick={(label) => navigate(`/sales/product-sales?fit=${encodeURIComponent(label)}`)}
+              onItemClick={(label) => handleDrill('fit', label)}
             />
           </Card>
         </Col>
@@ -630,7 +669,7 @@ export default function SalesDashboardPage() {
               history={period === 'month' ? (stats?.sameMonthHistory?.byLength || []).map((r: any) => ({
                 year: Number(r.year), label: r.length, total_amount: Number(r.total_amount),
               })) : undefined}
-              onItemClick={(label) => navigate(`/sales/product-sales?length=${encodeURIComponent(label)}`)}
+              onItemClick={(label) => handleDrill('length', label)}
             />
           </Card>
         </Col>
@@ -980,6 +1019,93 @@ export default function SalesDashboardPage() {
           />
         </Card>
       )}
+
+      {/* ── 드릴다운 모달 ── */}
+      <Modal
+        title={
+          drillFilter ? (
+            <span>
+              <FilterOutlined style={{ marginRight: 8, color: '#6366f1' }} />
+              {DRILL_LABELS[drillFilter.type]}: <Tag color="blue" style={{ fontSize: 14 }}>{drillFilter.value}</Tag>
+              상품별 매출
+            </span>
+          ) : '상품별 매출'
+        }
+        open={!!drillFilter}
+        onCancel={() => setDrillFilter(null)}
+        footer={null}
+        width={1100}
+        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflow: 'auto' } }}
+      >
+        {drillLoading ? (
+          <Spin style={{ display: 'block', margin: '60px auto' }} />
+        ) : (
+          <>
+            {/* 요약 카드 */}
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+              {[
+                { label: '총 매출', value: `${drillData.reduce((s, r) => s + Number(r.total_amount), 0).toLocaleString()}원`, color: '#1890ff', bg: '#e6f7ff' },
+                { label: '판매 수량', value: `${drillData.reduce((s, r) => s + Number(r.total_qty), 0).toLocaleString()}개`, color: '#52c41a', bg: '#f6ffed' },
+                { label: '판매 상품', value: `${drillData.length}종`, color: '#fa8c16', bg: '#fff7e6' },
+              ].map((item) => (
+                <Col xs={8} key={item.label}>
+                  <div style={{ background: item.bg, borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: '#888' }}>{item.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: item.color }}>{item.value}</div>
+                  </div>
+                </Col>
+              ))}
+            </Row>
+            <Table
+              columns={[
+                { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110 },
+                { title: '상품명', dataIndex: 'product_name', key: 'name', width: 160, ellipsis: true },
+                { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
+                  render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag> },
+                { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v || '-' },
+                { title: '기장', dataIndex: 'length', key: 'len', width: 65, render: (v: string) => v || '-' },
+                { title: '시즌', dataIndex: 'season_type', key: 'season', width: 75, render: (v: string) => v || '-' },
+                { title: '판매수량', dataIndex: 'total_qty', key: 'qty', width: 90, align: 'right' as const,
+                  render: (v: number) => <strong>{Number(v).toLocaleString()}</strong>,
+                  sorter: (a: any, b: any) => a.total_qty - b.total_qty },
+                { title: '매출금액', dataIndex: 'total_amount', key: 'amt', width: 130, align: 'right' as const,
+                  render: (v: number) => <strong>{Number(v).toLocaleString()}원</strong>,
+                  sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
+                  defaultSortOrder: 'descend' as const },
+                { title: '평균단가', key: 'avg', width: 110, align: 'right' as const,
+                  render: (_: any, r: any) => {
+                    const avg = r.total_qty > 0 ? Math.round(Number(r.total_amount) / r.total_qty) : 0;
+                    return `${avg.toLocaleString()}원`;
+                  } },
+                { title: '건수', dataIndex: 'sale_count', key: 'cnt', width: 55, align: 'center' as const },
+              ]}
+              dataSource={drillData}
+              rowKey="product_code"
+              size="small"
+              scroll={{ x: 1000, y: 400 }}
+              pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+              summary={() => {
+                if (drillData.length === 0) return null;
+                const totalQty = drillData.reduce((s, r) => s + Number(r.total_qty), 0);
+                const totalAmt = drillData.reduce((s, r) => s + Number(r.total_amount), 0);
+                const avgPrice = totalQty > 0 ? Math.round(totalAmt / totalQty) : 0;
+                return (
+                  <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 700 }}>
+                    <Table.Summary.Cell index={0} colSpan={6}>합계</Table.Summary.Cell>
+                    <Table.Summary.Cell index={6} align="right">{totalQty.toLocaleString()}</Table.Summary.Cell>
+                    <Table.Summary.Cell index={7} align="right">{totalAmt.toLocaleString()}원</Table.Summary.Cell>
+                    <Table.Summary.Cell index={8} align="right">{avgPrice.toLocaleString()}원</Table.Summary.Cell>
+                    <Table.Summary.Cell index={9} />
+                  </Table.Summary.Row>
+                );
+              }}
+            />
+            {drillData.length === 0 && (
+              <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>해당 분류의 판매 내역이 없습니다.</div>
+            )}
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

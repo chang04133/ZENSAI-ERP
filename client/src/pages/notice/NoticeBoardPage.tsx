@@ -62,12 +62,14 @@ export default function NoticeBoardPage() {
       <PageHeader title="공지사항" extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>작성</Button>
       } />
-      <Space style={{ marginBottom: 16 }} wrap>
-        <Input placeholder="제목/내용 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: 250 }} />
-        <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
-          options={[{ label: '전체 보기', value: '' }, ...Object.entries(TYPE_LABEL).map(([k, v]) => ({ value: k, label: v }))]} />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="제목/내용 검색" prefix={<SearchOutlined />} value={search} onChange={e => setSearch(e.target.value)} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
+          <Select value={typeFilter} onChange={v => setTypeFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...Object.entries(TYPE_LABEL).map(([k, v]) => ({ value: k, label: v }))]} /></div>
         <Button onClick={() => {}}>조회</Button>
-      </Space>
+      </div>
 
       <Card size="small">
         <Table dataSource={sorted} columns={columns} rowKey="id" size="small"

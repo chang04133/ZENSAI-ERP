@@ -423,7 +423,7 @@ const pageMapData = [
   { key: '20', path: '/sales/dashboard', page: 'SalesDashboardPage', category: '판매', roles: 'ADMIN/HQ', desc: '매출 현황' },
   { key: '21', path: '/sales/entry', page: 'SalesEntryPage', category: '판매', roles: 'ALL', desc: '매출등록/수정/삭제/반품' },
   { key: '22', path: '/sales/product-sales', page: 'ProductSalesPage', category: '판매', roles: 'ALL', desc: '아이템별 매출' },
-  { key: '23', path: '/sales/partner-sales', page: 'MonthlySalesPage', category: '판매', roles: 'ADMIN/HQ', desc: '거래처별 매출' },
+  { key: '23', path: '/sales/partner-sales', page: 'MonthlySalesPage', category: '판매', roles: 'ADMIN/HQ', desc: '종합매출조회' },
   { key: '24', path: '/sales/analytics', page: 'SalesAnalyticsPage', category: '판매', roles: 'ALL', desc: '판매 분석' },
   { key: '25', path: '/sales/sell-through', page: 'SellThroughPage', category: '판매', roles: 'ALL', desc: '판매율 분석' },
   { key: '26', path: '/production', page: 'ProductionDashboardPage', category: '생산', roles: 'ADMIN/HQ', desc: '생산 대시보드' },

@@ -42,9 +42,11 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
     pool.query('SELECT COUNT(*) FROM partners WHERE is_active = TRUE'),
     pool.query('SELECT COUNT(*) FROM products WHERE is_active = TRUE'),
     pool.query(`SELECT
-      COUNT(*) FILTER (WHERE status = 'PENDING') as pending,
-      COUNT(*) FILTER (WHERE status = 'SHIPPED') as shipped,
-      COUNT(*) FILTER (WHERE status = 'RECEIVED') as received
+      COUNT(*) FILTER (WHERE status = 'PENDING' AND request_type = '출고') as pending,
+      COUNT(*) FILTER (WHERE status = 'SHIPPED' AND request_type = '출고') as shipped,
+      COUNT(*) FILTER (WHERE status = 'RECEIVED' AND request_type = '출고') as received,
+      COUNT(*) FILTER (WHERE status = 'PENDING' AND request_type = '반품') as return_pending,
+      COUNT(*) FILTER (WHERE status = 'PENDING' AND request_type = '수평이동') as transfer_pending
     FROM shipment_requests sr WHERE 1=1 ${shipFilter}`, params),
     pool.query(`SELECT COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_items FROM inventory i WHERE 1=1 ${invFilter}`, params),
     pool.query(`SELECT

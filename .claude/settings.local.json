@@ -136,7 +136,21 @@
       "Bash(__NEW_LINE_b2bae6b70b743962__ echo \"=== FIX5c: Verify deleted \\(ID 230 should be 404\\) ===\")",
       "Bash(FORCE_RESEED= node:*)",
       "Bash(grep:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoi7Iuc7Iqk7YWc6rSA66as7J6QIiwicm9sZSI6IkFETUlOIiwicGFydG5lckNvZGUiOm51bGwsImlhdCI6MTc3MjE4MjY1OSwiZXhwIjoxNzcyMjY5MDU5fQ.UaSYeCQgCxMQsVpg9VFSUjTVfHvoSXufCMjCIMIdS7Q\")",
+      "Bash(wmic process:*)",
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process -Filter ''ProcessId=69480'' | Select CommandLine | Format-List\")",
+      "Bash(powershell -Command \"\\(Get-CimInstance Win32_Process -Filter ''ProcessId=69480''\\).CommandLine\")",
+      "Bash(powershell -Command \"[System.Diagnostics.Process]::GetProcessById\\(69480\\).StartInfo.EnvironmentVariables[''DATABASE_URL'']\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoi7Iuc7Iqk7YWc6rSA66as7J6QIiwicm9sZSI6IkFETUlOIiwicGFydG5lckNvZGUiOm51bGwsImlhdCI6MTc3MjE4MzI0MSwiZXhwIjoxNzcyMjY5NjQxfQ.ikkfz6YLu0D9FVAUTtrWp8gum8kv_a9F9l2zXJlaRoo\")",
+      "Bash(powershell -Command \"$p = [System.Diagnostics.Process]::GetProcessById\\(69480\\); $p.StartInfo.EnvironmentVariables\")",
+      "Bash(for s in PENDING SHIPPED RECEIVED CANCELLED)",
+      "Bash(do echo -n \"$s: \")",
+      "Bash(done)",
+      "Bash(do echo -n \"반품 $s: \")",
+      "Bash(while read:*)",
+      "Bash(do sed -i 's/flex: 1, minWidth: 200/minWidth: 200, maxWidth: 320/g' \"$f\")",
+      "Bash(git fetch:*)"
     ]
   }
 }

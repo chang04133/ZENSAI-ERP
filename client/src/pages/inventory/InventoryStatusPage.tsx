@@ -6,14 +6,14 @@ import {
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
-  SendOutlined, AlertOutlined, ThunderboltOutlined, WarningOutlined,
+  SendOutlined, AlertOutlined, ThunderboltOutlined,
   ReloadOutlined, PlusOutlined, EditOutlined, HistoryOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
-import { restockApi } from '../../modules/restock/restock.api';
+
 import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
@@ -21,7 +21,7 @@ import { ROLES } from '../../../../shared/constants/roles';
 import { apiFetch } from '../../core/api.client';
 import RestockManagePage from '../restock/RestockManagePage';
 import { sizeSort } from '../../utils/size-order';
-import type { RestockSuggestion } from '../../../../shared/types/restock';
+
 
 /* ══════════════════════════════════════════
    공통 상수 / 유틸
@@ -33,8 +33,6 @@ const CAT_COLORS: Record<string, string> = {
 const CAT_TAG_COLORS: Record<string, string> = {
   TOP: 'blue', BOTTOM: 'green', OUTER: 'orange', DRESS: 'magenta', ACC: 'purple',
 };
-const URGENCY_COLORS: Record<string, string> = { CRITICAL: 'red', WARNING: 'orange', NORMAL: 'blue' };
-const URGENCY_LABELS: Record<string, string> = { CRITICAL: '위험', WARNING: '주의', NORMAL: '보통' };
 const TX_TYPE_LABELS: Record<string, string> = {
   ADJUST: '수동조정', SHIPMENT: '출고', RETURN: '반품', TRANSFER: '이동', SALE: '판매', RESTOCK: '재입고',
 };
@@ -124,8 +122,6 @@ function DashboardTab() {
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
-  const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
-  const [sugLoading, setSugLoading] = useState(true);
   const [reorderData, setReorderData] = useState<{ urgent: any[]; recommend: any[] }>({ urgent: [], recommend: [] });
   const [reorderLoading, setReorderLoading] = useState(true);
 
@@ -186,6 +182,7 @@ function DashboardTab() {
     setDrillSort('qty_desc');
     setDrillView('size');
     loadDrill(params, 1, 'qty_desc');
+    setTimeout(() => drillRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
   }, [loadDrill]);
 
   useEffect(() => {
@@ -258,12 +255,6 @@ function DashboardTab() {
         .catch(() => {})
         .finally(() => setReorderLoading(false));
       loadMyPendingRequests();
-    } else {
-      setSugLoading(true);
-      restockApi.getRestockSuggestions()
-        .then(setSuggestions)
-        .catch(() => {})
-        .finally(() => setSugLoading(false));
     }
   }, [effectiveStore, loadMyPendingRequests]);
 
@@ -300,41 +291,6 @@ function DashboardTab() {
   const bySeason = (stats?.bySeason || []) as Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
   const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
   const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
-  const criticalCount = suggestions.filter(s => s.urgency === 'CRITICAL').length;
-  const warningCount = suggestions.filter(s => s.urgency === 'WARNING').length;
-
-  const sugColumns = [
-    { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 70,
-      render: (v: string) => <Tag color={URGENCY_COLORS[v]}>{URGENCY_LABELS[v]}</Tag>,
-      filters: [{ text: '위험', value: 'CRITICAL' }, { text: '주의', value: 'WARNING' }, { text: '보통', value: 'NORMAL' }],
-      onFilter: (value: any, record: RestockSuggestion) => record.urgency === value,
-    },
-    { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true,
-      render: (v: string, r: RestockSuggestion) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
-    },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
-    { title: 'Color', dataIndex: 'color', key: 'color', width: 55 },
-    { title: 'Size', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '판매율', dataIndex: 'sell_through_rate', key: 'sell_through_rate', width: 65,
-      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.sell_through_rate - b.sell_through_rate,
-      render: (v: number) => <span style={{ fontWeight: 600, color: v >= 70 ? '#f5222d' : v >= 50 ? '#fa8c16' : '#1890ff' }}>{v}%</span>,
-    },
-    { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 65,
-      render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'default'}>{v}</Tag>,
-    },
-    { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage_qty', width: 65,
-      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.shortage_qty - b.shortage_qty,
-      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 700 }}>{v}</span> : '-',
-    },
-    { title: '소진일', dataIndex: 'days_of_stock', key: 'days_of_stock', width: 65,
-      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.days_of_stock - b.days_of_stock,
-      render: (v: number) => <Tag color={v < 7 ? 'red' : v < 14 ? 'orange' : v < 30 ? 'gold' : 'default'}>{v}일</Tag>,
-    },
-    { title: '권장수량', dataIndex: 'suggested_qty', key: 'suggested_qty', width: 75,
-      render: (v: number) => v > 0 ? <Tag color="blue">{v}</Tag> : '-',
-    },
-  ];
-
   const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
       render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
@@ -478,77 +434,52 @@ function DashboardTab() {
     ]} dataSource={variants} rowKey="inventory_id" pagination={false} size="small" />;
   };
 
-  // 드릴다운 뷰
-  if (drillDown) {
-    return (
-      <>
-        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginBottom: 12 }}>
-          <Button icon={<ArrowLeftOutlined />} onClick={() => { setDrillDown(null); setDrillData([]); }}>대시보드</Button>
-          <span style={{ fontSize: 16, fontWeight: 700 }}>{drillDown.title}</span>
-          <Tag color="blue">{drillTotal.toLocaleString()}건</Tag>
-          <Tag color="geekblue">총 {drillSumQty.toLocaleString()}개</Tag>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'center' }}>
-          <Segmented value={drillView} onChange={(v) => setDrillView(v as any)} size="small"
-            options={[
-              { label: '사이즈별', value: 'size' },
-              { label: '품번별', value: 'product' },
-              { label: '컬러별', value: 'color' },
-            ]} />
-          <Select value={drillSort} onChange={(v) => { setDrillSort(v); setDrillPage(1); }}
-            style={{ width: 150 }} size="small"
-            options={SORT_OPTIONS} />
-        </div>
-        <Table
-          dataSource={drillDisplayData}
-          rowKey="_rowKey"
-          columns={drillView === 'product' ? drillProductColumns : drillView === 'color' ? drillColorColumns : drillColumns}
-          loading={drillLoading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
-          expandable={drillView !== 'size' ? { expandedRowRender: drillExpandedRow } : undefined}
-          pagination={{
-            current: drillPage, total: drillTotal, pageSize: 50,
-            onChange: (p) => setDrillPage(p),
-            showTotal: (t) => `총 ${t}건`,
-          }}
-        />
-      </>
-    );
-  }
+  const drillRef = useRef<HTMLDivElement>(null);
 
   return (
     <>
       {/* 통계 카드 */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={effectiveStore ? 6 : 5}>
+        <Col xs={24} sm={12} lg={6}>
           <StatCard title={effectiveStore ? '내 매장 총 재고' : '총 재고수량'} value={Number(overall.total_qty || 0)}
             icon={<InboxOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
             sub={`${Number(overall.total_items || 0)}개 품목`}
             onClick={() => openDrillDown('전체 재고', {})} />
         </Col>
         {!effectiveStore && (
-          <Col xs={24} sm={12} lg={5}>
+          <Col xs={24} sm={12} lg={6}>
             <StatCard title="거래처 수" value={Number(overall.total_partners || 0)}
               icon={<ShopOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
               sub="재고 보유 거래처"
               onClick={() => openDrillDown('전체 재고', {})} />
           </Col>
         )}
-        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
-          <StatCard
-            title={effectiveStore ? '리오더 긴급' : '위험 (7일 미만)'}
-            value={effectiveStore ? (reorderLoading ? '...' : reorderData.urgent.length) : (sugLoading ? '...' : criticalCount)}
-            icon={<ThunderboltOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
-            onClick={() => openDrillDown('재고 부족 (위험)', { stock_level: 'low' })} />
-        </Col>
-        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 5}>
-          <StatCard
-            title={effectiveStore ? '리오더 추천' : '주의 (14일 미만)'}
-            value={effectiveStore ? (reorderLoading ? '...' : reorderData.recommend.length) : (sugLoading ? '...' : warningCount)}
-            icon={effectiveStore ? <AlertOutlined /> : <WarningOutlined />}
-            bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e"
-            onClick={() => openDrillDown('재고 주의', { stock_level: 'medium' })} />
-        </Col>
-        <Col xs={24} sm={8} lg={effectiveStore ? 6 : 4}>
+        {effectiveStore && (
+          <>
+            <Col xs={24} sm={8} lg={6}>
+              <StatCard title="리오더 긴급"
+                value={reorderLoading ? '...' : reorderData.urgent.length}
+                icon={<ThunderboltOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
+                onClick={() => openDrillDown('재고 부족 (위험)', { stock_level: 'low' })} />
+            </Col>
+            <Col xs={24} sm={8} lg={6}>
+              <StatCard title="리오더 추천"
+                value={reorderLoading ? '...' : reorderData.recommend.length}
+                icon={<AlertOutlined />}
+                bg="linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%)" color="#7c4a1e"
+                onClick={() => openDrillDown('재고 주의', { stock_level: 'medium' })} />
+            </Col>
+          </>
+        )}
+        {!effectiveStore && (
+          <Col xs={24} sm={12} lg={6}>
+            <StatCard title="재입고 관리" value="바로가기"
+              icon={<ReloadOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
+              sub="보충 필요 품목 확인"
+              onClick={() => navigate('/inventory/restock')} />
+          </Col>
+        )}
+        <Col xs={24} sm={8} lg={6}>
           <StatCard title="품절" value={Number(overall.zero_stock_count || 0)}
             icon={<StopOutlined />} bg="linear-gradient(135deg, #fa709a 0%, #fee140 100%)" color="#fff" sub="재고 0개"
             onClick={() => openDrillDown('품절 (재고 0)', { stock_level: 'zero' })} />
@@ -670,31 +601,6 @@ function DashboardTab() {
         </Row>
       )}
 
-      {/* 본사: 보충 필요 품목 */}
-      {!effectiveStore && (
-        <Card
-          title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <AlertOutlined style={{ color: '#f5222d' }} /> 보충 필요 품목 ({suggestions.length}건)
-            <span style={{ fontSize: 12, fontWeight: 400, color: '#888', marginLeft: 8 }}>60일 판매 · 판매율 ≥40% · 계절가중치 · 소진일 기준</span>
-          </span>}
-          size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={sugLoading}
-          extra={<Button size="small" icon={<ReloadOutlined />} onClick={() => {
-            setSugLoading(true);
-            restockApi.getRestockSuggestions().then(setSuggestions).catch(() => {}).finally(() => setSugLoading(false));
-          }}>새로고침</Button>}>
-          {suggestions.length > 0 ? (
-            <Table dataSource={suggestions} rowKey="variant_id" size="small"
-              scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-              pagination={{ pageSize: 50, size: 'small', showTotal: (t) => `총 ${t}건` }}
-              columns={sugColumns} />
-          ) : (
-            <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
-              <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} /> 보충 필요 품목이 없습니다
-            </div>
-          )}
-        </Card>
-      )}
-
       {/* 매장: 리오더 긴급/추천 */}
       {effectiveStore && (
         <Card title={<span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -730,6 +636,65 @@ function DashboardTab() {
           )}
         </Card>
       )}
+
+      {/* 드릴다운 결과 */}
+      {drillDown && (
+        <div ref={drillRef} style={{ marginTop: 16 }}>
+          <Card
+            size="small"
+            style={{ borderRadius: 10, border: '2px solid #6366f1' }}
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 16, fontWeight: 700 }}>{drillDown.title}</span>
+                <Tag color="blue">{drillTotal}건</Tag>
+                <Tag>{drillSumQty.toLocaleString()}개</Tag>
+              </div>
+            }
+            extra={
+              <Space size="middle" wrap>
+                <Segmented
+                  size="small"
+                  value={drillView}
+                  onChange={(v) => setDrillView(v as 'size' | 'product' | 'color')}
+                  options={[
+                    { label: '사이즈별', value: 'size' },
+                    { label: '품번별', value: 'product' },
+                    { label: '컬러별', value: 'color' },
+                  ]}
+                />
+                <Select
+                  size="small"
+                  value={drillSort}
+                  onChange={(v) => { setDrillSort(v); setDrillPage(1); }}
+                  style={{ width: 140 }}
+                  options={SORT_OPTIONS}
+                />
+                <Button size="small" onClick={() => { setDrillDown(null); setDrillData([]); }}>닫기</Button>
+              </Space>
+            }
+          >
+            <Table
+              columns={drillView === 'product' ? drillProductColumns : drillView === 'color' ? drillColorColumns : drillColumns}
+              dataSource={drillDisplayData}
+              rowKey="_rowKey"
+              loading={drillLoading}
+              size="small"
+              scroll={{ x: 1100, y: 'calc(100vh - 400px)' }}
+              pagination={{
+                current: drillPage,
+                total: drillView === 'size' ? drillTotal : undefined,
+                pageSize: drillView === 'size' ? 50 : 100,
+                onChange: (p) => setDrillPage(p),
+                showTotal: (t) => `총 ${t}건`,
+              }}
+              expandable={drillView !== 'size' ? {
+                expandedRowRender: drillExpandedRow,
+                rowExpandable: (r: any) => r._variants && r._variants.length > 0,
+              } : undefined}
+            />
+          </Card>
+        </div>
+      )}
     </>
   );
 }
@@ -740,9 +705,6 @@ function DashboardTab() {
 type StoreViewMode = 'product' | 'color' | 'size';
 
 function StoreInventoryTab() {
-  const user = useAuthStore((s) => s.user);
-  const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
-
   const [rawData, setRawData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -758,13 +720,6 @@ function StoreInventoryTab() {
   const [partners, setPartners] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<StoreViewMode>('product');
 
-  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
-  const [adjustTarget, setAdjustTarget] = useState<any>(null);
-  const [adjustForm] = Form.useForm();
-  const [addModalOpen, setAddModalOpen] = useState(false);
-  const [addForm] = Form.useForm();
-  const [variantOptions, setVariantOptions] = useState<any[]>([]);
-  const [variantSearching, setVariantSearching] = useState(false);
   const [searchTrigger, setSearchTrigger] = useState(0);
 
   const load = async () => {
@@ -799,57 +754,6 @@ function StoreInventoryTab() {
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
     }).catch(() => {});
   }, []);
-
-  const openAdjust = (record: any) => {
-    setAdjustTarget(record);
-    adjustForm.resetFields();
-    adjustForm.setFieldsValue({ qty_change: 0 });
-    setAdjustModalOpen(true);
-  };
-
-  const handleAdjust = async (values: any) => {
-    if (!adjustTarget || values.qty_change === 0) return;
-    try {
-      const result = await inventoryApi.adjust({
-        partner_code: adjustTarget.partner_code,
-        variant_id: adjustTarget.variant_id,
-        qty_change: values.qty_change,
-        memo: values.memo,
-      });
-      message.success(`재고 조정 완료 (${values.qty_change > 0 ? '+' : ''}${values.qty_change} → 현재: ${result.qty}개)`);
-      setAdjustModalOpen(false);
-      load();
-    } catch (e: any) { message.error(e.message); }
-  };
-
-  const handleVariantSearch = async (searchText: string) => {
-    if (!searchText || searchText.length < 1) { setVariantOptions([]); return; }
-    setVariantSearching(true);
-    try {
-      const items = await productApi.searchVariants(searchText);
-      setVariantOptions(items.map((v: any) => ({
-        label: `${v.product_name} / ${v.sku} (${v.color}/${v.size})`,
-        value: v.variant_id,
-        price: v.price,
-      })));
-    } catch (e: any) { message.error('품목 검색 실패: ' + e.message); }
-    finally { setVariantSearching(false); }
-  };
-
-  const handleAdd = async (values: any) => {
-    try {
-      await inventoryApi.adjust({
-        partner_code: values.partner_code,
-        variant_id: values.variant_id,
-        qty_change: values.qty,
-      });
-      message.success('재고가 추가되었습니다.');
-      setAddModalOpen(false);
-      addForm.resetFields();
-      setVariantOptions([]);
-      load();
-    } catch (e: any) { message.error(e.message); }
-  };
 
   const partnerOptions = partners.map((p: any) => ({
     label: `${p.partner_name} (${p.partner_code})`,
@@ -940,16 +844,13 @@ function StoreInventoryTab() {
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '재고', dataIndex: 'qty', key: 'qty', width: 100, render: (v: number) => renderQty(Number(v)) },
-    ...(canWrite ? [{ title: '조정', key: 'action', width: 80,
-      render: (_: any, record: any) => <Button size="small" icon={<EditOutlined />} onClick={() => openAdjust(record)}>조정</Button>,
-    }] : []),
   ];
 
   const displayColumns = useMemo(() => {
     if (viewMode === 'product') return productColumns;
     if (viewMode === 'color') return colorColumns;
     return sizeViewColumns;
-  }, [viewMode, canWrite]);
+  }, [viewMode]);
 
   const productExpandedRow = (record: any) => {
     const variants = record._variants || [];
@@ -966,7 +867,6 @@ function StoreInventoryTab() {
       { title: 'Color', dataIndex: 'color', key: 'color', width: 80, render: (v: string) => v || '-' },
       { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
       { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
-      ...(canWrite ? [{ title: '조정', key: 'action', width: 80, render: (_: any, row: any) => <Button size="small" icon={<EditOutlined />} onClick={() => openAdjust(row)}>조정</Button> }] : []),
     ]} dataSource={rows} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
   };
 
@@ -977,7 +877,6 @@ function StoreInventoryTab() {
       { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
       { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
       { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
-      ...(canWrite ? [{ title: '조정', key: 'action', width: 80, render: (_: any, row: any) => <Button size="small" icon={<EditOutlined />} onClick={() => openAdjust(row)}>조정</Button> }] : []),
     ]} dataSource={variants} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
   };
 
@@ -985,7 +884,7 @@ function StoreInventoryTab() {
     if (viewMode === 'product') return { expandedRowRender: productExpandedRow };
     if (viewMode === 'color') return { expandedRowRender: colorExpandedRow };
     return undefined;
-  }, [viewMode, rawData, canWrite]);
+  }, [viewMode, rawData]);
 
   return (
     <>
@@ -1017,7 +916,6 @@ function StoreInventoryTab() {
             onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
         <Button onClick={() => { setPage(1); setSearchTrigger(t => t + 1); }}>조회</Button>
-        {canWrite && <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>재고 추가</Button>}
       </div>
 
       {partnerFilter && rawData.length > 0 && (
@@ -1039,45 +937,6 @@ function StoreInventoryTab() {
         loading={loading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }} expandable={tableExpandable} />
 
-      {/* 조정 모달 */}
-      <Modal title="재고 조정" open={adjustModalOpen} onCancel={() => setAdjustModalOpen(false)}
-        onOk={() => adjustForm.submit()} okText="조정" cancelText="취소">
-        {adjustTarget && (
-          <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
-            <div><strong>거래처:</strong> {adjustTarget.partner_name}</div>
-            <div><strong>상품:</strong> {adjustTarget.product_name} ({adjustTarget.sku})</div>
-            <div><strong>색상/사이즈:</strong> {adjustTarget.color || '-'} / {adjustTarget.size || '-'}</div>
-            <div><strong>현재수량:</strong> <Tag color="blue">{Number(adjustTarget.qty).toLocaleString()}</Tag></div>
-          </div>
-        )}
-        <Form form={adjustForm} layout="vertical" onFinish={handleAdjust}>
-          <Form.Item name="qty_change" label="변동 수량 (양수: 입고, 음수: 출고)" rules={[{ required: true, message: '수량을 입력해주세요' }]}>
-            <InputNumber style={{ width: '100%' }} placeholder="예: +10 또는 -5" />
-          </Form.Item>
-          <Form.Item name="memo" label="조정 사유">
-            <Input.TextArea rows={2} placeholder="예: 재고실사 차이 보정, 파손 폐기 등" />
-          </Form.Item>
-        </Form>
-      </Modal>
-
-      {/* 추가 모달 */}
-      <Modal title="매장 재고 추가" open={addModalOpen}
-        onCancel={() => { setAddModalOpen(false); addForm.resetFields(); setVariantOptions([]); }}
-        onOk={() => addForm.submit()} okText="추가" cancelText="취소">
-        <Form form={addForm} layout="vertical" onFinish={handleAdd}>
-          <Form.Item name="partner_code" label="거래처 (매장)" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
-            <Select showSearch placeholder="거래처 검색" optionFilterProp="label" options={partnerOptions} />
-          </Form.Item>
-          <Form.Item name="variant_id" label="상품 옵션 (검색)" rules={[{ required: true, message: '상품을 선택해주세요' }]}>
-            <Select showSearch placeholder="상품명, SKU, 상품코드로 검색" filterOption={false}
-              onSearch={handleVariantSearch} loading={variantSearching} options={variantOptions}
-              notFoundContent={variantSearching ? '검색 중...' : '검색어를 입력하세요'} />
-          </Form.Item>
-          <Form.Item name="qty" label="초기 재고수량" rules={[{ required: true, message: '수량을 입력해주세요' }]}>
-            <InputNumber min={1} style={{ width: '100%' }} placeholder="수량 입력" />
-          </Form.Item>
-        </Form>
-      </Modal>
     </>
   );
 }

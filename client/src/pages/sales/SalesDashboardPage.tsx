@@ -1,12 +1,11 @@
 import { useEffect, useState, CSSProperties } from 'react';
-import { Card, Col, Row, Table, Tag, Progress, Select, Modal, Spin, message } from 'antd';
+import { Card, Col, Row, Table, Tag, Progress, Select, message } from 'antd';
 import {
   DollarOutlined, RiseOutlined, ShoppingCartOutlined,
   CalendarOutlined, TagsOutlined, ShopOutlined, TrophyOutlined,
-  SkinOutlined, ColumnHeightOutlined, CrownOutlined, FilterOutlined,
+  CrownOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
 import { salesApi } from '../../modules/sales/sales.api';
@@ -178,86 +177,6 @@ function MonthlyChart({ data }: { data: Array<{ month: string; revenue: number; 
   );
 }
 
-/* ── Rank Bar (평균 매출 기준, 1등 강조 — '미지정' 제외) ── */
-function RankBar({ data, history, onItemClick }: {
-  data: Array<{ label: string; avg: number; total: number; qty: number; count: number; activeCount: number }>;
-  history?: Array<{ year: number; label: string; total_amount: number }>;
-  onItemClick?: (label: string) => void;
-}) {
-  if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
-  const maxAvg = Math.max(...data.map(d => d.avg), 1);
-  const curYear = new Date().getFullYear();
-  const prevYears = history ? [...new Set(history.map(h => h.year))].filter(y => y < curYear).sort((a, b) => b - a) : [];
-  // 1등은 '미지정' 제외하고 가장 높은 평균
-  const topLabel = data.find(d => d.label !== '미지정' && d.avg > 0)?.label;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {data.map((d, i) => {
-        const pct = (d.avg / maxAvg) * 100;
-        const isTop = d.label === topLabel;
-        const c = isTop ? '#f59e0b' : COLORS[i % COLORS.length];
-        const prevData = prevYears.map(y => {
-          const h = history?.find(h => h.year === y && h.label === d.label);
-          return { year: y, amount: h ? h.total_amount : 0 };
-        });
-        return (
-          <div key={d.label} onClick={() => onItemClick?.(d.label)}
-            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 8, padding: '6px 8px', margin: '-6px -8px', transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
-            onMouseEnter={(e) => { if (!onItemClick) return; e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
-            onMouseLeave={(e) => { if (!onItemClick) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: isTop ? 700 : 500 }}>
-                {isTop && <CrownOutlined style={{ color: '#f59e0b', marginRight: 4 }} />}
-                {d.label}
-                <span style={{ fontSize: 11, color: '#999', marginLeft: 6 }}>
-                  {d.activeCount}종{d.count > d.activeCount && <span style={{ color: '#ccc' }}> ({d.count - d.activeCount}종 일부품절)</span>}
-                </span>
-              </span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
-                평균 {fmtWon(d.avg)}
-                <span style={{ fontWeight: 400, color: '#999', marginLeft: 6 }}>
-                  (총 {fmtWon(d.total)} / {d.qty}개)
-                </span>
-              </span>
-            </div>
-            <div style={{ background: '#f3f4f6', borderRadius: 6, height: 20, overflow: 'hidden', position: 'relative' }}>
-              <div style={{
-                width: `${pct}%`, height: '100%',
-                background: isTop
-                  ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
-                  : `linear-gradient(90deg, ${c}, ${c}aa)`,
-                borderRadius: 6, transition: 'width 0.5s ease',
-              }} />
-            </div>
-            {prevData.length > 0 && (
-              <div style={{ display: 'flex', gap: 12, marginTop: 3, paddingLeft: 2 }}>
-                {prevData.map(pd => {
-                  const diff = d.total - pd.amount;
-                  const pctChange = pd.amount > 0 ? ((diff / pd.amount) * 100).toFixed(0) : null;
-                  const diffColor = diff > 0 ? '#1677ff' : diff < 0 ? '#ff4d4f' : '#999';
-                  return (
-                    <span key={pd.year} style={{ fontSize: 11, color: '#999' }}>
-                      {pd.year}.{new Date().getMonth() + 1}월{' '}
-                      <span style={{ color: pd.amount > 0 ? '#666' : '#ccc' }}>
-                        {pd.amount > 0 ? fmtWon(pd.amount) : '-'}
-                      </span>
-                      {pctChange !== null && (
-                        <span style={{ color: diffColor, marginLeft: 3, fontSize: 10 }}>
-                          ({diff > 0 ? '+' : ''}{pctChange}%)
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
 /* ── 같은달 연도별 비교 차트 ── */
 const YEAR_COLORS = ['#cbd5e1', '#94a3b8', '#a78bfa', '#8b5cf6', '#3b82f6', '#f59e0b']; // 5년전~올해
 
@@ -340,45 +259,6 @@ export default function SalesDashboardPage() {
   const [period, setPeriod] = useState('month');
   const [storeComparison, setStoreComparison] = useState<any[]>([]);
   const [yearlyData, setYearlyData] = useState<any>(null);
-  const [drillFilter, setDrillFilter] = useState<{ type: string; value: string } | null>(null);
-  const [drillData, setDrillData] = useState<any[]>([]);
-  const [drillLoading, setDrillLoading] = useState(false);
-
-  const DRILL_LABELS: Record<string, string> = { category: '카테고리', fit: '핏', length: '기장', season: '시즌' };
-
-  const handleDrill = async (type: string, value: string) => {
-    setDrillFilter({ type, value });
-    setDrillData([]);
-    setDrillLoading(true);
-    try {
-      const from = period === 'month' ? dayjs().startOf('month').format('YYYY-MM-DD') : `${period}-01-01`;
-      const to = period === 'month' ? dayjs().format('YYYY-MM-DD') : `${period}-12-31`;
-
-      // 서버 필터 (category/fit/length는 서버에서 직접 필터링)
-      const serverFilters: Record<string, string> = {};
-      const isNullLabel = value === '미분류' || value === '미지정';
-      if (!isNullLabel && (type === 'category' || type === 'fit' || type === 'length')) {
-        serverFilters[type] = value;
-      }
-
-      const result = await salesApi.productsByRange(from, to, Object.keys(serverFilters).length > 0 ? serverFilters : undefined);
-      const all = result?.summary || [];
-
-      // 시즌은 클라이언트 필터 (서버는 raw season code 사용), 미분류/미지정은 null 매칭
-      let filtered: any[];
-      if (type === 'season') {
-        filtered = all.filter((r: any) => r.season_type === value);
-      } else if (isNullLabel) {
-        filtered = all.filter((r: any) => !r[type]);
-      } else {
-        filtered = all; // 서버에서 이미 필터됨
-      }
-
-      setDrillData(filtered);
-    } catch (e: any) { message.error(e.message); }
-    finally { setDrillLoading(false); }
-  };
-
   const loadStats = async (p: string) => {
     setLoading(true);
     try {
@@ -516,108 +396,8 @@ export default function SalesDashboardPage() {
         </Col>
       </Row>
 
-      {/* ── 같은달 연도별 총매출 비교 (이번달 모드일 때만) ── */}
-      {period === 'month' && stats?.sameMonthHistory && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col xs={24}>
-            <Card
-              title={<span><CalendarOutlined style={{ marginRight: 8 }} />{new Date().getMonth() + 1}월 매출 — 최근 6개년 비교</span>}
-              size="small" style={{ borderRadius: 10 }} loading={loading}
-            >
-              <SameMonthChart
-                data={(stats.sameMonthHistory.yearly || []).map((r: any) => ({
-                  year: Number(r.year), total_amount: Number(r.total_amount),
-                  total_qty: Number(r.total_qty), sale_count: Number(r.sale_count),
-                  partner_count: Number(r.partner_count),
-                }))}
-                currentMonth={new Date().getMonth() + 1}
-              />
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* ── 시즌별 판매 빈도 ── */}
+      {/* ── 거래처별 매출 + 2월 매출 비교 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24}>
-          <Card
-            title={<span><CalendarOutlined style={{ marginRight: 8 }} />시즌별 판매 비중 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10 }} loading={loading}
-          >
-            {(() => {
-              const seasonData: Array<{ season_type: string; total_amount: number; total_qty: number }> = stats?.bySeason || [];
-              const grandTotal = seasonData.reduce((s, d) => s + Number(d.total_amount), 0);
-              const SEASON_COLORS_MAP: Record<string, string> = { '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8' };
-              if (seasonData.length === 0) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>매출 데이터가 없습니다</div>;
-              return (
-                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
-                  {/* 비율 바 */}
-                  <div style={{ flex: 1, minWidth: 300 }}>
-                    <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', height: 32, marginBottom: 16 }}>
-                      {seasonData.map(d => {
-                        const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
-                        if (pct === 0) return null;
-                        return (
-                          <div key={d.season_type} style={{
-                            width: `${pct}%`, background: SEASON_COLORS_MAP[d.season_type] || '#94a3b8',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 12, color: '#fff', fontWeight: 600, minWidth: pct > 5 ? 0 : 30,
-                          }}>
-                            {pct >= 8 ? `${pct.toFixed(0)}%` : ''}
-                          </div>
-                        );
-                      })}
-                    </div>
-                    {seasonData.map(d => {
-                      const pct = grandTotal > 0 ? (Number(d.total_amount) / grandTotal) * 100 : 0;
-                      const c = SEASON_COLORS_MAP[d.season_type] || '#94a3b8';
-                      return (
-                        <div key={d.season_type} onClick={() => handleDrill('season', d.season_type)}
-                          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', margin: '0 -10px', borderBottom: '1px solid #f3f4f6', cursor: 'pointer', borderRadius: 6, transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
-                          onMouseEnter={(e) => { e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
-                          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ width: 12, height: 12, borderRadius: 3, background: c, display: 'inline-block' }} />
-                            <span style={{ fontSize: 14, fontWeight: 500 }}>{d.season_type}</span>
-                          </span>
-                          <span style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
-                            <span style={{ fontSize: 14, fontWeight: 700, color: c }}>{pct.toFixed(1)}%</span>
-                            <span style={{ fontSize: 12, color: '#888' }}>{fmtWon(Number(d.total_amount))}</span>
-                            <span style={{ fontSize: 12, color: '#aaa' }}>{Number(d.total_qty).toLocaleString()}개</span>
-                          </span>
-                        </div>
-                      );
-                    })}
-                    <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '8px 0', fontSize: 13, fontWeight: 600 }}>
-                      합계: {fmtWon(grandTotal)}
-                    </div>
-                  </div>
-                </div>
-              );
-            })()}
-          </Card>
-        </Col>
-      </Row>
-
-      {/* ── 카테고리별 매출 + 거래처별 매출 ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={12}>
-          <Card title={<span><TagsOutlined style={{ marginRight: 8 }} />카테고리별 매출 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
-            <HBar
-              data={(stats?.byCategory || []).map((c: any) => ({
-                label: c.category,
-                value: Number(c.total_amount),
-                sub: `${Number(c.total_qty).toLocaleString()}개`,
-              }))}
-              colorKey={CAT_COLORS}
-              history={period === 'month' ? (stats?.sameMonthHistory?.byCategory || []).map((r: any) => ({
-                year: Number(r.year), label: r.category, total_amount: Number(r.total_amount),
-              })) : undefined}
-              onItemClick={(label) => handleDrill('category', label)}
-            />
-          </Card>
-        </Col>
         <Col xs={24} md={12}>
           <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />거래처별 매출 TOP 10 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
@@ -631,147 +411,74 @@ export default function SalesDashboardPage() {
             />
           </Card>
         </Col>
-      </Row>
-
-      {/* ── 핏별 / 기장별 매출 (아이템 평균) ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={12}>
-          <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 매출 — 스타일 평균 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
-            <RankBar
-              data={(stats?.byFit || []).map((f: any) => ({
-                label: f.fit,
-                avg: Number(f.avg_per_style || f.avg_per_item || 0),
-                total: Number(f.total_amount),
-                qty: Number(f.total_qty),
-                count: Number(f.product_count),
-                activeCount: Number(f.active_style_count ?? f.product_count),
-              }))}
-              history={period === 'month' ? (stats?.sameMonthHistory?.byFit || []).map((r: any) => ({
-                year: Number(r.year), label: r.fit, total_amount: Number(r.total_amount),
-              })) : undefined}
-              onItemClick={(label) => handleDrill('fit', label)}
-            />
-          </Card>
-        </Col>
-        <Col xs={24} md={12}>
-          <Card title={<span><ColumnHeightOutlined style={{ marginRight: 8 }} />기장별 매출 — 스타일 평균 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
-            <RankBar
-              data={(stats?.byLength || []).map((l: any) => ({
-                label: l.length,
-                avg: Number(l.avg_per_style || l.avg_per_item || 0),
-                total: Number(l.total_amount),
-                qty: Number(l.total_qty),
-                count: Number(l.product_count),
-                activeCount: Number(l.active_style_count ?? l.product_count),
-              }))}
-              history={period === 'month' ? (stats?.sameMonthHistory?.byLength || []).map((r: any) => ({
-                year: Number(r.year), label: r.length, total_amount: Number(r.total_amount),
-              })) : undefined}
-              onItemClick={(label) => handleDrill('length', label)}
-            />
-          </Card>
-        </Col>
-      </Row>
-
-      {/* ── 인기상품 TOP 10 ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24}>
-          <Card title={<span><TrophyOutlined style={{ marginRight: 8 }} />인기상품 TOP 10 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate('/sales/analytics')}>판매분석</a>}>
-            {(stats?.topProducts || []).length > 0 ? (
-              <Table
-                columns={[
-                  { title: '#', key: 'rank', width: 40,
-                    render: (_: any, __: any, i: number) => (
-                      <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600, fontSize: 15 }}>{i + 1}</span>
-                    ),
-                  },
-                  { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 120 },
-                  { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
-                  { title: '카테고리', dataIndex: 'category', key: 'cat', width: 90,
-                    render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v || '-'}</Tag>,
-                  },
-                  { title: '판매수량', dataIndex: 'total_qty', key: 'qty', width: 100,
-                    render: (v: number) => `${Number(v).toLocaleString()}개`,
-                  },
-                  { title: '매출금액', dataIndex: 'total_amount', key: 'amt', width: 140,
-                    render: (v: number) => <span style={{ fontWeight: 600 }}>{fmtWon(Number(v))}</span>,
-                  },
-                  { title: '비율', key: 'ratio', width: 160,
-                    render: (_: any, r: any) => {
-                      const total = (stats?.topProducts || []).reduce((s: number, p: any) => s + Number(p.total_amount), 0);
-                      const pct = total > 0 ? (Number(r.total_amount) / total) * 100 : 0;
-                      return <Progress percent={Math.round(pct)} size="small" strokeColor="#6366f1" />;
-                    },
-                  },
-                ]}
-                dataSource={stats?.topProducts || []}
-                rowKey="product_code"
-                pagination={false}
-                size="small"
-                scroll={{ x: 800 }}
-              />
-            ) : (
-              <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>매출 데이터가 없습니다</div>
-            )}
-          </Card>
-        </Col>
-      </Row>
-
-      {/* ── 연도별 매출현황 (6개년) ── */}
-      {yearlyData && yearlyData.yearly?.length > 0 && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col xs={24}>
+        {period === 'month' && stats?.sameMonthHistory && (
+          <Col xs={24} md={12}>
             <Card
-              title={<span><CalendarOutlined style={{ marginRight: 8 }} />연도별 매출현황 (최근 6개년)</span>}
-              size="small" style={{ borderRadius: 10 }}
+              title={<span><CalendarOutlined style={{ marginRight: 8 }} />{new Date().getMonth() + 1}월 매출 — 연도별 비교</span>}
+              size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
             >
-              {/* 연도별 총매출 비교 바 */}
+              <SameMonthChart
+                data={(stats.sameMonthHistory.yearly || []).map((r: any) => ({
+                  year: Number(r.year), total_amount: Number(r.total_amount),
+                  total_qty: Number(r.total_qty), sale_count: Number(r.sale_count),
+                  partner_count: Number(r.partner_count),
+                }))}
+                currentMonth={new Date().getMonth() + 1}
+              />
+            </Card>
+          </Col>
+        )}
+      </Row>
+
+      {/* ── 연도별 매출현황 + 매장별 성과 ── */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        {yearlyData && yearlyData.yearly?.length > 0 && (
+          <Col xs={24} md={!isStore && storeComparison.length > 0 ? 12 : 24}>
+            <Card
+              title={<span><CalendarOutlined style={{ marginRight: 8 }} />연도별 매출현황</span>}
+              size="small" style={{ borderRadius: 10, height: '100%' }}
+            >
               {(() => {
                 const years: Array<{ year: number; total_amount: number; total_qty: number; sale_count: number; partner_count: number }> = yearlyData.yearly;
                 const max = Math.max(...years.map((y: any) => Number(y.total_amount)), 1);
                 const curYear = new Date().getFullYear();
                 return (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-                    {years.map((d: any, idx: number) => {
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {years.map((d: any) => {
                       const pct = (Number(d.total_amount) / max) * 100;
                       const yearDiff = curYear - Number(d.year);
                       const c = YEAR_COLORS[5 - yearDiff] || YEAR_COLORS[0];
                       const isCurrent = Number(d.year) === curYear;
-                      // 전년대비 증감
                       const prevYear = years.find((y: any) => Number(y.year) === Number(d.year) - 1);
                       const diff = prevYear ? Number(d.total_amount) - Number(prevYear.total_amount) : null;
                       const pctChange = prevYear && Number(prevYear.total_amount) > 0
                         ? ((diff! / Number(prevYear.total_amount)) * 100).toFixed(0) : null;
                       return (
                         <div key={d.year}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                            <span style={{ fontSize: 14, fontWeight: isCurrent ? 700 : 500 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                            <span style={{ fontSize: 13, fontWeight: isCurrent ? 700 : 500 }}>
                               {d.year}년
-                              {isCurrent && <Tag color="gold" style={{ marginLeft: 6, fontSize: 10 }}>올해</Tag>}
+                              {isCurrent && <Tag color="gold" style={{ marginLeft: 4, fontSize: 10 }}>올해</Tag>}
                             </span>
-                            <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: c }}>
                               {fmtWon(Number(d.total_amount))}
-                              <span style={{ fontWeight: 400, color: '#999', marginLeft: 8 }}>
-                                {Number(d.total_qty).toLocaleString()}개 · {d.sale_count}건
+                              <span style={{ fontWeight: 400, color: '#999', marginLeft: 6, fontSize: 11 }}>
+                                {Number(d.total_qty).toLocaleString()}개
                               </span>
                               {pctChange !== null && (
-                                <span style={{ marginLeft: 8, fontSize: 11, color: diff! > 0 ? '#1677ff' : diff! < 0 ? '#ff4d4f' : '#999' }}>
-                                  전년대비 {diff! > 0 ? '+' : ''}{pctChange}%
+                                <span style={{ marginLeft: 6, fontSize: 10, color: diff! > 0 ? '#1677ff' : diff! < 0 ? '#ff4d4f' : '#999' }}>
+                                  {diff! > 0 ? '+' : ''}{pctChange}%
                                 </span>
                               )}
                             </span>
                           </div>
-                          <div style={{ background: '#f3f4f6', borderRadius: 6, height: 24, overflow: 'hidden' }}>
+                          <div style={{ background: '#f3f4f6', borderRadius: 5, height: 18, overflow: 'hidden' }}>
                             <div style={{
                               width: `${pct}%`, height: '100%',
                               background: isCurrent
                                 ? 'linear-gradient(90deg, #f59e0b, #fbbf24)'
                                 : `linear-gradient(90deg, ${c}, ${c}aa)`,
-                              borderRadius: 6, transition: 'width 0.5s ease',
+                              borderRadius: 5, transition: 'width 0.5s ease',
                             }} />
                           </div>
                         </div>
@@ -782,8 +489,36 @@ export default function SalesDashboardPage() {
               })()}
             </Card>
           </Col>
-        </Row>
-      )}
+        )}
+        {!isStore && storeComparison.length > 0 && (
+          <Col xs={24} md={12}>
+            <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />매장별 성과 비교 (이번달)</span>}
+              size="small" style={{ borderRadius: 10, height: '100%' }}>
+              <Table
+                dataSource={storeComparison}
+                rowKey="partner_code"
+                size="small"
+                pagination={false}
+                scroll={{ x: 600 }}
+                columns={[
+                  { title: '순위', key: 'rank', width: 45, render: (_: any, __: any, i: number) => {
+                    if (i === 0) return <Tag color="gold"><CrownOutlined /> 1</Tag>;
+                    return <Tag>{i + 1}</Tag>;
+                  }},
+                  { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 90 },
+                  { title: '판매', dataIndex: 'total_qty', key: 'total_qty', width: 60, render: (v: number) => `${v}개` },
+                  { title: '매출액', dataIndex: 'total_revenue', key: 'total_revenue', width: 100, render: (v: number) => fmtWon(Number(v)) },
+                  { title: '비중', key: 'share', width: 120, render: (_: any, r: any) => {
+                    const total = storeComparison.reduce((s, c) => s + Number(c.total_revenue), 0);
+                    const pct = total > 0 ? Math.round((Number(r.total_revenue) / total) * 100) : 0;
+                    return <Progress percent={pct} size="small" strokeColor="#6366f1" />;
+                  }},
+                ]}
+              />
+            </Card>
+          </Col>
+        )}
+      </Row>
 
       {/* ── 연도별 월별 매출 추이 ── */}
       {yearlyData && yearlyData.monthlyByYear?.length > 0 && (
@@ -991,121 +726,6 @@ export default function SalesDashboardPage() {
         </Row>
       )}
 
-      {/* 매장별 성과 비교 (본사만) */}
-      {!isStore && storeComparison.length > 0 && (
-        <Card title={<span><ShopOutlined /> 매장별 성과 비교 (이번달)</span>} style={{ marginTop: 16 }}>
-          <Table
-            dataSource={storeComparison}
-            rowKey="partner_code"
-            size="small"
-            pagination={false}
-            scroll={{ x: 800 }}
-            columns={[
-              { title: '순위', key: 'rank', width: 50, render: (_: any, __: any, i: number) => {
-                if (i === 0) return <Tag color="gold"><CrownOutlined /> 1</Tag>;
-                return <Tag>{i + 1}</Tag>;
-              }},
-              { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
-              { title: '매출건수', dataIndex: 'sale_count', key: 'sale_count', width: 80, render: (v: number) => `${v}건` },
-              { title: '판매수량', dataIndex: 'total_qty', key: 'total_qty', width: 80, render: (v: number) => `${v}개` },
-              { title: '매출액', dataIndex: 'total_revenue', key: 'total_revenue', width: 120, render: (v: number) => fmtWon(Number(v)) },
-              { title: '활동일수', dataIndex: 'active_days', key: 'active_days', width: 80, render: (v: number) => `${v}일` },
-              { title: '매출비중', key: 'share', width: 150, render: (_: any, r: any) => {
-                const total = storeComparison.reduce((s, c) => s + Number(c.total_revenue), 0);
-                const pct = total > 0 ? Math.round((Number(r.total_revenue) / total) * 100) : 0;
-                return <Progress percent={pct} size="small" strokeColor="#6366f1" />;
-              }},
-            ]}
-          />
-        </Card>
-      )}
-
-      {/* ── 드릴다운 모달 ── */}
-      <Modal
-        title={
-          drillFilter ? (
-            <span>
-              <FilterOutlined style={{ marginRight: 8, color: '#6366f1' }} />
-              {DRILL_LABELS[drillFilter.type]}: <Tag color="blue" style={{ fontSize: 14 }}>{drillFilter.value}</Tag>
-              상품별 매출
-            </span>
-          ) : '상품별 매출'
-        }
-        open={!!drillFilter}
-        onCancel={() => setDrillFilter(null)}
-        footer={null}
-        width={1100}
-        styles={{ body: { maxHeight: 'calc(100vh - 200px)', overflow: 'auto' } }}
-      >
-        {drillLoading ? (
-          <Spin style={{ display: 'block', margin: '60px auto' }} />
-        ) : (
-          <>
-            {/* 요약 카드 */}
-            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-              {[
-                { label: '총 매출', value: `${drillData.reduce((s, r) => s + Number(r.total_amount), 0).toLocaleString()}원`, color: '#1890ff', bg: '#e6f7ff' },
-                { label: '판매 수량', value: `${drillData.reduce((s, r) => s + Number(r.total_qty), 0).toLocaleString()}개`, color: '#52c41a', bg: '#f6ffed' },
-                { label: '판매 상품', value: `${drillData.length}종`, color: '#fa8c16', bg: '#fff7e6' },
-              ].map((item) => (
-                <Col xs={8} key={item.label}>
-                  <div style={{ background: item.bg, borderRadius: 8, padding: '10px 14px', textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: '#888' }}>{item.label}</div>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: item.color }}>{item.value}</div>
-                  </div>
-                </Col>
-              ))}
-            </Row>
-            <Table
-              columns={[
-                { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110 },
-                { title: '상품명', dataIndex: 'product_name', key: 'name', width: 160, ellipsis: true },
-                { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
-                  render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag> },
-                { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v || '-' },
-                { title: '기장', dataIndex: 'length', key: 'len', width: 65, render: (v: string) => v || '-' },
-                { title: '시즌', dataIndex: 'season_type', key: 'season', width: 75, render: (v: string) => v || '-' },
-                { title: '판매수량', dataIndex: 'total_qty', key: 'qty', width: 90, align: 'right' as const,
-                  render: (v: number) => <strong>{Number(v).toLocaleString()}</strong>,
-                  sorter: (a: any, b: any) => a.total_qty - b.total_qty },
-                { title: '매출금액', dataIndex: 'total_amount', key: 'amt', width: 130, align: 'right' as const,
-                  render: (v: number) => <strong>{Number(v).toLocaleString()}원</strong>,
-                  sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
-                  defaultSortOrder: 'descend' as const },
-                { title: '평균단가', key: 'avg', width: 110, align: 'right' as const,
-                  render: (_: any, r: any) => {
-                    const avg = r.total_qty > 0 ? Math.round(Number(r.total_amount) / r.total_qty) : 0;
-                    return `${avg.toLocaleString()}원`;
-                  } },
-                { title: '건수', dataIndex: 'sale_count', key: 'cnt', width: 55, align: 'center' as const },
-              ]}
-              dataSource={drillData}
-              rowKey="product_code"
-              size="small"
-              scroll={{ x: 1000, y: 400 }}
-              pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-              summary={() => {
-                if (drillData.length === 0) return null;
-                const totalQty = drillData.reduce((s, r) => s + Number(r.total_qty), 0);
-                const totalAmt = drillData.reduce((s, r) => s + Number(r.total_amount), 0);
-                const avgPrice = totalQty > 0 ? Math.round(totalAmt / totalQty) : 0;
-                return (
-                  <Table.Summary.Row style={{ background: '#fafafa', fontWeight: 700 }}>
-                    <Table.Summary.Cell index={0} colSpan={6}>합계</Table.Summary.Cell>
-                    <Table.Summary.Cell index={6} align="right">{totalQty.toLocaleString()}</Table.Summary.Cell>
-                    <Table.Summary.Cell index={7} align="right">{totalAmt.toLocaleString()}원</Table.Summary.Cell>
-                    <Table.Summary.Cell index={8} align="right">{avgPrice.toLocaleString()}원</Table.Summary.Cell>
-                    <Table.Summary.Cell index={9} />
-                  </Table.Summary.Row>
-                );
-              }}
-            />
-            {drillData.length === 0 && (
-              <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>해당 분류의 판매 내역이 없습니다.</div>
-            )}
-          </>
-        )}
-      </Modal>
     </div>
   );
 }

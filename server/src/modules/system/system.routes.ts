@@ -105,6 +105,7 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'EVENT_REC_MAX_RESULTS',
     'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD',
     'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS',
+    'RESTOCK_EXCLUDE_AGE_DAYS',
   ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;

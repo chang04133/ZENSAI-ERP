@@ -4,7 +4,7 @@ import {
   Input, Space, message, Popconfirm, Tag,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, SearchOutlined, ImportOutlined,
+  PlusOutlined, DeleteOutlined, ImportOutlined,
 } from '@ant-design/icons';
 import { inboundApi } from '../../modules/inbound/inbound.api';
 import { useInboundStore } from '../../modules/inbound/inbound.store';
@@ -34,28 +34,30 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   const [items, setItems] = useState<VariantRow[]>([]);
   const [creating, setCreating] = useState(false);
 
-  // 상품 검색
-  const [searchText, setSearchText] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
+  // 상품 검색 (Select 자동완성)
+  const [variantOptions, setVariantOptions] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
 
-  const searchProducts = async () => {
-    if (!searchText.trim()) return;
+  const handleSearch = async (value: string) => {
+    if (!value || value.length < 1) { setVariantOptions([]); return; }
     setSearchLoading(true);
     try {
-      const res = await apiFetch(`/api/inventory?search=${encodeURIComponent(searchText)}&limit=50`);
+      const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
       const d = await res.json();
       if (d.success) {
-        // 재고 데이터에서 variant 정보 추출 (중복 제거)
-        const variants = (d.data?.data || d.data || []);
-        setSearchResults(variants);
+        setVariantOptions((d.data || []).map((v: any) => ({
+          label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
+          value: v.variant_id,
+          raw: v,
+        })));
       }
     } catch { /* ignore */ }
     finally { setSearchLoading(false); }
   };
 
-  const addItem = (row: any) => {
-    if (items.find((i) => i.variant_id === row.variant_id && i.key.includes(row.partner_code || ''))) {
+  const handleSelect = (_value: number, option: any) => {
+    const row = option.raw;
+    if (items.find((i) => i.variant_id === row.variant_id)) {
       message.warning('이미 추가된 항목입니다.');
       return;
     }
@@ -91,6 +93,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     try {
       await form.validateFields();
     } catch {
+      message.warning('거래처를 선택해주세요.');
       return;
     }
     const values = form.getFieldsValue();
@@ -109,8 +112,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       message.success('입고가 등록되었습니다.');
       form.resetFields();
       setItems([]);
-      setSearchResults([]);
-      setSearchText('');
+      setVariantOptions([]);
       onCreated();
     } catch (e: any) {
       message.error(e.message || '입고 등록 실패');
@@ -153,21 +155,6 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     },
   ];
 
-  const searchColumns = [
-    { title: '품번', dataIndex: 'product_code', width: 120 },
-    { title: '상품명', dataIndex: 'product_name', width: 180, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', width: 130 },
-    { title: '컬러', dataIndex: 'color', width: 80 },
-    { title: '사이즈', dataIndex: 'size', width: 70 },
-    { title: '현재고', dataIndex: 'qty', width: 70, render: (v: number) => fmt(v) },
-    {
-      title: '', width: 70,
-      render: (_: unknown, r: any) => (
-        <Button type="link" size="small" icon={<PlusOutlined />} onClick={() => addItem(r)}>추가</Button>
-      ),
-    },
-  ];
-
   return (
     <div>
       {/* 입고 정보 */}
@@ -186,21 +173,22 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
         </Form.Item>
       </Form>
 
-      {/* 상품 검색 */}
-      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <Input placeholder="품번/상품명/SKU 검색" value={searchText} style={{ width: 260 }}
-          onChange={(e) => setSearchText(e.target.value)}
-          onPressEnter={searchProducts} />
-        <Button icon={<SearchOutlined />} onClick={searchProducts} loading={searchLoading}>검색</Button>
+      {/* 상품 추가 (자동완성) */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <PlusOutlined style={{ color: '#1890ff' }} />
+        <Select
+          showSearch
+          value={null as any}
+          placeholder="품번/상품명/SKU 입력하여 추가"
+          style={{ flex: 1, maxWidth: 500 }}
+          filterOption={false}
+          onSearch={handleSearch}
+          onSelect={handleSelect}
+          loading={searchLoading}
+          options={variantOptions}
+          notFoundContent={searchLoading ? '검색 중...' : '검색어를 입력하세요'}
+        />
       </div>
-
-      {searchResults.length > 0 && (
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>검색 결과 ({searchResults.length}건)</div>
-          <Table dataSource={searchResults} columns={searchColumns} rowKey="inventory_id"
-            size="small" scroll={{ y: 200 }} pagination={false} />
-        </div>
-      )}
 
       {/* 입고 품목 */}
       <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -214,8 +202,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
 
       <div style={{ marginTop: 16, textAlign: 'right' }}>
         <Button type="primary" icon={<ImportOutlined />} size="large"
-          onClick={handleSubmit} loading={creating}
-          disabled={items.length === 0}>
+          onClick={handleSubmit} loading={creating}>
           입고 등록
         </Button>
       </div>

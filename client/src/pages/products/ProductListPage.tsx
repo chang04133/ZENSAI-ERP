@@ -7,7 +7,7 @@ import { useProductStore } from '../../modules/product/product.store';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
-import { getToken } from '../../core/api.client';
+import { getToken, apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 import { SALE_STATUS_COLORS } from '../../utils/constants';
 
@@ -27,6 +27,8 @@ export default function ProductListPage() {
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
+  const [uploadPartners, setUploadPartners] = useState<any[]>([]);
+  const [uploadPartnerCode, setUploadPartnerCode] = useState<string>('');
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
@@ -153,6 +155,7 @@ export default function ProductListPage() {
     setUploadResult(null);
     const formData = new FormData();
     formData.append('file', file);
+    if (uploadPartnerCode) formData.append('partner_code', uploadPartnerCode);
 
     try {
       const token = getToken();
@@ -168,10 +171,10 @@ export default function ProductListPage() {
         setUploadResult({ error: data.error });
       } else {
         setUploadResult(data.data);
-        if (data.data.created > 0) {
-          message.success(`${data.data.created}개 상품이 등록되었습니다.`);
-          load();
-        }
+        const msgs: string[] = [];
+        if (data.data.created > 0) msgs.push(`${data.data.created}개 상품 등록`);
+        if (data.data.stockCreated > 0) msgs.push(`${data.data.stockCreated}건 재고 등록`);
+        if (msgs.length > 0) { message.success(msgs.join(', ')); load(); }
       }
     } catch (e: any) {
       message.error('업로드 중 오류가 발생했습니다.');
@@ -314,7 +317,14 @@ export default function ProductListPage() {
         title="상품 관리"
         extra={canWrite && (
           <Space>
-            <Button icon={<UploadOutlined />} onClick={() => { setUploadModalOpen(true); setUploadResult(null); }}>
+            <Button icon={<UploadOutlined />} onClick={() => {
+              setUploadModalOpen(true); setUploadResult(null);
+              if (uploadPartners.length === 0) {
+                apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
+                  if (d.success) setUploadPartners(d.data?.data || d.data || []);
+                }).catch(() => {});
+              }
+            }}>
               엑셀 업로드
             </Button>
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
@@ -426,6 +436,20 @@ export default function ProductListPage() {
           <span style={{ marginLeft: 8, color: '#888' }}>먼저 템플릿을 다운로드하여 작성해주세요</span>
         </div>
 
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>거래처 (재고 등록용, 선택)</div>
+          <Select
+            value={uploadPartnerCode || undefined}
+            onChange={(v) => setUploadPartnerCode(v || '')}
+            placeholder="거래처를 선택하면 재고도 함께 등록됩니다"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: '100%' }}
+            options={uploadPartners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))}
+          />
+        </div>
+
         <Upload.Dragger
           accept=".xlsx,.xls"
           maxCount={1}
@@ -442,7 +466,7 @@ export default function ProductListPage() {
           <div style={{ marginTop: 16 }}>
             <Alert
               type={uploadResult.created > 0 ? 'success' : 'warning'}
-              message={`처리 완료: 전체 ${uploadResult.total}개 / 등록 ${uploadResult.created}개 / 건너뜀 ${uploadResult.skipped}개`}
+              message={`처리 완료: 전체 ${uploadResult.total}개 / 등록 ${uploadResult.created}개 / 건너뜀 ${uploadResult.skipped}개${uploadResult.stockCreated > 0 ? ` / 재고 ${uploadResult.stockCreated}건` : ''}`}
               style={{ marginBottom: 8 }}
             />
             {uploadResult.errors && uploadResult.errors.length > 0 && (

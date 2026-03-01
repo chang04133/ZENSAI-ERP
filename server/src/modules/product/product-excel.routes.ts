@@ -5,6 +5,7 @@ import { authMiddleware } from '../../auth/middleware';
 import { requireRole } from '../../middleware/role-guard';
 import { getPool } from '../../db/connection';
 import { asyncHandler } from '../../core/async-handler';
+import { inventoryRepository } from '../inventory/inventory.repository';
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
@@ -109,9 +110,12 @@ router.post('/excel/upload',
 
     if (productMap.size === 0) { res.status(400).json({ success: false, error: '유효한 상품 데이터가 없습니다.' }); return; }
 
+    const partnerCode = (req.body?.partner_code || '').trim();
+    const userId = req.user!.userId;
+
     const pool = getPool();
     const client = await pool.connect();
-    let created = 0, skipped = 0;
+    let created = 0, skipped = 0, stockCreated = 0;
     const errors: string[] = [];
 
     try {
@@ -132,11 +136,20 @@ router.post('/excel/upload',
           for (const v of variants) {
             const sku = `${code}-${v.color}-${v.size}`;
             try {
-              await client.query(
+              const variantResult = await client.query(
                 `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, warehouse_location, stock_qty)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING variant_id`,
                 [code, v.color, v.size, sku, v.price || product.base_price, v.barcode, v.warehouse_location, v.stock_qty],
               );
+              // 재고수량이 있고 거래처가 선택된 경우 재고 등록
+              if (v.stock_qty > 0 && partnerCode && variantResult.rows.length > 0) {
+                const variantId = variantResult.rows[0].variant_id;
+                await inventoryRepository.applyChange(
+                  partnerCode, variantId, v.stock_qty,
+                  'INBOUND', 0, userId, client,
+                );
+                stockCreated++;
+              }
             } catch (e: any) { if (e.code === '23505') errors.push(`${sku}: 중복 SKU`); }
           }
           created++;
@@ -145,7 +158,7 @@ router.post('/excel/upload',
       await client.query('COMMIT');
     } catch (e) { await client.query('ROLLBACK'); throw e; } finally { client.release(); }
 
-    res.json({ success: true, data: { total: productMap.size, created, skipped, errors: errors.length > 0 ? errors : undefined } });
+    res.json({ success: true, data: { total: productMap.size, created, skipped, stockCreated, errors: errors.length > 0 ? errors : undefined } });
   }),
 );
 

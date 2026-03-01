@@ -128,8 +128,8 @@ function DashboardTab() {
     setRestockOpen(true);
     setRestockLoading(true);
     try {
-      const data = await restockApi.getRestockSuggestions();
-      setRestockData(data);
+      const result = await restockApi.getRestockSuggestions();
+      setRestockData(result.suggestions);
     } catch (e: any) { message.error(e.message); }
     finally { setRestockLoading(false); }
     setTimeout(() => restockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
@@ -669,8 +669,8 @@ function DashboardTab() {
                     return <strong style={{ color: n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333' }}>{n}</strong>;
                   },
                 },
-                { title: '30일수요', dataIndex: 'demand_30d', key: 'demand', width: 80, align: 'right' as const,
-                  render: (v: number) => <span style={{ fontWeight: 600 }}>{Number(v)}</span>,
+                { title: '완판예상', dataIndex: 'sellout_date', key: 'sellout', width: 90, align: 'center' as const,
+                  render: (v: string) => v ? <span style={{ fontSize: 12, fontWeight: 600 }}>{v.slice(5)}</span> : '-',
                 },
                 { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage', width: 75, align: 'right' as const,
                   render: (v: number) => <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{Number(v)}</span>,

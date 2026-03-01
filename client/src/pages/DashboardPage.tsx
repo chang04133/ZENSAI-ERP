@@ -147,8 +147,8 @@ export default function DashboardPage() {
 
   const loadRestockSuggestions = async () => {
     try {
-      const data = await restockApi.getRestockSuggestions();
-      setRestockSuggestions(data);
+      const result = await restockApi.getRestockSuggestions();
+      setRestockSuggestions(result.suggestions);
     } catch { /* ignore */ }
   };
 
@@ -717,19 +717,19 @@ export default function DashboardPage() {
               onClick={() => navigate('/production')}
             >
               {catStats.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {catStats.map((cat: any) => {
-                    const days = Number(cat.stock_coverage_days) || 0;
-                    const statusColor = days <= 14 ? '#ff4d4f' : days <= 30 ? '#fa8c16' : '#52c41a';
-                    const statusLabel = days <= 14 ? '긴급' : days <= 30 ? '주의' : '양호';
+                    const stock = Number(cat.current_stock) || 0;
+                    const prod = Number(cat.in_production_qty) || 0;
+                    const maxStock = Math.max(...catStats.map((c: any) => Number(c.current_stock) || 0), 1);
                     return (
-                      <div key={cat.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 0', borderBottom: '1px solid #f0f0f0' }}>
+                      <div key={cat.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
                         <Tag style={{ minWidth: 56, textAlign: 'center', fontWeight: 600 }}>{cat.category}</Tag>
                         <div style={{ flex: 1 }}>
-                          <Progress percent={Math.min(days, 90) / 90 * 100} showInfo={false} size="small" strokeColor={statusColor} />
+                          <Progress percent={stock / maxStock * 100} showInfo={false} size="small" strokeColor="#1890ff" />
                         </div>
-                        <div style={{ minWidth: 50, textAlign: 'right', fontSize: 13, fontWeight: 700, color: statusColor }}>{days}일</div>
-                        <Tag color={statusColor} style={{ margin: 0, fontSize: 11 }}>{statusLabel}</Tag>
+                        <div style={{ minWidth: 70, textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{stock.toLocaleString()}</div>
+                        {prod > 0 && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>+{prod.toLocaleString()}</Tag>}
                       </div>
                     );
                   })}
@@ -827,14 +827,13 @@ export default function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={8}>
           {isAdmin && restockSuggestions.length > 0 ? (() => {
-            const GRADE_CONF: Record<string, { label: string; color: string; bg: string; border: string }> = {
-              S: { label: 'S', color: '#f5222d', bg: '#fff1f0', border: '#ffa39e' },
-              A: { label: 'A', color: '#fa8c16', bg: '#fff7e6', border: '#ffd591' },
-              B: { label: 'B', color: '#1890ff', bg: '#e6f7ff', border: '#91d5ff' },
-              C: { label: 'C', color: '#8c8c8c', bg: '#f5f5f5', border: '#d9d9d9' },
+            const STATUS_CONF: Record<string, { label: string; color: string; bg: string; border: string }> = {
+              ALERT: { label: '알림', color: '#f5222d', bg: '#fff1f0', border: '#ffa39e' },
+              CONSIDER: { label: '고려', color: '#fa8c16', bg: '#fff7e6', border: '#ffd591' },
+              NORMAL: { label: '정상', color: '#8c8c8c', bg: '#f5f5f5', border: '#d9d9d9' },
             };
-            const grouped = { S: [] as RestockSuggestion[], A: [] as RestockSuggestion[], B: [] as RestockSuggestion[], C: [] as RestockSuggestion[] };
-            restockSuggestions.forEach(s => { (grouped[s.grade] || grouped.C).push(s); });
+            const grouped = { ALERT: [] as RestockSuggestion[], CONSIDER: [] as RestockSuggestion[], NORMAL: [] as RestockSuggestion[] };
+            restockSuggestions.forEach(s => { (grouped[s.restock_status] || grouped.NORMAL).push(s); });
             return (
               <Card
                 title={<span>재입고 제안 <Badge count={restockSuggestions.length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
@@ -842,17 +841,17 @@ export default function DashboardPage() {
                 extra={<a onClick={() => navigate('/restock/manage')}>전체보기</a>}
               >
                 <Row gutter={[6, 6]} style={{ marginBottom: 12 }}>
-                  {(['S', 'A', 'B', 'C'] as const).map(g => {
-                    const conf = GRADE_CONF[g];
-                    const items = grouped[g];
+                  {(['ALERT', 'CONSIDER', 'NORMAL'] as const).map(st => {
+                    const conf = STATUS_CONF[st];
+                    const items = grouped[st];
                     const totalQty = items.reduce((s, i) => s + i.suggested_qty, 0);
                     return (
-                      <Col span={6} key={g}>
+                      <Col span={8} key={st}>
                         <div style={{
                           background: conf.bg, border: `1px solid ${conf.border}`, borderRadius: 8,
                           padding: '8px 4px', textAlign: 'center', cursor: 'pointer',
                         }} onClick={() => navigate('/restock/manage')}>
-                          <div style={{ fontSize: 16, fontWeight: 800, color: conf.color }}>{conf.label}</div>
+                          <div style={{ fontSize: 14, fontWeight: 800, color: conf.color }}>{conf.label}</div>
                           <div style={{ fontSize: 18, fontWeight: 800, color: conf.color, lineHeight: 1.2 }}>{items.length}</div>
                           <div style={{ fontSize: 10, color: '#888' }}>{totalQty.toLocaleString()}개</div>
                         </div>
@@ -860,17 +859,17 @@ export default function DashboardPage() {
                     );
                   })}
                 </Row>
-                {/* S/A 등급 주요 품목 */}
+                {/* 알림/고려 주요 품목 */}
                 {(() => {
-                  const topItems = [...grouped.S, ...grouped.A].slice(0, 5);
-                  if (topItems.length === 0) return <div style={{ textAlign: 'center', padding: 12, color: '#aaa', fontSize: 12 }}>S/A 등급 품목이 없습니다</div>;
+                  const topItems = [...grouped.ALERT, ...grouped.CONSIDER].slice(0, 5);
+                  if (topItems.length === 0) return <div style={{ textAlign: 'center', padding: 12, color: '#aaa', fontSize: 12 }}>알림/고려 품목이 없습니다</div>;
                   return (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                       {topItems.map(item => {
-                        const conf = GRADE_CONF[item.grade];
+                        const conf = STATUS_CONF[item.restock_status];
                         return (
                           <div key={item.variant_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
-                            <Tag style={{ margin: 0, fontWeight: 700, color: conf.color, borderColor: conf.border, background: conf.bg, minWidth: 24, textAlign: 'center' }}>{item.grade}</Tag>
+                            <Tag style={{ margin: 0, fontWeight: 700, color: conf.color, borderColor: conf.border, background: conf.bg, minWidth: 32, textAlign: 'center', fontSize: 11 }}>{conf.label}</Tag>
                             <div style={{ flex: 1, overflow: 'hidden' }}>
                               <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.product_name}</div>
                               <div style={{ fontSize: 10, color: '#888' }}>{item.color}/{item.size}</div>

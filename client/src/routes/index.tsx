@@ -46,8 +46,6 @@ const ProductSalesPage = lazy(() => import('../pages/sales/ProductSalesPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
 const SellThroughPage = lazy(() => import('../pages/sales/SellThroughPage'));
-const SalesVelocityPage = lazy(() => import('../pages/sales/SalesVelocityPage'));
-
 // Production
 const ProductionDashboardPage = lazy(() => import('../pages/production/ProductionDashboardPage'));
 const ProductionPlanPage = lazy(() => import('../pages/production/ProductionPlanPage'));
@@ -135,7 +133,6 @@ export const appRoutes: AppRoute[] = [
   { path: '/sales/partner-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
   { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
   { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },
-  { path: '/sales/velocity', element: <SalesVelocityPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },

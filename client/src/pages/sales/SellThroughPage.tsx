@@ -2,9 +2,12 @@ import { useEffect, useState } from 'react';
 import { Card, Tag, DatePicker, Space, Spin, message, Row, Col, Table, Segmented, Button, Progress, Select } from 'antd';
 import {
   PercentageOutlined, ShoppingCartOutlined, InboxOutlined, SkinOutlined,
-  DownOutlined, RightOutlined, CalendarOutlined, ArrowUpOutlined, ArrowDownOutlined,
+  DownOutlined, RightOutlined, CalendarOutlined, ArrowUpOutlined, ArrowDownOutlined, ReloadOutlined, ThunderboltOutlined,
 } from '@ant-design/icons';
 import { salesApi } from '../../modules/sales/sales.api';
+import { restockApi } from '../../modules/restock/restock.api';
+import { apiFetch } from '../../core/api.client';
+import { fmtW } from '../../utils/format';
 import dayjs, { Dayjs } from 'dayjs';
 
 import { datePresets } from '../../utils/date-presets';
@@ -53,7 +56,7 @@ const seasonLabel = (s: string) => {
   return `${year} ${SEASON_SUFFIX[suffix] || suffix}`;
 };
 
-type ViewTab = 'season' | 'product' | 'category' | 'daily' | 'drop_milestone' | 'drop_cohort' | 'velocity';
+type ViewTab = 'season' | 'product' | 'category' | 'daily' | 'drop_milestone' | 'drop_cohort' | 'velocity' | 'item_velocity';
 
 const QUICK_RANGES: { label: string; from: Dayjs; to: Dayjs }[] = [
   { label: '이번달', from: dayjs().startOf('month'), to: dayjs() },
@@ -75,6 +78,25 @@ export default function SellThroughPage() {
   // 드랍 분석 데이터
   const [dropData, setDropData] = useState<any>(null);
   const [dropLoading, setDropLoading] = useState(false);
+
+  // 아이템별 판매속도
+  const [itemVelocity, setItemVelocity] = useState<any[]>([]);
+  const [itemVelLoading, setItemVelLoading] = useState(false);
+  const [partners, setPartners] = useState<any[]>([]);
+  const [partnerFilter, setPartnerFilter] = useState('');
+
+  useEffect(() => {
+    apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
+      if (d.success) setPartners(d.data?.data || d.data || []);
+    }).catch(() => {});
+  }, []);
+
+  const loadItemVelocity = async (pc?: string) => {
+    setItemVelLoading(true);
+    try { setItemVelocity(await restockApi.getSellingVelocity(pc || '')); }
+    catch (e: any) { message.error(e.message); }
+    finally { setItemVelLoading(false); }
+  };
 
   const loadDropData = async (cat?: string | '') => {
     if (dropLoading) return;
@@ -349,6 +371,9 @@ export default function SellThroughPage() {
                 if (['drop_milestone', 'drop_cohort', 'velocity'].includes(tab) && !dropData) {
                   loadDropData(categoryFilter);
                 }
+                if (tab === 'item_velocity' && itemVelocity.length === 0) {
+                  loadItemVelocity(partnerFilter);
+                }
               }}
               options={[
                 { label: '시즌/연차별', value: 'season' },
@@ -358,6 +383,7 @@ export default function SellThroughPage() {
                 { label: '드랍별 소화율', value: 'drop_milestone' },
                 { label: '드랍회차 비교', value: 'drop_cohort' },
                 { label: '판매속도 순위', value: 'velocity' },
+                { label: '아이템별 속도', value: 'item_velocity' },
               ]}
               style={{ marginBottom: 16 }}
             />
@@ -928,7 +954,73 @@ export default function SellThroughPage() {
               )
             )}
 
-            {byProduct.length === 0 && byCategory.length === 0 && !loading && !['drop_milestone', 'drop_cohort', 'velocity'].includes(viewTab) && (
+            {/* 아이템별 판매속도 탭 */}
+            {viewTab === 'item_velocity' && (
+              <>
+                <Space wrap style={{ marginBottom: 12 }}>
+                  <Select value={partnerFilter} onChange={(v) => { setPartnerFilter(v); loadItemVelocity(v); }}
+                    style={{ width: 150 }} size="small"
+                    options={[{ label: '전체', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} />
+                  <Button icon={<ReloadOutlined />} size="small" onClick={() => loadItemVelocity(partnerFilter)}>새로고침</Button>
+                  <span style={{ color: '#888', fontSize: 12 }}>
+                    <ThunderboltOutlined style={{ marginRight: 4 }} />재고금액 높은 순 · {itemVelocity.length}건
+                  </span>
+                </Space>
+                <Row gutter={[10, 10]} style={{ marginBottom: 12 }}>
+                  {[
+                    { label: '재고금액 합계', value: fmtW(itemVelocity.reduce((s, r) => s + Number(r.stock_value || 0), 0)), color: '#8b5cf6', bg: '#f9f0ff' },
+                    { label: '7일 내 소진', value: `${itemVelocity.filter(r => r.days_until_out_30d != null && r.days_until_out_30d <= 7).length}종`, color: '#ff4d4f', bg: '#fff1f0' },
+                    { label: '30일 내 소진', value: `${itemVelocity.filter(r => r.days_until_out_30d != null && r.days_until_out_30d <= 30).length}종`, color: '#fa8c16', bg: '#fff7e6' },
+                  ].map((c) => (
+                    <Col xs={8} key={c.label}>
+                      <div style={{ background: c.bg, borderRadius: 8, padding: '8px 12px' }}>
+                        <div style={{ fontSize: 11, color: '#888' }}>{c.label}</div>
+                        <div style={{ fontSize: 16, fontWeight: 700, color: c.color }}>{c.value}</div>
+                      </div>
+                    </Col>
+                  ))}
+                </Row>
+                <Table
+                  dataSource={itemVelocity}
+                  columns={[
+                    { title: '상품', key: 'product', width: 150, ellipsis: true,
+                      render: (_: any, r: any) => (
+                        <><div style={{ fontWeight: 500 }}>{r.product_name}</div>
+                        <div style={{ fontSize: 10, color: '#999' }}>{r.product_code} | {r.category || ''}</div></>
+                      ) },
+                    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 130, ellipsis: true },
+                    { title: '컬러', dataIndex: 'color', key: 'color', width: 50 },
+                    { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '단가', dataIndex: 'base_price', key: 'price', width: 85, align: 'right' as const,
+                      sorter: (a: any, b: any) => Number(a.base_price) - Number(b.base_price),
+                      render: (v: number) => `${fmt(Number(v))}원` },
+                    { title: '재고', dataIndex: 'current_qty', key: 'qty', width: 65, align: 'right' as const },
+                    { title: '재고금액', dataIndex: 'stock_value', key: 'sv', width: 95, align: 'right' as const,
+                      sorter: (a: any, b: any) => Number(a.stock_value) - Number(b.stock_value),
+                      defaultSortOrder: 'descend' as const,
+                      render: (v: number) => <strong style={{ color: '#8b5cf6' }}>{fmtW(Number(v))}</strong> },
+                    { title: '7일', dataIndex: 'sold_7d', key: 's7', width: 60, align: 'right' as const,
+                      sorter: (a: any, b: any) => a.sold_7d - b.sold_7d,
+                      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 600 }}>{v}</span> : '-' },
+                    { title: '30일', dataIndex: 'sold_30d', key: 's30', width: 60, align: 'right' as const,
+                      sorter: (a: any, b: any) => a.sold_30d - b.sold_30d,
+                      render: (v: number) => v > 0 ? <span style={{ fontWeight: 600 }}>{v}</span> : '-' },
+                    { title: '일평균', dataIndex: 'avg_daily_7d', key: 'avg', width: 70, align: 'right' as const,
+                      render: (v: number) => v > 0 ? v.toFixed(2) : '-' },
+                    { title: '소진예상', dataIndex: 'days_until_out_30d', key: 'out', width: 85, align: 'center' as const,
+                      sorter: (a: any, b: any) => (a.days_until_out_30d ?? 9999) - (b.days_until_out_30d ?? 9999),
+                      render: (v: number | null) => v != null ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : v <= 30 ? 'gold' : 'default'}>{v}일</Tag> : '-' },
+                  ]}
+                  rowKey="variant_id"
+                  loading={itemVelLoading}
+                  size="small"
+                  scroll={{ x: 1100, y: 'calc(100vh - 420px)' }}
+                  pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                />
+              </>
+            )}
+
+            {byProduct.length === 0 && byCategory.length === 0 && !loading && !['drop_milestone', 'drop_cohort', 'velocity', 'item_velocity'].includes(viewTab) && (
               <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
                 해당 기간에 판매/재고 데이터가 없습니다.
               </div>

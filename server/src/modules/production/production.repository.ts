@@ -274,7 +274,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         sv.avg_daily_sales,
         sv.predicted_30d AS raw_predicted_30d,
         COALESCE(sw.weight, 1.0) AS season_weight,
-        ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int AS predicted_30d_demand,
+        CASE
+          WHEN (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)) > 0
+            THEN (CURRENT_DATE + (COALESCE(cs.total_stock, 0)::numeric / (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)))::int)::text
+          ELSE NULL
+        END AS sellout_date,
         COALESCE(cs.total_stock, 0) AS current_stock,
         COALESCE(ip.pending_qty, 0) AS in_production_qty,
         (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) AS total_available,
@@ -394,7 +398,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         COALESCE(cst.product_count, 0) AS product_count,
         cs.total_sold_90d,
         cs.avg_daily_sales,
-        ROUND(cs.raw_predicted_30d * COALESCE(caw.avg_weight, 1.0))::int AS predicted_30d_demand,
+        CASE
+          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) > 0
+            THEN (CURRENT_DATE + (COALESCE(cst.total_stock, 0)::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int)::text
+          ELSE NULL
+        END AS sellout_date,
         COALESCE(cst.total_stock, 0) AS current_stock,
         COALESCE(cp.pending_qty, 0) AS in_production_qty,
         (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0)) AS total_available,
@@ -474,7 +482,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         COALESCE(ss.product_count, 0) AS product_count,
         COALESCE(sl.total_sold_90d, 0) AS total_sold_90d,
         COALESCE(sl.avg_daily_sales, 0) AS avg_daily_sales,
-        COALESCE(sl.predicted_30d_demand, 0) AS predicted_30d_demand,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) > 0
+            THEN (CURRENT_DATE + (COALESCE(ss.total_stock, 0)::numeric / sl.avg_daily_sales)::int)::text
+          ELSE NULL
+        END AS sellout_date,
         COALESCE(ss.total_stock, 0) AS current_stock,
         COALESCE(sp.pending_qty, 0) AS in_production_qty,
         (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0)) AS total_available,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, InputNumber, Button, message, Descriptions, Spin, Tag, Row, Col } from 'antd';
-import { SettingOutlined, ExperimentOutlined, FireOutlined, ScissorOutlined, WarningOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { SettingOutlined, ExperimentOutlined, FireOutlined, ScissorOutlined, WarningOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
@@ -23,12 +23,7 @@ export default function SystemSettingsPage() {
   const [weights, setWeights] = useState<Record<string, number>>({});
   const [salesPeriod, setSalesPeriod] = useState(60);
   const [sellThroughThreshold, setSellThroughThreshold] = useState(40);
-
-  // 자동생산기획 등급별 설정
-  const [gradeS, setGradeS] = useState({ min: 80, mult: 1.5 });
-  const [gradeA, setGradeA] = useState({ min: 50, mult: 1.2 });
-  const [gradeB, setGradeB] = useState({ min: 30, mult: 1.0 });
-  const [safetyBuffer, setSafetyBuffer] = useState(1.2);
+  const [restockExcludeAge, setRestockExcludeAge] = useState(730);
 
   // 사이즈 깨짐 설정
   const [brokenMinSizes, setBrokenMinSizes] = useState(3);
@@ -56,10 +51,7 @@ export default function SystemSettingsPage() {
         setMed(parseInt(data.data.MEDIUM_STOCK_THRESHOLD || '10', 10));
         setSalesPeriod(parseInt(data.data.PRODUCTION_SALES_PERIOD_DAYS || '60', 10));
         setSellThroughThreshold(parseInt(data.data.PRODUCTION_SELL_THROUGH_THRESHOLD || '40', 10));
-        setGradeS({ min: parseInt(data.data.AUTO_PROD_GRADE_S_MIN || '80', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_S_MULT || '1.5') });
-        setGradeA({ min: parseInt(data.data.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_A_MULT || '1.2') });
-        setGradeB({ min: parseInt(data.data.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_B_MULT || '1.0') });
-        setSafetyBuffer(parseFloat(data.data.AUTO_PROD_SAFETY_BUFFER || '1.2'));
+        setRestockExcludeAge(parseInt(data.data.RESTOCK_EXCLUDE_AGE_DAYS || '730', 10));
         setBrokenMinSizes(parseInt(data.data.BROKEN_SIZE_MIN_SIZES || '3', 10));
         setBrokenQtyThreshold(parseInt(data.data.BROKEN_SIZE_QTY_THRESHOLD || '2', 10));
         setDeadStockMinAge(parseInt(data.data.DEAD_STOCK_DEFAULT_MIN_AGE_YEARS || '1', 10));
@@ -95,13 +87,7 @@ export default function SystemSettingsPage() {
         MEDIUM_STOCK_THRESHOLD: String(med),
         PRODUCTION_SALES_PERIOD_DAYS: String(salesPeriod),
         PRODUCTION_SELL_THROUGH_THRESHOLD: String(sellThroughThreshold),
-        AUTO_PROD_GRADE_S_MIN: String(gradeS.min),
-        AUTO_PROD_GRADE_S_MULT: String(gradeS.mult),
-        AUTO_PROD_GRADE_A_MIN: String(gradeA.min),
-        AUTO_PROD_GRADE_A_MULT: String(gradeA.mult),
-        AUTO_PROD_GRADE_B_MIN: String(gradeB.min),
-        AUTO_PROD_GRADE_B_MULT: String(gradeB.mult),
-        AUTO_PROD_SAFETY_BUFFER: String(safetyBuffer),
+        RESTOCK_EXCLUDE_AGE_DAYS: String(restockExcludeAge),
         BROKEN_SIZE_MIN_SIZES: String(brokenMinSizes),
         BROKEN_SIZE_QTY_THRESHOLD: String(brokenQtyThreshold),
         DEAD_STOCK_DEFAULT_MIN_AGE_YEARS: String(deadStockMinAge),
@@ -188,100 +174,65 @@ export default function SystemSettingsPage() {
       </Card>
 
       <Card
-        title={<span><ThunderboltOutlined style={{ marginRight: 8 }} />재입고 등급 설정</span>}
+        title={<span><ThunderboltOutlined style={{ marginRight: 8 }} />재입고 등록 설정</span>}
         style={{ borderRadius: 10, marginBottom: 16 }}
       >
-        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
-          판매율에 따라 상품을 등급 분류(S/A/B/C)하고, 등급별 재입고 권장 배수를 적용합니다. C등급 미만은 재입고 제안에서 제외됩니다.
-        </div>
-
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr>
-              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, width: 80 }}>등급</th>
-              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, textAlign: 'center' }}>판매율 기준</th>
-              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13, textAlign: 'center' }}>생산 배수</th>
-              <th style={{ padding: '8px 12px', background: '#fafafa', border: '1px solid #f0f0f0', fontSize: 13 }}>전략</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
-                <Tag color="red">S급</Tag>
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={1} max={100} value={gradeS.min} onChange={(v) => v !== null && setGradeS(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeS.mult} onChange={(v) => v !== null && setGradeS(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>공격적 재입고</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
-                <Tag color="orange">A급</Tag>
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={1} max={100} value={gradeA.min} onChange={(v) => v !== null && setGradeA(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeA.mult} onChange={(v) => v !== null && setGradeA(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>적정 재입고</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
-                <Tag color="blue">B급</Tag>
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={1} max={100} value={gradeB.min} onChange={(v) => v !== null && setGradeB(p => ({ ...p, min: v }))} addonAfter="% 이상" size="small" style={{ width: 130 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
-                <InputNumber min={0.1} max={3.0} step={0.1} value={gradeB.mult} onChange={(v) => v !== null && setGradeB(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보수적 재입고</td>
-            </tr>
-            <tr>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
-                <Tag color="default">C급</Tag>
-              </td>
-              <td colSpan={2} style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center', color: '#888', fontSize: 12 }}>
-                B급 기준 미만 → 재입고 제안 제외
-              </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보류</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <Descriptions column={1} bordered size="middle" style={{ marginTop: 16 }}>
-          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>안전재고 배수</span>}>
+        <Descriptions column={1} bordered size="middle" style={{ marginBottom: 16 }}>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <InputNumber
-                min={1.0} max={3.0} step={0.1}
-                value={safetyBuffer}
-                onChange={(v) => v !== null && setSafetyBuffer(v)}
-                addonAfter="배"
-                style={{ width: 130 }}
-                size="small"
+                min={7} max={365}
+                value={salesPeriod}
+                onChange={(v) => v !== null && setSalesPeriod(v)}
+                addonAfter="일"
+                style={{ width: 160 }}
               />
-              <span style={{ color: '#888', fontSize: 13 }}>부족수량 × 이 배수 = 최종 재입고 권장량 (기본 1.2배 = 20% 여유분)</span>
+              <span style={{ color: '#888', fontSize: 13 }}>재입고 제안 및 생산기획용 판매 분석 기간</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매율 임계값</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={100}
+                value={sellThroughThreshold}
+                onChange={(v) => v !== null && setSellThroughThreshold(v)}
+                addonAfter="%"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>판매율이 이 값 이상인 품목만 재입고 제안에 표시</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>깨짐 제외 연차</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={30} max={3650}
+                value={restockExcludeAge}
+                onChange={(v) => v !== null && setRestockExcludeAge(v)}
+                addonAfter="일"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>시즌 출시 후 이 기간 초과 상품은 깨짐 알림에서 제외</span>
             </div>
           </Descriptions.Item>
         </Descriptions>
 
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
-          <div><strong>예시</strong>: 부족수량 100개인 상품</div>
+          <div><strong>재입고 상태 분류</strong> (판매율 / 임계값 비율 기준)</div>
           <div style={{ marginTop: 4 }}>
-            판매율 {gradeS.min}% 이상(S급) → 100 × {safetyBuffer} × {gradeS.mult} = <strong>{Math.round(100 * safetyBuffer * gradeS.mult)}</strong>개 권장
+            <Tag color="red">재입고 알림</Tag> 비율 {'>'} 1.0 (판매율이 임계값 초과)
           </div>
-          <div>
-            판매율 {gradeA.min}~{gradeS.min - 1}%(A급) → 100 × {safetyBuffer} × {gradeA.mult} = <strong>{Math.round(100 * safetyBuffer * gradeA.mult)}</strong>개 권장
+          <div style={{ marginTop: 2 }}>
+            <Tag color="orange">고려 대상</Tag> 비율 0.7 ~ 1.0
           </div>
-          <div>
-            판매율 {gradeB.min}~{gradeA.min - 1}%(B급) → 100 × {safetyBuffer} × {gradeB.mult} = <strong>{Math.round(100 * safetyBuffer * gradeB.mult)}</strong>개 권장
+          <div style={{ marginTop: 2 }}>
+            <Tag color="default">정상</Tag> 비율 {'<'} 0.7
           </div>
-          <div>
-            판매율 {gradeB.min}% 미만(C급) → <strong>제안 제외</strong>
+          <div style={{ marginTop: 6 }}>
+            예: 임계값 {sellThroughThreshold}% → 판매율 {Math.round(sellThroughThreshold * 1.0)}% 초과 시 알림, {Math.round(sellThroughThreshold * 0.7)}~{sellThroughThreshold}% 시 고려 대상
+          </div>
+          <div style={{ marginTop: 8, borderTop: '1px solid #eee', paddingTop: 8 }}>
+            <strong>사이즈 깨짐 알림</strong>: 같은 상품의 다른 사이즈는 재고가 있는데 특정 사이즈만 부족하면 자동 알림.
+            시즌 출시 후 {restockExcludeAge}일({Math.round(restockExcludeAge / 365 * 10) / 10}년) 초과 상품은 제외.
           </div>
         </div>
       </Card>
@@ -369,52 +320,8 @@ export default function SystemSettingsPage() {
       </Card>
       </Col>
 
-      {/* 오른쪽: 재입고 제안 + 시즌 가중치 + 행사 추천 */}
+      {/* 오른쪽: 시즌 가중치 + 행사 추천 */}
       <Col xs={24} xl={12}>
-      <Card
-        title={<span><ReloadOutlined style={{ marginRight: 8 }} />재입고 제안 설정</span>}
-        style={{ borderRadius: 10, marginBottom: 16 }}
-      >
-        <Descriptions column={1} bordered size="middle">
-          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <InputNumber
-                min={7} max={365}
-                value={salesPeriod}
-                onChange={(v) => v !== null && setSalesPeriod(v)}
-                addonAfter="일"
-                style={{ width: 160 }}
-              />
-              <span style={{ color: '#888', fontSize: 13 }}>재입고 제안용 판매 분석 기간 (기본 60일)</span>
-            </div>
-          </Descriptions.Item>
-          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매율 임계값</span>}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <InputNumber
-                min={0} max={100}
-                value={sellThroughThreshold}
-                onChange={(v) => v !== null && setSellThroughThreshold(v)}
-                addonAfter="%"
-                style={{ width: 160 }}
-              />
-              <span style={{ color: '#888', fontSize: 13 }}>판매율이 이 값 이상인 품목만 재입고 제안에 표시</span>
-            </div>
-          </Descriptions.Item>
-        </Descriptions>
-
-        <div style={{ marginTop: 16, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 13, color: '#666' }}>
-          <div><strong>현재 설정</strong></div>
-          <div style={{ marginTop: 4 }}>
-            최근 <strong>{salesPeriod}일</strong> 판매 기준으로 수요 예측 및 등급 분류 (S/A/B/C)
-          </div>
-          <div style={{ marginTop: 4 }}>
-            판매율 <strong>{sellThroughThreshold}%</strong> 이상 품목만 재입고 제안
-          </div>
-          <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
-            판매율 = 판매수량 / (판매수량 + 현재재고) x 100
-          </div>
-        </div>
-      </Card>
 
       <Card
         title={<span><ExperimentOutlined style={{ marginRight: 8 }} />시즌 수요 가중치 설정</span>}

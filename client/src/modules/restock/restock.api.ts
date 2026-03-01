@@ -22,11 +22,11 @@ export const restockApi = {
     return data.data as SellingVelocity[];
   },
 
-  getRestockSuggestions: async () => {
+  getRestockSuggestions: async (): Promise<{ suggestions: RestockSuggestion[]; salesPeriodDays: number }> => {
     const res = await apiFetch('/api/restocks/suggestions');
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
-    return data.data as RestockSuggestion[];
+    return data.data as { suggestions: RestockSuggestion[]; salesPeriodDays: number };
   },
 
   getProgressStats: async (partnerCode?: string) => {

@@ -121,11 +121,13 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       )
       SELECT
         pv.variant_id, pv.sku, p.product_code, p.product_name, pv.color, pv.size,
+        p.category, p.base_price,
         COALESCE(s7.sold_7d, 0)::int AS sold_7d,
         COALESCE(s30.sold_30d, 0)::int AS sold_30d,
         ROUND(COALESCE(s7.sold_7d, 0) / 7.0, 2)::float AS avg_daily_7d,
         ROUND(COALESCE(s30.sold_30d, 0) / 30.0, 2)::float AS avg_daily_30d,
         COALESCE(ci.current_qty, 0)::int AS current_qty,
+        (COALESCE(p.base_price, 0) * COALESCE(ci.current_qty, 0))::bigint AS stock_value,
         CASE WHEN COALESCE(s7.sold_7d, 0) > 0
           THEN FLOOR(COALESCE(ci.current_qty, 0) / (s7.sold_7d / 7.0))::int
           ELSE NULL END AS days_until_out_7d,
@@ -139,21 +141,24 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       LEFT JOIN current_inv ci ON pv.variant_id = ci.variant_id
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
         AND (COALESCE(s7.sold_7d, 0) > 0 OR COALESCE(s30.sold_30d, 0) > 0)
-      ORDER BY sold_30d DESC, sold_7d DESC
-      LIMIT 100`;
+      ORDER BY stock_value DESC, sold_30d DESC
+      LIMIT 200`;
     return (await this.pool.query(sql, params)).rows;
   }
 
-  /** 재입고 제안 목록 — 생산기획과 동일한 분석 엔진 (60일 판매, 판매율, 계절가중치) */
-  async getRestockSuggestions(): Promise<any[]> {
+  /** 재입고 제안 목록 — 시스템 설정 기반 판매 분석, 판매율, 계절가중치 */
+  async getRestockSuggestions(): Promise<{ suggestions: any[]; salesPeriodDays: number }> {
     // 설정값 로드
     const settingsResult = await this.pool.query(
-      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD', 'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD', 'RESTOCK_EXCLUDE_AGE_DAYS')",
     );
     const settingsMap: Record<string, string> = {};
     for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
     const salesPeriodDays = parseInt(settingsMap.PRODUCTION_SALES_PERIOD_DAYS || '60', 10);
     const sellThroughThreshold = parseFloat(settingsMap.PRODUCTION_SELL_THROUGH_THRESHOLD || '40');
+    const brokenMinSizes = parseInt(settingsMap.BROKEN_SIZE_MIN_SIZES || '3', 10);
+    const brokenQtyThreshold = parseInt(settingsMap.BROKEN_SIZE_QTY_THRESHOLD || '2', 10);
+    const excludeAgeDays = parseInt(settingsMap.RESTOCK_EXCLUDE_AGE_DAYS || '730', 10);
 
     const sql = `
       WITH current_season AS (
@@ -231,10 +236,43 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           AND pv.variant_id NOT IN (SELECT variant_id FROM pending_restocks WHERE pending_qty > 0)
         GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
       ),
+      broken_size_check AS (
+        SELECT pv.variant_id
+        FROM product_variants pv
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+          AND p.season IS NOT NULL AND p.season ~ '^[0-9]{4}'
+          AND (EXTRACT(YEAR FROM CURRENT_DATE) - LEFT(p.season, 4)::int) * 365 < ${excludeAgeDays}
+          AND (SELECT COUNT(*) FROM product_variants pv2 WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE) >= ${brokenMinSizes}
+          AND COALESCE((SELECT SUM(qty) FROM inventory WHERE variant_id = pv.variant_id), 0) <= ${brokenQtyThreshold}
+          AND EXISTS (
+            SELECT 1 FROM product_variants pv3
+            LEFT JOIN inventory i3 ON pv3.variant_id = i3.variant_id
+            WHERE pv3.product_code = p.product_code AND pv3.is_active = TRUE AND pv3.variant_id != pv.variant_id
+            GROUP BY pv3.variant_id HAVING COALESCE(SUM(i3.qty), 0) > ${brokenQtyThreshold}
+          )
+      ),
+      broken_size_items AS (
+        SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
+               p.season,
+               CASE
+                 WHEN p.season LIKE '%SA' THEN 'SA' WHEN p.season LIKE '%SM' THEN 'SM'
+                 WHEN p.season LIKE '%WN' THEN 'WN' WHEN p.season LIKE '%SS' THEN 'SA'
+                 WHEN p.season LIKE '%FW' THEN 'WN' ELSE 'SA'
+               END AS product_season,
+               0 AS total_sold, 0::numeric AS avg_daily, 0 AS predicted_30d
+        FROM product_variants pv
+        JOIN products p ON pv.product_code = p.product_code
+        JOIN broken_size_check bsc ON pv.variant_id = bsc.variant_id
+        WHERE pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
+          AND pv.variant_id NOT IN (SELECT variant_id FROM zero_stock)
+      ),
       combined AS (
         SELECT * FROM sales_velocity
         UNION ALL
         SELECT * FROM zero_stock
+        UNION ALL
+        SELECT * FROM broken_size_items
       )
       SELECT
         sv.variant_id, sv.product_code, sv.product_name, sv.sku, sv.color, sv.size,
@@ -242,7 +280,11 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         sv.total_sold,
         sv.avg_daily::float,
         COALESCE(sw.weight, 1.0)::float AS season_weight,
-        ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int AS demand_30d,
+        CASE
+          WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
+            THEN (CURRENT_DATE + (COALESCE(cs.total_stock, 0)::numeric / (sv.avg_daily * COALESCE(sw.weight, 1.0)))::int)::text
+          ELSE NULL
+        END AS sellout_date,
         COALESCE(cs.total_stock, 0)::int AS current_stock,
         COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)::int AS in_production_qty,
         (COALESCE(cs.total_stock, 0) + COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0) + COALESCE(pr.pending_qty, 0))::int AS total_available,
@@ -252,12 +294,12 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
           - COALESCE(pr.pending_qty, 0)
         )::int AS shortage_qty,
-        CEIL(GREATEST(0,
+        GREATEST(0,
           ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
           - COALESCE(cs.total_stock, 0)
           - COALESCE(ROUND(ip.pending_qty::numeric / GREATEST(vc.cnt, 1)), 0)
           - COALESCE(pr.pending_qty, 0)
-        ) * 1.2)::int AS suggested_qty,
+        )::int AS suggested_qty,
         CASE
           WHEN (sv.avg_daily * COALESCE(sw.weight, 1.0)) > 0
             THEN ROUND(
@@ -284,7 +326,8 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
               / (sv.avg_daily * COALESCE(sw.weight, 1.0))
             ) < 14 THEN 'WARNING'
           ELSE 'NORMAL'
-        END AS urgency
+        END AS urgency,
+        COALESCE(bsc.variant_id IS NOT NULL, FALSE) AS is_broken_size
       FROM combined sv
       CROSS JOIN current_season cs2
       LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' || sv.product_season || '_' || cs2.season_code
@@ -292,6 +335,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       LEFT JOIN in_production ip ON sv.product_code = ip.product_code
       LEFT JOIN variant_count vc ON sv.product_code = vc.product_code
       LEFT JOIN pending_restocks pr ON sv.variant_id = pr.variant_id
+      LEFT JOIN broken_size_check bsc ON sv.variant_id = bsc.variant_id
       WHERE
         (
           CASE WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
@@ -305,6 +349,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           ) > 0
         )
         OR (COALESCE(cs.total_stock, 0) = 0 AND COALESCE(pr.pending_qty, 0) = 0)
+        OR bsc.variant_id IS NOT NULL
       ORDER BY
         CASE
           WHEN COALESCE(cs.total_stock, 0) = 0 THEN 0
@@ -319,25 +364,16 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       LIMIT 200`;
     const rows = (await this.pool.query(sql, [salesPeriodDays])).rows;
 
-    // 등급 분류 추가 (자동생산등급 기준)
-    const gradeResult = await this.pool.query(
-      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'AUTO_PROD_GRADE_%_MIN'",
-    );
-    const gradeMap: Record<string, number> = {};
-    for (const r of gradeResult.rows) gradeMap[r.code_value] = parseInt(r.code_label || '0', 10);
-    const sMin = gradeMap.AUTO_PROD_GRADE_S_MIN || 80;
-    const aMin = gradeMap.AUTO_PROD_GRADE_A_MIN || 50;
-    const bMin = gradeMap.AUTO_PROD_GRADE_B_MIN || 30;
-
-    return rows.map((r: any) => {
-      const rate = Number(r.sell_through_rate);
-      let grade: string;
-      if (rate >= sMin) grade = 'S';
-      else if (rate >= aMin) grade = 'A';
-      else if (rate >= bMin) grade = 'B';
-      else grade = 'C';
-      return { ...r, grade };
+    // 비율 기반 상태 분류: 판매율 / 임계값
+    const suggestions = rows.map((r: any) => {
+      const ratio = sellThroughThreshold > 0 ? Number(r.sell_through_rate) / sellThroughThreshold : 0;
+      let restock_status: string;
+      if (ratio > 1.0) restock_status = 'ALERT';
+      else if (ratio >= 0.7) restock_status = 'CONSIDER';
+      else restock_status = 'NORMAL';
+      return { ...r, restock_status, is_broken_size: r.is_broken_size === true || r.is_broken_size === 't' };
     });
+    return { suggestions, salesPeriodDays };
   }
 
   /** 진행중인 재입고 통계 */

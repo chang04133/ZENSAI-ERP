@@ -105,7 +105,7 @@ export default function ProductionDashboardPage() {
                           <div>현재고: <strong>{Number(cat.current_stock).toLocaleString()}</strong>
                             {Number(cat.in_production_qty) > 0 && <span> + 생산중 <strong>{Number(cat.in_production_qty).toLocaleString()}</strong></span>}
                           </div>
-                          <div>30일 예상 수요: <strong>{Number(cat.predicted_30d_demand).toLocaleString()}</strong></div>
+                          <div>완판예상: <strong>{cat.sellout_date ? cat.sellout_date.slice(5) : '-'}</strong></div>
                           <div style={{ color: sc, fontWeight: 600 }}>
                             재고 커버리지: {cat.stock_coverage_days >= 9999 ? '충분' : `${cat.stock_coverage_days}일`}
                           </div>
@@ -155,7 +155,7 @@ export default function ProductionDashboardPage() {
                         <div>현재고: <strong>{Number(sub.current_stock).toLocaleString()}</strong>
                           {Number(sub.in_production_qty) > 0 && <span> + 생산중 <strong>{Number(sub.in_production_qty).toLocaleString()}</strong></span>}
                         </div>
-                        <div>30일 수요: <strong>{Number(sub.predicted_30d_demand).toLocaleString()}</strong></div>
+                        <div>완판예상: <strong>{sub.sellout_date ? sub.sellout_date.slice(5) : '-'}</strong></div>
                         <div style={{ color: sc, fontWeight: 600 }}>
                           커버리지: {sub.stock_coverage_days >= 9999 ? '충분' : `${sub.stock_coverage_days}일`}
                         </div>
@@ -178,8 +178,8 @@ export default function ProductionDashboardPage() {
                   render: (v: number) => Number(v).toLocaleString() },
                 { title: '생산중', dataIndex: 'in_production_qty', key: 'prod', width: 80, align: 'right' as const,
                   render: (v: number) => Number(v) > 0 ? <Tag color="orange">{Number(v).toLocaleString()}</Tag> : '-' },
-                { title: '30일 수요', dataIndex: 'predicted_30d_demand', key: 'demand', width: 90, align: 'right' as const,
-                  render: (v: number) => Number(v).toLocaleString() },
+                { title: '완판예상', dataIndex: 'sellout_date', key: 'sellout', width: 90, align: 'center' as const,
+                  render: (v: string) => v ? <span style={{ fontSize: 12 }}>{v.slice(5)}</span> : '-' },
                 { title: '커버리지', dataIndex: 'stock_coverage_days', key: 'cover', width: 90, align: 'center' as const,
                   render: (v: number) => {
                     const n = Number(v);

@@ -936,7 +936,8 @@ export class SalesRepository {
              COALESCE(inv.current_stock, 0)::int AS current_stock,
              CASE WHEN (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) > 0
                THEN ROUND(COALESCE(SUM(s.qty), 0)::numeric / (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) * 100, 1)
-               ELSE 0 END AS sell_through_rate
+               ELSE 0 END AS sell_through_rate,
+             COALESCE(fib.first_inbound_date, p.created_at::date)::text AS first_inbound_date
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
       LEFT JOIN sales s ON s.variant_id = pv.variant_id
@@ -949,8 +950,15 @@ export class SalesRepository {
         ${pcFilterInv} ${catFilterInv}
         GROUP BY pv2.product_code
       ) inv ON inv.product_code = p.product_code
+      LEFT JOIN (
+        SELECT pv3.product_code, MIN(it.created_at)::date AS first_inbound_date
+        FROM inventory_transactions it
+        JOIN product_variants pv3 ON it.variant_id = pv3.variant_id
+        WHERE it.qty_change > 0
+        GROUP BY pv3.product_code
+      ) fib ON fib.product_code = p.product_code
       WHERE p.is_active = TRUE ${catFilter}
-      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, p.season, inv.current_stock
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, p.season, inv.current_stock, fib.first_inbound_date
       HAVING (COALESCE(SUM(s.qty), 0) + COALESCE(inv.current_stock, 0)) > 0
       ORDER BY sell_through_rate DESC`;
     const byProduct = (await this.pool.query(byProductSql, params)).rows;
@@ -1061,19 +1069,18 @@ export class SalesRepository {
         ? Math.round(s.sold_qty / (s.sold_qty + s.current_stock) * 1000) / 10 : 0,
     })).sort((a, b) => b.season.localeCompare(a.season));
 
-    // 연차별 집계
-    const currentYear = new Date().getFullYear();
-    const getAgeGroup = (season: string | null): string => {
-      if (!season || season.length < 4) return '미지정';
-      const year = parseInt(season.substring(0, 4));
-      if (isNaN(year)) return '미지정';
-      const diff = currentYear - year;
-      if (diff <= 0) return '신상';
-      return `${diff}년차`;
+    // 연차별 집계 (첫 입고일 기준)
+    const getAgeGroup = (firstInboundDate: string | null): string => {
+      if (!firstInboundDate) return '미지정';
+      const inbound = new Date(firstInboundDate);
+      const now = new Date();
+      const diffYears = (now.getTime() - inbound.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+      if (diffYears < 1) return '신상';
+      return `${Math.floor(diffYears)}년차`;
     };
     const ageMap: Record<string, { age_group: string; sold_qty: number; current_stock: number; product_count: number; order: number }> = {};
     for (const p of byProduct) {
-      const ag = getAgeGroup(p.season);
+      const ag = getAgeGroup(p.first_inbound_date);
       const order = ag === '신상' ? 0 : ag === '미지정' ? 99 : parseInt(ag) || 50;
       if (!ageMap[ag]) ageMap[ag] = { age_group: ag, sold_qty: 0, current_stock: 0, product_count: 0, order };
       ageMap[ag].sold_qty += Number(p.sold_qty);

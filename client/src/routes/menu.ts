@@ -58,7 +58,6 @@ export const menuItems: MenuItem[] = [
       { key: '/sales/partner-sales', label: '종합매출조회', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/sales/analytics', label: '판매분석', icon: 'LineChartOutlined', roles: STORE_ALL },
       { key: '/sales/sell-through', label: '판매율 분석', icon: 'PercentageOutlined', roles: STORE_ALL },
-      { key: '/sales/velocity', label: '판매속도', icon: 'FireOutlined', roles: STORE_ALL },
     ],
   },
   { key: '/claims', label: '클레임/AS', icon: 'ToolOutlined', roles: ADMIN_HQ_STORE },

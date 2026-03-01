@@ -24,28 +24,27 @@ router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, 
   const pool = getPool();
 
   // 매입 비용: 생산계획 품목 × 단가
+  // target_date가 없으면 created_at 기준 (자동생성 계획 호환)
   const purchaseResult = await pool.query(
-    `SELECT EXTRACT(MONTH FROM pp.target_date)::int AS plan_month,
+    `SELECT EXTRACT(MONTH FROM COALESCE(pp.target_date, pp.created_at::date))::int AS plan_month,
             SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0))::bigint AS cost
      FROM production_plan_items pi
      JOIN production_plans pp ON pi.plan_id = pp.plan_id
-     WHERE EXTRACT(YEAR FROM pp.target_date) = $1
+     WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
        AND pp.status NOT IN ('CANCELLED')
-       AND pp.target_date IS NOT NULL
      GROUP BY plan_month`,
     [year],
   );
 
   // 부자재 비용: 자재 사용량 × 자재 단가
   const materialResult = await pool.query(
-    `SELECT EXTRACT(MONTH FROM pp.target_date)::int AS plan_month,
+    `SELECT EXTRACT(MONTH FROM COALESCE(pp.target_date, pp.created_at::date))::int AS plan_month,
             SUM(pmu.required_qty * COALESCE(m.unit_price, 0))::bigint AS cost
      FROM production_material_usage pmu
      JOIN production_plans pp ON pmu.plan_id = pp.plan_id
      JOIN materials m ON pmu.material_id = m.material_id
-     WHERE EXTRACT(YEAR FROM pp.target_date) = $1
+     WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
        AND pp.status NOT IN ('CANCELLED')
-       AND pp.target_date IS NOT NULL
      GROUP BY plan_month`,
     [year],
   );

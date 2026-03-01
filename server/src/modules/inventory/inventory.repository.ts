@@ -458,6 +458,129 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
     return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
   }
+  /** 시스템 설정에서 악성재고 기본 연차 조회 */
+  private async getDeadStockDefaultMinAge(): Promise<number> {
+    const r = await this.pool.query(
+      "SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS'",
+    );
+    return r.rows.length > 0 ? parseInt(r.rows[0].code_label, 10) || 1 : 1;
+  }
+
+  /** 사이즈 깨짐 설정 조회 */
+  private async getBrokenSizeSettings(): Promise<{ minSizes: number; qtyThreshold: number }> {
+    const r = await this.pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD')",
+    );
+    const map: Record<string, string> = {};
+    for (const row of r.rows) map[row.code_value] = row.code_label;
+    return {
+      minSizes: parseInt(map.BROKEN_SIZE_MIN_SIZES || '3', 10),
+      qtyThreshold: parseInt(map.BROKEN_SIZE_QTY_THRESHOLD || '2', 10),
+    };
+  }
+
+  /** 악성재고 분석 */
+  async deadStockAnalysis(options: {
+    minAgeYears?: number; category?: string; partnerCode?: string;
+  } = {}) {
+    const pool = getPool();
+    const defaultAge = await this.getDeadStockDefaultMinAge();
+    const brokenSettings = await this.getBrokenSizeSettings();
+    const { minAgeYears = defaultAge, category, partnerCode } = options;
+
+    const currentYear = new Date().getFullYear();
+    const maxSeasonYear = currentYear - minAgeYears;
+
+    const params: any[] = [maxSeasonYear];
+    let idx = 2;
+    let extraFilters = '';
+    let invPartnerFilter = '';
+
+    if (category) {
+      extraFilters += ` AND p.category = $${idx}`;
+      params.push(category);
+      idx++;
+    }
+    if (partnerCode) {
+      invPartnerFilter = ` AND i.partner_code = $${idx}`;
+      params.push(partnerCode);
+      idx++;
+    }
+
+    const partnerIdx = partnerCode ? idx - 1 : 0;
+
+    const sql = `
+      WITH stock AS (
+        SELECT pv.product_code,
+               SUM(i.qty)::int AS current_stock
+        FROM product_variants pv
+        JOIN inventory i ON pv.variant_id = i.variant_id ${invPartnerFilter}
+        WHERE pv.is_active = TRUE
+        GROUP BY pv.product_code
+        HAVING SUM(i.qty) > 0
+      ),
+      recent_sales AS (
+        SELECT pv.product_code,
+               SUM(s.qty)::int AS sold_qty,
+               MAX(s.sale_date) AS last_sale_date
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        ${partnerCode ? `WHERE s.partner_code = $${partnerIdx}` : ''}
+        GROUP BY pv.product_code
+      ),
+      total_inv AS (
+        SELECT SUM(i.qty)::int AS total_qty
+        FROM inventory i
+        ${partnerCode ? `WHERE i.partner_code = $${partnerIdx}` : ''}
+      )
+      SELECT p.product_code, p.product_name, p.category, p.season,
+             p.base_price,
+             st.current_stock,
+             COALESCE(rs.sold_qty, 0)::int AS sold_qty,
+             rs.last_sale_date,
+             CASE
+               WHEN rs.last_sale_date IS NULL THEN 9999
+               ELSE (CURRENT_DATE - rs.last_sale_date)::int
+             END AS days_without_sale,
+             (p.base_price * st.current_stock)::bigint AS stock_value,
+             ti.total_qty,
+             ${currentYear} - CAST(LEFT(p.season, 4) AS int) AS age_years,
+             COALESCE(bs.broken_store_count, 0)::int AS broken_store_count,
+             COALESCE(bs.broken_size_count, 0)::int AS broken_size_count
+      FROM products p
+      JOIN stock st ON p.product_code = st.product_code
+      LEFT JOIN recent_sales rs ON p.product_code = rs.product_code
+      CROSS JOIN total_inv ti
+      LEFT JOIN LATERAL (
+        SELECT COUNT(DISTINCT sub.partner_code)::int AS broken_store_count,
+               COALESCE(SUM(sub.broken_cnt), 0)::int AS broken_size_count
+        FROM (
+          SELECT si.partner_code,
+                 COUNT(*) FILTER (WHERE si.qty <= ${brokenSettings.qtyThreshold})::int AS broken_cnt
+          FROM product_variants spv
+          JOIN inventory si ON spv.variant_id = si.variant_id
+          JOIN partners sp ON si.partner_code = sp.partner_code AND sp.partner_type != '본사'
+          WHERE spv.product_code = p.product_code AND spv.is_active = TRUE AND spv.size != 'FREE'
+          GROUP BY si.partner_code
+          HAVING (
+            SELECT COUNT(DISTINCT pv2.size)
+            FROM product_variants pv2
+            WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE AND pv2.size != 'FREE'
+          ) >= ${brokenSettings.minSizes}
+          AND COUNT(*) FILTER (WHERE si.qty <= ${brokenSettings.qtyThreshold}) > 0
+        ) sub
+      ) bs ON TRUE
+      WHERE p.is_active = TRUE
+        AND COALESCE(p.is_reorder, FALSE) = FALSE
+        AND p.season IS NOT NULL AND p.season ~ '^[0-9]{4}'
+        AND CAST(LEFT(p.season, 4) AS int) <= $1
+        ${extraFilters}
+      ORDER BY days_without_sale DESC, stock_value DESC`;
+
+    const result = await pool.query(sql, params);
+    return result.rows;
+  }
+
 }
 
 export const inventoryRepository = new InventoryRepository();

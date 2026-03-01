@@ -9,13 +9,7 @@ import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
 import { getToken } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
-
-const SALE_STATUS_COLORS: Record<string, string> = {
-  '판매중': 'green',
-  '일시품절': 'orange',
-  '단종': 'red',
-  '승인대기': 'blue',
-};
+import { SALE_STATUS_COLORS } from '../../utils/constants';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
@@ -262,10 +256,43 @@ export default function ProductListPage() {
     { title: '상태', dataIndex: 'sale_status', key: 'sale_status', width: 75,
       render: (v: string) => <Tag color={SALE_STATUS_COLORS[v] || 'default'}>{v}</Tag>,
     },
+    ...(!isStore ? [{ title: '부자재', dataIndex: 'material_count', key: 'material_count', width: 70,
+      render: (v: number) => {
+        const cnt = Number(v || 0);
+        return cnt > 0 ? <Tag color="blue">{cnt}</Tag> : <Tag color="red">미등록</Tag>;
+      },
+    }] : []),
     { title: '재고', dataIndex: 'total_inv_qty', key: 'total_inv_qty', width: 80,
       render: (v: number) => {
         const qty = Number(v || 0);
         return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
+      },
+    },
+    { title: '사이즈', dataIndex: 'broken_store_count', key: 'broken_size', width: 65, align: 'center' as const,
+      filters: [{ text: '깨짐', value: 'broken' }, { text: '정상', value: 'ok' }],
+      onFilter: (v: any, r: any) => v === 'broken' ? Number(r.broken_store_count) > 0 : Number(r.broken_store_count) === 0,
+      render: (_: any, record: any) => {
+        const cnt = Number(record.broken_store_count || 0);
+        return cnt > 0
+          ? <Tag color="red" style={{ fontWeight: 700 }}>{cnt}곳</Tag>
+          : <Tag color="green" style={{ fontWeight: 700 }}>-</Tag>;
+      },
+    },
+    { title: '리오더', dataIndex: 'is_reorder', key: 'is_reorder', width: 65, align: 'center' as const,
+      filters: [{ text: 'O', value: true }, { text: 'X', value: false }],
+      onFilter: (v: any, r: any) => r.is_reorder === v,
+      render: (v: boolean) => v
+        ? <Tag color="blue" style={{ fontWeight: 700 }}>O</Tag>
+        : <Tag color="default" style={{ fontWeight: 700 }}>X</Tag>,
+    },
+    { title: '생산중', dataIndex: 'in_production_qty', key: 'in_production_qty', width: 70, align: 'center' as const,
+      filters: [{ text: '생산중', value: 'yes' }, { text: '-', value: 'no' }],
+      onFilter: (v: any, r: any) => v === 'yes' ? Number(r.in_production_qty) > 0 : Number(r.in_production_qty) === 0,
+      render: (v: number) => {
+        const qty = Number(v || 0);
+        return qty > 0
+          ? <Tag color="purple" style={{ fontWeight: 700 }}>{qty}</Tag>
+          : <span style={{ color: '#ccc' }}>-</span>;
       },
     },
     ...(canWrite ? [{

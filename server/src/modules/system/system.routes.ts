@@ -95,6 +95,7 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'SEASON_WEIGHT_SM_SA', 'SEASON_WEIGHT_SM_SM', 'SEASON_WEIGHT_SM_WN',
     'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
     'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD',
+    'AUTO_PROD_SALES_PERIOD_DAYS',
     'AUTO_PROD_GRADE_S_MIN', 'AUTO_PROD_GRADE_S_MULT',
     'AUTO_PROD_GRADE_A_MIN', 'AUTO_PROD_GRADE_A_MULT',
     'AUTO_PROD_GRADE_B_MIN', 'AUTO_PROD_GRADE_B_MULT',
@@ -102,6 +103,8 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'EVENT_REC_BROKEN_SIZE_WEIGHT', 'EVENT_REC_LOW_SALES_WEIGHT',
     'EVENT_REC_SALES_PERIOD_DAYS', 'EVENT_REC_MIN_SALES_THRESHOLD',
     'EVENT_REC_MAX_RESULTS',
+    'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD',
+    'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS',
   ];
   for (const [key, value] of Object.entries(updates)) {
     if (!allowed.includes(key)) continue;

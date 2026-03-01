@@ -13,6 +13,7 @@ router.get('/summary/by-season', authMiddleware, inventoryController.summaryBySe
 router.get('/by-season/:season', authMiddleware, inventoryController.listBySeason);
 router.get('/warehouse', authMiddleware, inventoryController.warehouseList);
 router.get('/transactions', authMiddleware, inventoryController.transactions);
+router.get('/dead-stock', authMiddleware, inventoryController.deadStock);
 router.get('/', authMiddleware, inventoryController.list);
 router.get('/by-product/:code', authMiddleware, inventoryController.byProduct);
 router.get('/:id', authMiddleware, inventoryController.getById);

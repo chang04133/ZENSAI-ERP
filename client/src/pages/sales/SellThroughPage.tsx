@@ -8,14 +8,10 @@ import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
 
 import { datePresets } from '../../utils/date-presets';
+import { fmt } from '../../utils/format';
+import { CAT_COLORS } from '../../utils/constants';
 
 const { RangePicker } = DatePicker;
-
-const fmt = (v: number) => Number(v).toLocaleString();
-
-const CAT_COLORS: Record<string, string> = {
-  TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4',
-};
 const COLOR_MAP: Record<string, string> = {
   BK: '#000', WH: '#ccc', NV: '#001f6b', GR: '#52c41a', BE: '#d4b896',
   RD: '#ff4d4f', BL: '#1890ff', BR: '#8b4513', PK: '#ff69b4', GY: '#999',

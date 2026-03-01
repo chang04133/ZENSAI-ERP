@@ -39,5 +39,9 @@ import m037 from './037_sale_edit_delete_tx_type';
 import m038 from './038_return_reason';
 import m039 from './039_exchange';
 import m044 from './044_event_store_codes';
+import m045 from './045_product_materials';
+import m046 from './046_inbound';
+import m047 from './047_product_is_reorder';
+import m048 from './048_broken_size_settings';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048];

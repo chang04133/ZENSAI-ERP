@@ -9,15 +9,7 @@ import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import dayjs from 'dayjs';
-
-const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'].map((s) => ({ label: s, value: s }));
-
-const SALE_STATUS_COLORS: Record<string, string> = {
-  '판매중': 'green',
-  '일시품절': 'orange',
-  '단종': 'red',
-  '승인대기': 'blue',
-};
+import { SALE_STATUS_COLORS, SIZE_OPTIONS } from '../../utils/constants';
 
 const fmtPrice = (v: any) => v != null && v > 0 ? `${Number(v).toLocaleString()}원` : '-';
 
@@ -122,8 +114,9 @@ export default function ProductDetailPage() {
   if (loading) return <LoadingSpinner />;
   if (!product) return <div>상품을 찾을 수 없습니다.</div>;
 
-  // 총 재고
+  // 총 재고 / 입고 예정
   const totalStock = (product.variants || []).reduce((sum: number, v: any) => sum + (v.stock_qty || 0), 0);
+  const totalInProduction = (product.variants || []).reduce((sum: number, v: any) => sum + (v.in_production_qty || 0), 0);
 
   const variantColumns = [
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
@@ -136,6 +129,12 @@ export default function ProductDetailPage() {
       render: (v: number) => {
         const qty = v ?? 0;
         return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
+      },
+    },
+    { title: '입고 예정', dataIndex: 'in_production_qty', key: 'in_production_qty', width: 90,
+      render: (v: number) => {
+        const qty = v ?? 0;
+        return qty > 0 ? <Tag color="purple">{qty}</Tag> : <span style={{ color: '#ccc' }}>-</span>;
       },
     },
     { title: '상태', dataIndex: 'is_active', key: 'is_active', width: 80,
@@ -191,6 +190,9 @@ export default function ProductDetailPage() {
           </Descriptions.Item>
           <Descriptions.Item label="총 재고수량">
             <Tag color={totalStock > 0 ? 'blue' : 'red'} style={{ fontSize: 14 }}>{totalStock}</Tag>
+            {totalInProduction > 0 && (
+              <Tag color="purple" style={{ fontSize: 12, marginLeft: 8 }}>입고 예정 {totalInProduction}</Tag>
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="기본가 (판매가)">{fmtPrice(product.base_price)}</Descriptions.Item>
           {!isStore && <Descriptions.Item label="매입가 (원가)">{fmtPrice(product.cost_price)}</Descriptions.Item>}
@@ -205,6 +207,35 @@ export default function ProductDetailPage() {
         </Descriptions>
       </Card>
 
+      {/* 부자재 구성 */}
+      {!isStore && product.materials && product.materials.length > 0 && (
+        <Card title={`부자재 구성 (${product.materials.length}개)`} style={{ marginBottom: 24 }}>
+          <Table
+            dataSource={product.materials}
+            rowKey="product_material_id"
+            pagination={false}
+            size="small"
+            columns={[
+              { title: '자재코드', dataIndex: 'material_code', width: 100 },
+              { title: '자재명', dataIndex: 'material_name', width: 150 },
+              { title: '유형', dataIndex: 'material_type', width: 80, render: (v: string) => <Tag>{v === 'FABRIC' ? '원단' : v === 'ACCESSORY' ? '부속' : v === 'PACKAGING' ? '포장' : v}</Tag> },
+              { title: '단가', dataIndex: 'unit_price', width: 100, render: (v: number) => fmtPrice(v) },
+              { title: '사용량', dataIndex: 'usage_qty', width: 80, render: (v: number) => Number(v) },
+              { title: '소계', key: 'subtotal', width: 100, render: (_: any, r: any) => fmtPrice(Number(r.usage_qty) * Number(r.unit_price)) },
+            ]}
+            summary={() => {
+              const total = product.materials.reduce((sum: number, m: any) => sum + Number(m.usage_qty) * Number(m.unit_price), 0);
+              return (
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0} colSpan={5} align="right"><strong>원가 합계</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={5}><strong>{fmtPrice(total)}</strong></Table.Summary.Cell>
+                </Table.Summary.Row>
+              );
+            }}
+          />
+        </Card>
+      )}
+
       {/* 변형 목록 (옵션/재고/위치) */}
       <Card
         title={`옵션별 재고/위치 관리 (${product.variants?.length || 0}개)`}
@@ -218,9 +249,10 @@ export default function ProductDetailPage() {
           scroll={{ x: 1100 }}
           summary={() => (
             <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={6} align="right"><strong>총 재고합계</strong></Table.Summary.Cell>
+              <Table.Summary.Cell index={0} colSpan={6} align="right"><strong>총 합계</strong></Table.Summary.Cell>
               <Table.Summary.Cell index={6}><Tag color="blue" style={{ fontSize: 14 }}><strong>{totalStock}</strong></Tag></Table.Summary.Cell>
-              <Table.Summary.Cell index={7} colSpan={2} />
+              <Table.Summary.Cell index={7}>{totalInProduction > 0 ? <Tag color="purple" style={{ fontSize: 14 }}><strong>{totalInProduction}</strong></Tag> : '-'}</Table.Summary.Cell>
+              <Table.Summary.Cell index={8} colSpan={2} />
             </Table.Summary.Row>
           )}
         />

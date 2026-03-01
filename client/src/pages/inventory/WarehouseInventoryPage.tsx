@@ -4,9 +4,7 @@ import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOut
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { sizeSort } from '../../utils/size-order';
-
-const CATEGORY_OPTIONS = ['TOP', 'BOTTOM', 'OUTER', 'DRESS', 'ACC', 'SET'].map(c => ({ label: c, value: c }));
-const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'].map(s => ({ label: s, value: s }));
+import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
 type ViewMode = 'product' | 'color' | 'size';
 
 export default function WarehouseInventoryPage() {

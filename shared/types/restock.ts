@@ -71,4 +71,5 @@ export interface RestockSuggestion {
   suggested_qty: number;
   days_of_stock: number;
   urgency: 'CRITICAL' | 'WARNING' | 'NORMAL';
+  grade: 'S' | 'A' | 'B' | 'C';
 }

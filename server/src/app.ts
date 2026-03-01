@@ -28,6 +28,7 @@ import notificationRoutes from './modules/notification/notification.routes';
 import productionRoutes from './modules/production/production.routes';
 import materialRoutes from './modules/production/material.routes';
 import fundRoutes from './modules/fund/fund.routes';
+import inboundRoutes from './modules/inbound/inbound.routes';
 
 const app = express();
 
@@ -103,6 +104,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/productions', productionRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/funds', fundRoutes);
+app.use('/api/inbounds', inboundRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

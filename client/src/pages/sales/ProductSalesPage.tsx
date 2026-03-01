@@ -13,14 +13,10 @@ import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import dayjs, { Dayjs } from 'dayjs';
 import { datePresets } from '../../utils/date-presets';
+import { fmt } from '../../utils/format';
+import { CAT_TAG_COLORS as CAT_COLORS } from '../../utils/constants';
 
 const { RangePicker } = DatePicker;
-
-const CAT_COLORS: Record<string, string> = {
-  TOP: 'blue', BOTTOM: 'green', OUTER: 'orange', DRESS: 'magenta', ACC: 'purple',
-};
-
-const fmt = (v: number) => Number(v).toLocaleString();
 
 export default function ProductSalesPage() {
   const user = useAuthStore((s) => s.user);

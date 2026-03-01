@@ -1,4 +1,4 @@
-import { useEffect, useState, CSSProperties } from 'react';
+import { useEffect, useState } from 'react';
 import { Card, Col, Row, Table, Tag, Progress, Select, message } from 'antd';
 import {
   DollarOutlined, RiseOutlined, ShoppingCartOutlined,
@@ -7,49 +7,14 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
-import PendingActionsBanner from '../../components/PendingActionsBanner';
+
 import { salesApi } from '../../modules/sales/sales.api';
 import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
-
-/* ── 색상 ── */
-const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
-const CAT_COLORS: Record<string, string> = {
-  TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4', '미분류': '#94a3b8',
-};
-
-const fmtWon = (v: number) => {
-  if (v >= 100000000) return `${(v / 100000000).toFixed(1)}억`;
-  if (v >= 10000) return `${(v / 10000).toFixed(0)}만원`;
-  return `${v.toLocaleString()}원`;
-};
-
-/* ── Stat Card ── */
-function StatCard({ title, value, icon, bg, color, sub, onClick }: {
-  title: string; value: string | number; icon: React.ReactNode;
-  bg: string; color: string; sub?: string; onClick?: () => void;
-}) {
-  const style: CSSProperties = {
-    background: bg, borderRadius: 12, padding: '18px 22px', cursor: onClick ? 'pointer' : 'default',
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 100,
-    transition: 'transform 0.15s', border: 'none',
-  };
-  return (
-    <div style={style} onClick={onClick}
-      onMouseEnter={(e) => onClick && (e.currentTarget.style.transform = 'translateY(-2px)')}
-      onMouseLeave={(e) => onClick && (e.currentTarget.style.transform = 'translateY(0)')}>
-      <div>
-        <div style={{ fontSize: 12, color: color + 'cc', marginBottom: 2 }}>{title}</div>
-        <div style={{ fontSize: 26, fontWeight: 700, color, lineHeight: 1.2 }}>
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </div>
-        {sub && <div style={{ fontSize: 11, color: color + '99', marginTop: 3 }}>{sub}</div>}
-      </div>
-      <div style={{ fontSize: 32, color: color + '44' }}>{icon}</div>
-    </div>
-  );
-}
+import { COLORS, CAT_COLORS } from '../../utils/constants';
+import { fmtWon } from '../../utils/format';
+import StatCard from '../../components/StatCard';
 
 /* ── Mini Bar Chart (일별 추이) ── */
 function DailyChart({ data }: { data: Array<{ date: string; revenue: number; qty: number }> }) {
@@ -305,7 +270,6 @@ export default function SalesDashboardPage() {
 
   return (
     <div>
-      <PendingActionsBanner />
       <PageHeader title={isStore ? '내 매장 매출현황' : '매출현황'} extra={
         <Select value={period} onChange={handlePeriodChange} style={{ width: 110 }}
           options={PERIOD_OPTIONS} />

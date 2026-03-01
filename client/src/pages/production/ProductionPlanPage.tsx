@@ -7,9 +7,10 @@ import {
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { codeApi } from '../../modules/code/code.api';
-import { apiFetch } from '../../core/api.client';
+import { partnerApi } from '../../modules/partner/partner.api';
 import type { ProductionPlan } from '../../../../shared/types/production';
 import dayjs from 'dayjs';
+import { fmtNum } from '../../utils/format';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'default', CONFIRMED: 'blue', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
@@ -29,8 +30,6 @@ const STEPS = [
   { key: 'COMPLETED', label: '완료', color: '#52c41a', bg: '#f6ffed', icon: <CheckOutlined /> },
   { key: 'CANCELLED', label: '취소', color: '#ff4d4f', bg: '#fff2f0', icon: <StopOutlined /> },
 ];
-
-const fmtNum = (v: number) => v.toLocaleString();
 
 interface SubItem {
   key: number;
@@ -62,10 +61,12 @@ export default function ProductionPlanPage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProductionPlan | null>(null);
   const [form] = Form.useForm();
-  const [partners, setPartners] = useState<any[]>([]);
 
   // 카테고리별 그룹
   const [catGroups, setCatGroups] = useState<CategoryGroup[]>([]);
+
+  // 거래처 목록
+  const [partners, setPartners] = useState<{ label: string; value: string }[]>([]);
 
   // 코드 옵션
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
@@ -117,16 +118,11 @@ export default function ProductionPlanPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [ptRes, codes] = await Promise.all([
-          apiFetch('/api/partners?limit=100').then(r => r.json()),
-          codeApi.getAll(),
-        ]);
-        if (ptRes.success) setPartners(ptRes.data.data || ptRes.data);
+        const codes = await codeApi.getAll();
         const toOpts = (arr: any[]) => (arr || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
         const allCats = codes.CATEGORY || [];
         const parents = allCats.filter((c: any) => !c.parent_code && c.is_active);
         setCategoryOptions(parents.map((c: any) => ({ label: c.code_label, value: c.code_value })));
-        // 세부 카테고리: parent_code별로 그룹핑
         const subMap: Record<string, { label: string; value: string }[]> = {};
         for (const parent of parents) {
           const children = allCats.filter((c: any) => c.parent_code === parent.code_id && c.is_active);
@@ -137,7 +133,13 @@ export default function ProductionPlanPage() {
         setSubCategoryMap(subMap);
         setFitOptions(toOpts(codes.FIT));
         setLengthOptions(toOpts(codes.LENGTH));
-      } catch (e: any) { console.error('코드/거래처 로드 실패:', e); }
+      } catch (e: any) { console.error('코드 로드 실패:', e); }
+    })();
+    (async () => {
+      try {
+        const result = await partnerApi.list({ limit: '200' });
+        setPartners((result.data || []).filter((p: any) => p.is_active).map((p: any) => ({ label: `${p.partner_name} (${p.partner_type})`, value: p.partner_code })));
+      } catch { /* ignore */ }
     })();
   }, []);
 
@@ -202,7 +204,7 @@ export default function ProductionPlanPage() {
         plan_name: values.plan_name,
         season: values.season,
         target_date: values.target_date?.format('YYYY-MM-DD'),
-        partner_code: values.partner_code,
+        partner_code: values.partner_code || null,
         memo: values.memo,
         items: flatItems,
       });
@@ -249,7 +251,6 @@ export default function ProductionPlanPage() {
     { title: '계획번호', dataIndex: 'plan_no', key: 'no', width: 120 },
     { title: '계획명', dataIndex: 'plan_name', key: 'name', ellipsis: true },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner', width: 100, render: (v: string) => v || '-' },
     { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
     { title: '계획수량', dataIndex: 'total_plan_qty', key: 'plan', width: 80, render: (v: number) => fmtNum(Number(v)) },
     { title: '총 비용', dataIndex: 'total_cost', key: 'cost', width: 110,
@@ -258,6 +259,9 @@ export default function ProductionPlanPage() {
       const pct = r.total_plan_qty > 0 ? Math.round((r.total_produced_qty / r.total_plan_qty) * 100) : 0;
       return <Progress percent={pct} size="small" />;
     }},
+    { title: '입고처', dataIndex: 'partner_name', key: 'partner', width: 100, ellipsis: true,
+      render: (v: string) => v || <span style={{ color: '#aaa' }}>본사</span>,
+    },
     { title: '목표일', dataIndex: 'target_date', key: 'target', width: 100, render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
     { title: '상태', dataIndex: 'status', key: 'status', width: 80, render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v]}</Tag> },
     { title: '관리', key: 'action', width: 200, render: (_: any, r: ProductionPlan) => (
@@ -358,10 +362,9 @@ export default function ProductionPlanPage() {
             <Form.Item name="target_date" label="목표일">
               <DatePicker />
             </Form.Item>
-            <Form.Item name="partner_code" label="생산 거래처">
-              <Select allowClear placeholder="거래처" style={{ width: 160 }}>
-                {partners.map((p: any) => <Select.Option key={p.partner_code} value={p.partner_code}>{p.partner_name}</Select.Option>)}
-              </Select>
+            <Form.Item name="partner_code" label="입고 거래처">
+              <Select allowClear placeholder="거래처 선택 (미선택시 본사)" showSearch optionFilterProp="label"
+                style={{ width: 220 }} options={partners} />
             </Form.Item>
           </Space>
           <Form.Item name="memo" label="메모"><Input.TextArea rows={2} /></Form.Item>
@@ -495,8 +498,8 @@ export default function ProductionPlanPage() {
               <Tag color={STATUS_COLORS[detail.status]}>{STATUS_LABELS[detail.status]}</Tag>
               <span><strong>계획명:</strong> {detail.plan_name}</span>
               <span><strong>시즌:</strong> {detail.season || '-'}</span>
-              <span><strong>거래처:</strong> {detail.partner_name || '-'}</span>
               <span><strong>목표일:</strong> {detail.target_date ? new Date(detail.target_date).toLocaleDateString('ko-KR') : '-'}</span>
+              <span><strong>입고처:</strong> {detail.partner_name || '본사'}</span>
               <span><strong>등록자:</strong> {detail.created_by_name}</span>
               {detail.start_date && <span><strong>시작일:</strong> {new Date(detail.start_date).toLocaleDateString('ko-KR')}</span>}
               {detail.end_date && <span><strong>종료일:</strong> {new Date(detail.end_date).toLocaleDateString('ko-KR')}</span>}

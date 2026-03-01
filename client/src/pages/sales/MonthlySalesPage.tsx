@@ -23,7 +23,7 @@ interface PartnerRow {
   mtd_qty: number;
 }
 
-const fmt = (v: number) => v.toLocaleString();
+import { fmt } from '../../utils/format';
 
 /* 증감 표시 */
 function Change({ cur, prev }: { cur: number; prev: number }) {

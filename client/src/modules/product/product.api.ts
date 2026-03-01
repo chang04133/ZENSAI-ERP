@@ -110,6 +110,24 @@ export const productApi = {
     return data.data;
   },
 
+  // 부자재 연결
+  getProductMaterials: async (productCode: string) => {
+    const res = await apiFetch(`/api/products/${encodeURIComponent(productCode)}/materials`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{ product_material_id: number; material_id: number; usage_qty: number; material_code: string; material_name: string; material_type: string; unit: string; unit_price: number }>;
+  },
+
+  saveProductMaterials: async (productCode: string, materials: Array<{ material_id: number; usage_qty: number }>) => {
+    const res = await apiFetch(`/api/products/${encodeURIComponent(productCode)}/materials`, {
+      method: 'PUT',
+      body: JSON.stringify({ materials }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { materials: any[]; cost_price: number };
+  },
+
   // 바코드 등록/수정
   updateBarcode: async (variantId: number, barcode: string | null) => {
     const res = await apiFetch(`/api/products/variants/${variantId}/barcode`, {

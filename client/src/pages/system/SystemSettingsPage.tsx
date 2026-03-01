@@ -1,10 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Card, InputNumber, Button, message, Descriptions, Spin, Typography, Tag, Table, Input, Select, Popconfirm, Space, Modal, Form, Switch } from 'antd';
-import { SettingOutlined, ExperimentOutlined, RocketOutlined, ThunderboltOutlined, FireOutlined, AppstoreOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { Card, InputNumber, Button, message, Descriptions, Spin, Tag, Row, Col } from 'antd';
+import { SettingOutlined, ExperimentOutlined, FireOutlined, ScissorOutlined, WarningOutlined, ReloadOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
-
-const { Text } = Typography;
 
 const SEASONS = ['SA', 'SM', 'WN'] as const;
 const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
@@ -32,90 +30,12 @@ export default function SystemSettingsPage() {
   const [gradeB, setGradeB] = useState({ min: 30, mult: 1.0 });
   const [safetyBuffer, setSafetyBuffer] = useState(1.2);
 
-  // 코드 관리
-  const CODE_TYPES = [
-    { value: 'CATEGORY', label: '카테고리' },
-    { value: 'FIT', label: '핏' },
-    { value: 'LENGTH', label: '기장' },
-    { value: 'BRAND', label: '브랜드' },
-    { value: 'SEASON', label: '시즌' },
-  ];
-  const [codeType, setCodeType] = useState('CATEGORY');
-  const [codes, setCodes] = useState<any[]>([]);
-  const [codesLoading, setCodesLoading] = useState(false);
-  const [codeSearch, setCodeSearch] = useState('');
-  const [codeModalOpen, setCodeModalOpen] = useState(false);
-  const [editingCode, setEditingCode] = useState<any>(null);
-  const [codeForm] = Form.useForm();
+  // 사이즈 깨짐 설정
+  const [brokenMinSizes, setBrokenMinSizes] = useState(3);
+  const [brokenQtyThreshold, setBrokenQtyThreshold] = useState(2);
 
-  const loadCodes = async (type?: string) => {
-    const t = type || codeType;
-    setCodesLoading(true);
-    try {
-      const res = await apiFetch(`/api/codes/${t}`);
-      const data = await res.json();
-      if (data.success) setCodes(data.data);
-    } catch (e: any) { message.error(e.message); }
-    finally { setCodesLoading(false); }
-  };
-
-  useEffect(() => { loadCodes(); }, [codeType]);
-
-  const handleCodeSave = async (values: any) => {
-    try {
-      if (editingCode) {
-        const res = await apiFetch(`/api/codes/${editingCode.code_id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ ...values, is_active: values.is_active ?? true }),
-        });
-        const data = await res.json();
-        if (!data.success) { message.error(data.error); return; }
-        message.success('수정되었습니다.');
-      } else {
-        const res = await apiFetch('/api/codes', {
-          method: 'POST',
-          body: JSON.stringify({ ...values, code_type: codeType }),
-        });
-        const data = await res.json();
-        if (!data.success) { message.error(data.error); return; }
-        message.success('추가되었습니다.');
-      }
-      setCodeModalOpen(false);
-      setEditingCode(null);
-      codeForm.resetFields();
-      loadCodes();
-    } catch (e: any) { message.error(e.message); }
-  };
-
-  const handleCodeDelete = async (id: number) => {
-    try {
-      await apiFetch(`/api/codes/${id}`, { method: 'DELETE' });
-      message.success('삭제되었습니다.');
-      loadCodes();
-    } catch (e: any) { message.error(e.message); }
-  };
-
-  const openCodeEdit = (record: any) => {
-    setEditingCode(record);
-    codeForm.setFieldsValue({
-      code_value: record.code_value,
-      code_label: record.code_label,
-      sort_order: record.sort_order,
-      parent_code: record.parent_code,
-      is_active: record.is_active,
-    });
-    setCodeModalOpen(true);
-  };
-
-  const openCodeAdd = () => {
-    setEditingCode(null);
-    codeForm.resetFields();
-    codeForm.setFieldsValue({ sort_order: 0, is_active: true });
-    setCodeModalOpen(true);
-  };
-
-  // 상위 코드 목록 (하위카테고리용)
-  const parentOptions = codes.filter(c => !c.parent_code).map(c => ({ label: c.code_label, value: c.code_value }));
+  // 악성재고 설정
+  const [deadStockMinAge, setDeadStockMinAge] = useState(1);
 
   // 행사 추천 설정
   const [eventRecBrokenWeight, setEventRecBrokenWeight] = useState(60);
@@ -140,6 +60,9 @@ export default function SystemSettingsPage() {
         setGradeA({ min: parseInt(data.data.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_A_MULT || '1.2') });
         setGradeB({ min: parseInt(data.data.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(data.data.AUTO_PROD_GRADE_B_MULT || '1.0') });
         setSafetyBuffer(parseFloat(data.data.AUTO_PROD_SAFETY_BUFFER || '1.2'));
+        setBrokenMinSizes(parseInt(data.data.BROKEN_SIZE_MIN_SIZES || '3', 10));
+        setBrokenQtyThreshold(parseInt(data.data.BROKEN_SIZE_QTY_THRESHOLD || '2', 10));
+        setDeadStockMinAge(parseInt(data.data.DEAD_STOCK_DEFAULT_MIN_AGE_YEARS || '1', 10));
         setEventRecBrokenWeight(parseInt(data.data.EVENT_REC_BROKEN_SIZE_WEIGHT || '60', 10));
         setEventRecLowSalesWeight(parseInt(data.data.EVENT_REC_LOW_SALES_WEIGHT || '40', 10));
         setEventRecSalesPeriod(parseInt(data.data.EVENT_REC_SALES_PERIOD_DAYS || '365', 10));
@@ -179,6 +102,9 @@ export default function SystemSettingsPage() {
         AUTO_PROD_GRADE_B_MIN: String(gradeB.min),
         AUTO_PROD_GRADE_B_MULT: String(gradeB.mult),
         AUTO_PROD_SAFETY_BUFFER: String(safetyBuffer),
+        BROKEN_SIZE_MIN_SIZES: String(brokenMinSizes),
+        BROKEN_SIZE_QTY_THRESHOLD: String(brokenQtyThreshold),
+        DEAD_STOCK_DEFAULT_MIN_AGE_YEARS: String(deadStockMinAge),
         EVENT_REC_BROKEN_SIZE_WEIGHT: String(eventRecBrokenWeight),
         EVENT_REC_LOW_SALES_WEIGHT: String(eventRecLowSalesWeight),
         EVENT_REC_SALES_PERIOD_DAYS: String(eventRecSalesPeriod),
@@ -213,127 +139,15 @@ export default function SystemSettingsPage() {
   if (loading) return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
 
   return (
-    <div style={{ maxWidth: 800 }}>
+    <div>
       <PageHeader title="시스템 설정" />
 
-      <Card
-        title={<span><AppstoreOutlined style={{ marginRight: 8 }} />코드 관리 (카테고리 / 핏 / 기장 / 브랜드 등)</span>}
-        style={{ borderRadius: 10, marginBottom: 16 }}
-        extra={
-          <Button type="primary" size="small" icon={<PlusOutlined />} onClick={openCodeAdd}>
-            추가
-          </Button>
-        }
-      >
-        <Space style={{ marginBottom: 12 }} wrap>
-          <Select
-            value={codeType}
-            onChange={(v) => { setCodeType(v); setCodeSearch(''); }}
-            style={{ width: 160 }}
-            options={CODE_TYPES}
-          />
-          <Input
-            placeholder="코드값/코드명 검색"
-            prefix={<SearchOutlined />}
-            value={codeSearch}
-            onChange={(e) => setCodeSearch(e.target.value)}
-            allowClear
-            style={{ width: 180 }}
-            size="small"
-          />
-          <span style={{ color: '#888', fontSize: 12 }}>
-            {codeType === 'CATEGORY' && '상위 카테고리 + 하위카테고리(parent_code 연결)'}
-            {codeType === 'FIT' && '상품 핏 유형 (SLIM, REGULAR, OVERSIZE 등)'}
-            {codeType === 'LENGTH' && '상품 기장 유형 (CROP, REGULAR, LONG 등)'}
-            {codeType === 'BRAND' && '취급 브랜드'}
-            {codeType === 'SEASON' && '시즌 코드'}
-          </span>
-        </Space>
-
-        <Table
-          size="small"
-          loading={codesLoading}
-          dataSource={codeSearch ? codes.filter(c =>
-            c.code_value.toLowerCase().includes(codeSearch.toLowerCase()) ||
-            c.code_label.toLowerCase().includes(codeSearch.toLowerCase())
-          ) : codes}
-          rowKey="code_id"
-          pagination={false}
-          scroll={{ y: 300 }}
-          columns={[
-            {
-              title: '코드값', dataIndex: 'code_value', width: 120,
-              render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text>,
-            },
-            {
-              title: '코드명', dataIndex: 'code_label', width: 150,
-              render: (v: string, r: any) => (
-                <span>
-                  {r.parent_code && <Tag color="blue" style={{ fontSize: 10, margin: '0 4px 0 0', padding: '0 3px' }}>하위</Tag>}
-                  {v}
-                </span>
-              ),
-            },
-            ...(codeType === 'CATEGORY' ? [{
-              title: '상위 코드', dataIndex: 'parent_code', width: 100,
-              render: (v: string) => v ? <Tag>{v}</Tag> : <span style={{ color: '#ccc' }}>-</span>,
-            }] : []),
-            { title: '정렬', dataIndex: 'sort_order', width: 60, align: 'center' as const },
-            {
-              title: '활성', dataIndex: 'is_active', width: 60, align: 'center' as const,
-              render: (v: boolean) => v ? <Tag color="green">Y</Tag> : <Tag color="red">N</Tag>,
-            },
-            {
-              title: '관리', key: 'actions', width: 100,
-              render: (_: any, record: any) => (
-                <Space size={4}>
-                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => openCodeEdit(record)} />
-                  <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleCodeDelete(record.code_id)}>
-                    <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-          ]}
-        />
-      </Card>
-
-      {/* 코드 추가/수정 모달 */}
-      <Modal
-        title={editingCode ? '코드 수정' : '코드 추가'}
-        open={codeModalOpen}
-        onCancel={() => { setCodeModalOpen(false); setEditingCode(null); }}
-        onOk={() => codeForm.submit()}
-        okText={editingCode ? '수정' : '추가'}
-        cancelText="취소"
-        width={420}
-      >
-        <Form form={codeForm} layout="vertical" onFinish={handleCodeSave}>
-          <Form.Item name="code_value" label="코드값" rules={[{ required: true, message: '코드값을 입력해주세요' }]}>
-            <Input placeholder="예: TOP, SLIM, CROP" disabled={!!editingCode} />
-          </Form.Item>
-          <Form.Item name="code_label" label="코드명 (표시명)" rules={[{ required: true, message: '코드명을 입력해주세요' }]}>
-            <Input placeholder="예: 상의, 슬림핏, 크롭" />
-          </Form.Item>
-          {codeType === 'CATEGORY' && (
-            <Form.Item name="parent_code" label="상위 카테고리 (하위카테고리일 때 선택)">
-              <Select allowClear placeholder="상위 카테고리 선택 (없으면 최상위)" options={parentOptions} />
-            </Form.Item>
-          )}
-          <Form.Item name="sort_order" label="정렬순서">
-            <InputNumber min={0} style={{ width: '100%' }} />
-          </Form.Item>
-          {editingCode && (
-            <Form.Item name="is_active" label="활성 여부" valuePropName="checked">
-              <Switch checkedChildren="활성" unCheckedChildren="비활성" />
-            </Form.Item>
-          )}
-        </Form>
-      </Modal>
-
+      <Row gutter={[16, 16]}>
+      {/* 왼쪽: 재고 + 생산등급 + 사이즈깨짐 */}
+      <Col xs={24} xl={12}>
       <Card
         title={<span><SettingOutlined style={{ marginRight: 8 }} />재고 임계값 설정</span>}
-        style={{ borderRadius: 10 }}
+        style={{ borderRadius: 10, marginBottom: 16 }}
       >
         <Descriptions column={1} bordered size="middle">
           <Descriptions.Item label={<span style={{ fontWeight: 600 }}>부족 재고 임계값</span>}>
@@ -374,53 +188,11 @@ export default function SystemSettingsPage() {
       </Card>
 
       <Card
-        title={<span><RocketOutlined style={{ marginRight: 8 }} />생산 권장 설정</span>}
-        style={{ borderRadius: 10, marginTop: 16 }}
-      >
-        <Descriptions column={1} bordered size="middle">
-          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <InputNumber
-                min={7} max={365}
-                value={salesPeriod}
-                onChange={(v) => v !== null && setSalesPeriod(v)}
-                addonAfter="일"
-                style={{ width: 160 }}
-              />
-              <span style={{ color: '#888', fontSize: 13 }}>최근 N일 판매수량으로 수요 예측 (기본 60일 = 2개월)</span>
-            </div>
-          </Descriptions.Item>
-          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매율 임계값</span>}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <InputNumber
-                min={0} max={100}
-                value={sellThroughThreshold}
-                onChange={(v) => v !== null && setSellThroughThreshold(v)}
-                addonAfter="%"
-                style={{ width: 160 }}
-              />
-              <span style={{ color: '#888', fontSize: 13 }}>판매율이 이 값 이상인 품목만 생산 권장에 표시</span>
-            </div>
-          </Descriptions.Item>
-        </Descriptions>
-
-        <div style={{ marginTop: 16, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 13, color: '#666' }}>
-          <div><strong>현재 설정</strong></div>
-          <div style={{ marginTop: 4 }}>
-            최근 <strong>{salesPeriod}일</strong> 판매 기준으로 수요 예측, 판매율 <strong>{sellThroughThreshold}%</strong> 이상 품목만 생산 권장
-          </div>
-          <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
-            판매율 = 판매수량 / (판매수량 + 현재재고) x 100
-          </div>
-        </div>
-      </Card>
-
-      <Card
-        title={<span><ThunderboltOutlined style={{ marginRight: 8 }} />자동 생산기획 등급 설정</span>}
-        style={{ borderRadius: 10, marginTop: 16 }}
+        title={<span><ThunderboltOutlined style={{ marginRight: 8 }} />재입고 등급 설정</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
       >
         <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
-          판매율에 따라 상품을 등급 분류하고, 등급별 생산 배수를 적용합니다. C등급 미만은 자동생산에서 제외됩니다.
+          판매율에 따라 상품을 등급 분류(S/A/B/C)하고, 등급별 재입고 권장 배수를 적용합니다. C등급 미만은 재입고 제안에서 제외됩니다.
         </div>
 
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
@@ -443,7 +215,7 @@ export default function SystemSettingsPage() {
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
                 <InputNumber min={0.1} max={3.0} step={0.1} value={gradeS.mult} onChange={(v) => v !== null && setGradeS(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
               </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>공격적 생산</td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>공격적 재입고</td>
             </tr>
             <tr>
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
@@ -455,7 +227,7 @@ export default function SystemSettingsPage() {
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
                 <InputNumber min={0.1} max={3.0} step={0.1} value={gradeA.mult} onChange={(v) => v !== null && setGradeA(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
               </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>적정 생산</td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>적정 재입고</td>
             </tr>
             <tr>
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
@@ -467,16 +239,16 @@ export default function SystemSettingsPage() {
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center' }}>
                 <InputNumber min={0.1} max={3.0} step={0.1} value={gradeB.mult} onChange={(v) => v !== null && setGradeB(p => ({ ...p, mult: v }))} addonAfter="배" size="small" style={{ width: 110 }} />
               </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보수적 생산</td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보수적 재입고</td>
             </tr>
             <tr>
               <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', fontWeight: 700 }}>
                 <Tag color="default">C급</Tag>
               </td>
               <td colSpan={2} style={{ padding: '8px 12px', border: '1px solid #f0f0f0', textAlign: 'center', color: '#888', fontSize: 12 }}>
-                B급 기준 미만 → 자동 생산에서 제외
+                B급 기준 미만 → 재입고 제안 제외
               </td>
-              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>생산 보류</td>
+              <td style={{ padding: '8px 12px', border: '1px solid #f0f0f0', color: '#888', fontSize: 12 }}>보류</td>
             </tr>
           </tbody>
         </table>
@@ -492,7 +264,7 @@ export default function SystemSettingsPage() {
                 style={{ width: 130 }}
                 size="small"
               />
-              <span style={{ color: '#888', fontSize: 13 }}>부족수량 × 이 배수 = 최종 생산권장량 (기본 1.2배 = 20% 여유분)</span>
+              <span style={{ color: '#888', fontSize: 13 }}>부족수량 × 이 배수 = 최종 재입고 권장량 (기본 1.2배 = 20% 여유분)</span>
             </div>
           </Descriptions.Item>
         </Descriptions>
@@ -500,23 +272,153 @@ export default function SystemSettingsPage() {
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
           <div><strong>예시</strong>: 부족수량 100개인 상품</div>
           <div style={{ marginTop: 4 }}>
-            판매율 {gradeS.min}% 이상(S급) → 100 × {safetyBuffer} × {gradeS.mult} = <strong>{Math.round(100 * safetyBuffer * gradeS.mult)}</strong>개 생산
+            판매율 {gradeS.min}% 이상(S급) → 100 × {safetyBuffer} × {gradeS.mult} = <strong>{Math.round(100 * safetyBuffer * gradeS.mult)}</strong>개 권장
           </div>
           <div>
-            판매율 {gradeA.min}~{gradeS.min - 1}%(A급) → 100 × {safetyBuffer} × {gradeA.mult} = <strong>{Math.round(100 * safetyBuffer * gradeA.mult)}</strong>개 생산
+            판매율 {gradeA.min}~{gradeS.min - 1}%(A급) → 100 × {safetyBuffer} × {gradeA.mult} = <strong>{Math.round(100 * safetyBuffer * gradeA.mult)}</strong>개 권장
           </div>
           <div>
-            판매율 {gradeB.min}~{gradeA.min - 1}%(B급) → 100 × {safetyBuffer} × {gradeB.mult} = <strong>{Math.round(100 * safetyBuffer * gradeB.mult)}</strong>개 생산
+            판매율 {gradeB.min}~{gradeA.min - 1}%(B급) → 100 × {safetyBuffer} × {gradeB.mult} = <strong>{Math.round(100 * safetyBuffer * gradeB.mult)}</strong>개 권장
           </div>
           <div>
-            판매율 {gradeB.min}% 미만(C급) → <strong>생산 제외</strong>
+            판매율 {gradeB.min}% 미만(C급) → <strong>제안 제외</strong>
+          </div>
+        </div>
+      </Card>
+
+      <Card
+        title={<span><ScissorOutlined style={{ marginRight: 8 }} />사이즈 깨짐 판정 설정</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          매장에 나간 상품 중 특정 사이즈의 보유수량이 기준 이하이면 "깨짐"으로 표시합니다.
+        </div>
+
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>최소 사이즈 수</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={2} max={10}
+                value={brokenMinSizes}
+                onChange={(v) => v !== null && setBrokenMinSizes(v)}
+                addonAfter="개 이상"
+                style={{ width: 150 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>전체 사이즈가 이 수 미만인 상품은 판정에서 제외</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>깨짐 기준 수량</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={20}
+                value={brokenQtyThreshold}
+                onChange={(v) => v !== null && setBrokenQtyThreshold(v)}
+                addonAfter="개 이하"
+                style={{ width: 150 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>사이즈별 수량이 이 값 이하이면 해당 사이즈 깨짐 판정</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>예시</strong>: 기준 수량 = {brokenQtyThreshold}개 이하, 최소 사이즈 = {brokenMinSizes}개</div>
+          <div style={{ marginTop: 4 }}>
+            강남점에 S(5), M({brokenQtyThreshold}), L(3), XL(0) → M({brokenQtyThreshold}개), XL(0개) <Tag color="red">깨짐 2사이즈</Tag>
+          </div>
+          <div>
+            대구점에 S(3), M(5), L(4), XL(3) → 모두 {brokenQtyThreshold}개 초과 <Tag color="green">정상</Tag>
+          </div>
+        </div>
+      </Card>
+      <Card
+        title={<span><WarningOutlined style={{ marginRight: 8, color: '#ff4d4f' }} />악성재고 판정 설정</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          리오더 상품을 제외하고, 시즌 연차가 기준 이상이면서 재고가 남아있는 상품을 악성재고로 분류합니다.
+        </div>
+
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>기본 연차 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={1} max={10}
+                value={deadStockMinAge}
+                onChange={(v) => v !== null && setDeadStockMinAge(v)}
+                addonAfter="년 이상"
+                style={{ width: 150 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>시즌 출시 후 이 기간이 지난 상품을 악성재고로 판정</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>판정 기준</strong></div>
+          <div style={{ marginTop: 4 }}>
+            시즌 연차 {deadStockMinAge}년 이상 + 재고 {'>'} 0 + 리오더 아님 → <Tag color="red">악성재고</Tag>
+          </div>
+          <div style={{ marginTop: 4 }}>
+            예: 현재 {new Date().getFullYear()}년 기준, {new Date().getFullYear() - deadStockMinAge}년 이전 시즌 상품이 대상
+          </div>
+          <div style={{ marginTop: 4, color: '#aaa' }}>
+            악성재고 페이지에서 사용자가 연차를 변경할 수 있으며, 이 설정은 기본값입니다.
+          </div>
+        </div>
+      </Card>
+      </Col>
+
+      {/* 오른쪽: 재입고 제안 + 시즌 가중치 + 행사 추천 */}
+      <Col xs={24} xl={12}>
+      <Card
+        title={<span><ReloadOutlined style={{ marginRight: 8 }} />재입고 제안 설정</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
+      >
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매 분석 기간</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={7} max={365}
+                value={salesPeriod}
+                onChange={(v) => v !== null && setSalesPeriod(v)}
+                addonAfter="일"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>재입고 제안용 판매 분석 기간 (기본 60일)</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>판매율 임계값</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={100}
+                value={sellThroughThreshold}
+                onChange={(v) => v !== null && setSellThroughThreshold(v)}
+                addonAfter="%"
+                style={{ width: 160 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>판매율이 이 값 이상인 품목만 재입고 제안에 표시</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 16, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 13, color: '#666' }}>
+          <div><strong>현재 설정</strong></div>
+          <div style={{ marginTop: 4 }}>
+            최근 <strong>{salesPeriod}일</strong> 판매 기준으로 수요 예측 및 등급 분류 (S/A/B/C)
+          </div>
+          <div style={{ marginTop: 4 }}>
+            판매율 <strong>{sellThroughThreshold}%</strong> 이상 품목만 재입고 제안
+          </div>
+          <div style={{ marginTop: 4, color: '#888', fontSize: 12 }}>
+            판매율 = 판매수량 / (판매수량 + 현재재고) x 100
           </div>
         </div>
       </Card>
 
       <Card
         title={<span><ExperimentOutlined style={{ marginRight: 8 }} />시즌 수요 가중치 설정</span>}
-        style={{ borderRadius: 10, marginTop: 16 }}
+        style={{ borderRadius: 10, marginBottom: 16 }}
       >
         <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
           현재 시즌에 따라 상품별 수요 예측에 적용되는 계수입니다. 1.0 = 가중치 없음, 0.0 = 수요 0으로 처리.
@@ -590,7 +492,7 @@ export default function SystemSettingsPage() {
 
       <Card
         title={<span><FireOutlined style={{ marginRight: 8 }} />행사 추천 설정</span>}
-        style={{ borderRadius: 10, marginTop: 16 }}
+        style={{ borderRadius: 10, marginBottom: 16 }}
       >
         <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
           사이즈 깨짐(중간 사이즈 품절)과 저판매 상품을 자동으로 행사 대상으로 추천합니다.
@@ -682,7 +584,10 @@ export default function SystemSettingsPage() {
         </div>
       </Card>
 
-      <div style={{ marginTop: 20, textAlign: 'right' }}>
+      </Col>
+      </Row>
+
+      <div style={{ marginTop: 16, textAlign: 'right' }}>
         <Button type="primary" size="large" onClick={handleSave} loading={saving}>
           설정 저장
         </Button>

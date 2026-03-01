@@ -15,6 +15,7 @@ const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
 const EventProductsPage = lazy(() => import('../pages/products/EventProductsPage'));
+const DeadStockPage = lazy(() => import('../pages/products/DeadStockPage'));
 
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
@@ -35,6 +36,9 @@ const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatu
 const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
 const WarehouseInventoryPage = lazy(() => import('../pages/inventory/WarehouseInventoryPage'));
 
+// Inbound (입고)
+const InboundPage = lazy(() => import('../pages/receiving/InboundPage'));
+
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
 const SalesEntryPage = lazy(() => import('../pages/sales/SalesEntryPage'));
@@ -42,6 +46,7 @@ const ProductSalesPage = lazy(() => import('../pages/sales/ProductSalesPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
 const SellThroughPage = lazy(() => import('../pages/sales/SellThroughPage'));
+const SalesVelocityPage = lazy(() => import('../pages/sales/SalesVelocityPage'));
 
 // Production
 const ProductionDashboardPage = lazy(() => import('../pages/production/ProductionDashboardPage'));
@@ -56,15 +61,11 @@ const FundPlanPage = lazy(() => import('../pages/fund/FundPlanPage'));
 const BarcodeDashboardPage = lazy(() => import('../pages/barcode/BarcodeDashboardPage'));
 
 // System
-const DataUploadPage = lazy(() => import('../pages/system/DataUploadPage'));
 const DeletedDataPage = lazy(() => import('../pages/system/DeletedDataPage'));
 const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage'));
 const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
 
 // ── NEW: 신규 모듈 ──
-// Settlement (정산)
-const SettlementPage = lazy(() => import('../pages/settlement/SettlementPage'));
-
 // Claim (클레임/AS)
 const ClaimManagePage = lazy(() => import('../pages/claim/ClaimManagePage'));
 
@@ -100,6 +101,7 @@ export const appRoutes: AppRoute[] = [
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
   { path: '/products/events', element: <EventProductsPage />, roles: ADMIN_HQ_STORE },
+  { path: '/products/dead-stock', element: <DeadStockPage />, roles: ADMIN_HQ_STORE },
   { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
   { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
@@ -123,6 +125,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/inbound', element: <InboundPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   // Sales — 매출등록은 STORE_STAFF도 가능
@@ -132,6 +135,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/sales/partner-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
   { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
   { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },
+  { path: '/sales/velocity', element: <SalesVelocityPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },
@@ -147,9 +151,6 @@ export const appRoutes: AppRoute[] = [
 
   // ── NEW: 신규 모듈 라우트 ──
 
-  // Settlement (정산)
-  { path: '/settlement', element: <SettlementPage />, roles: ADMIN_HQ },
-
   // Claim (클레임/AS)
   { path: '/claims', element: <ClaimManagePage />, roles: ADMIN_HQ_STORE },
 
@@ -161,7 +162,7 @@ export const appRoutes: AppRoute[] = [
 
   // System (마스터 + 시스템관리자 전용)
   { path: '/system/settings', element: <SystemSettingsPage />, roles: ADMIN_SYS },
-  { path: '/system/data-upload', element: <DataUploadPage />, roles: ADMIN_SYS },
+
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
   { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
 

@@ -92,20 +92,20 @@ async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> 
   // ──────────────── 3. 상품 (25개 + 가격/세부카테고리 포함) ────────────────
   await client.query(`
     INSERT INTO products (product_code, product_name, category, sub_category, brand, season, base_price, discount_price, event_price, cost_price, fit, length) VALUES
-      ('ZS26SS-T001', '오버핏 코튼 티셔츠', 'TOP', 'SHORT_SLEEVE', 'ZENSAI', '2026SA', 49000, 39000, 29000, 18000, '오버핏', '레귤러'),
-      ('ZS26SS-T002', '슬림핏 스트라이프 셔츠', 'TOP', 'LONG_SLEEVE', 'ZENSAI', '2026SA', 69000, 55000, 45000, 25000, '슬림핏', '레귤러'),
+      ('ZS26SS-T001', '오버핏 코튼 티셔츠', 'TOP', 'SHORT_SLEEVE', 'ZENSAI', '2026SA', 49000, 39000, NULL, 18000, '오버핏', '레귤러'),
+      ('ZS26SS-T002', '슬림핏 스트라이프 셔츠', 'TOP', 'LONG_SLEEVE', 'ZENSAI', '2026SA', 69000, 55000, NULL, 25000, '슬림핏', '레귤러'),
       ('ZS26SS-T003', '크롭 니트 탑', 'TOP', 'KNIT', 'ZENSAI', '2026SM', 59000, 47000, 35000, 22000, '레귤러핏', '크롭'),
-      ('ZS26SA-T004', '오버사이즈 후디', 'TOP', 'HOODIE', 'ZENSAI', '2026SA', 79000, 63000, 49000, 29000, '오버사이즈핏', '레귤러'),
-      ('ZS26SA-T005', '크루넥 맨투맨', 'TOP', 'SWEATSHIRT', 'ZENSAI', '2026SA', 59000, 47000, 35000, 21000, '세미오버핏', '레귤러'),
-      ('ZS26SS-B001', '와이드 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 89000, 71000, 59000, 32000, '와이드핏', '롱'),
-      ('ZS26SS-B002', '테이퍼드 슬랙스', 'BOTTOM', 'SLACKS', 'ZENSAI', '2026SA', 79000, 63000, 49000, 28000, '테이퍼드핏', '레귤러'),
-      ('ZS26SS-B003', '플리츠 미디스커트', 'BOTTOM', 'SKIRT', 'ZENSAI', '2026SM', 65000, 52000, 39000, 24000, '레귤러핏', '레귤러'),
-      ('ZS26SA-B004', '부츠컷 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 95000, 76000, 62000, 34000, '부츠컷핏', '롱'),
-      ('ZS26SS-O001', '린넨 블렌드 재킷', 'OUTER', 'JACKET', 'ZENSAI', '2026SM', 159000, 127000, 99000, 58000, '레귤러핏', '숏'),
-      ('ZS26SS-O002', '라이트 트렌치코트', 'OUTER', 'COAT', 'ZENSAI', '2026SA', 189000, 151000, 119000, 68000, '오버핏', '롱'),
+      ('ZS26SA-T004', '오버사이즈 후디', 'TOP', 'HOODIE', 'ZENSAI', '2026SA', 79000, 63000, NULL, 29000, '오버사이즈핏', '레귤러'),
+      ('ZS26SA-T005', '크루넥 맨투맨', 'TOP', 'SWEATSHIRT', 'ZENSAI', '2026SA', 59000, 47000, NULL, 21000, '세미오버핏', '레귤러'),
+      ('ZS26SS-B001', '와이드 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 89000, 71000, NULL, 32000, '와이드핏', '롱'),
+      ('ZS26SS-B002', '테이퍼드 슬랙스', 'BOTTOM', 'SLACKS', 'ZENSAI', '2026SA', 79000, 63000, NULL, 28000, '테이퍼드핏', '레귤러'),
+      ('ZS26SS-B003', '플리츠 미디스커트', 'BOTTOM', 'SKIRT', 'ZENSAI', '2026SM', 65000, 52000, NULL, 24000, '레귤러핏', '레귤러'),
+      ('ZS26SA-B004', '부츠컷 데님 팬츠', 'BOTTOM', 'JEANS', 'ZENSAI', '2026SA', 95000, 76000, NULL, 34000, '부츠컷핏', '롱'),
+      ('ZS26SS-O001', '린넨 블렌드 재킷', 'OUTER', 'JACKET', 'ZENSAI', '2026SM', 159000, 127000, NULL, 58000, '레귤러핏', '숏'),
+      ('ZS26SS-O002', '라이트 트렌치코트', 'OUTER', 'COAT', 'ZENSAI', '2026SA', 189000, 151000, NULL, 68000, '오버핏', '롱'),
       ('ZS26SS-D001', '플라워 프린트 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2026SM', 119000, 95000, 79000, 42000, '레귤러핏', '롱'),
-      ('ZS26SS-D002', '리넨 셔츠 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2026SM', 99000, 79000, 59000, 36000, '오버사이즈핏', '롱'),
-      ('ZS26SM-D003', '미니 플레어 원피스', 'DRESS', 'MINI_DRESS', 'ZENSAI', '2026SM', 89000, 71000, 55000, 32000, '레귤러핏', '숏'),
+      ('ZS26SS-D002', '리넨 셔츠 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2026SM', 99000, 79000, NULL, 36000, '오버사이즈핏', '롱'),
+      ('ZS26SM-D003', '미니 플레어 원피스', 'DRESS', 'MINI_DRESS', 'ZENSAI', '2026SM', 89000, 71000, NULL, 32000, '레귤러핏', '숏'),
       ('ZS25FW-T001', '캐시미어 블렌드 니트', 'TOP', 'KNIT', 'ZENSAI', '2025WN', 89000, 71000, 55000, 32000, '세미오버핏', '레귤러'),
       ('ZS25FW-T002', '터틀넥 울 니트', 'TOP', 'KNIT', 'ZENSAI', '2025WN', 99000, 79000, 59000, 36000, '레귤러핏', '레귤러'),
       ('ZS25FW-O001', '울 더블 코트', 'OUTER', 'COAT', 'ZENSAI', '2025WN', 289000, 231000, 189000, 105000, '레귤러핏', '롱'),
@@ -116,8 +116,8 @@ async function _seedDummyImpl(client: { query: (...args: any[]) => Promise<any> 
       ('ZS25SA-B002', '와이드 코튼 팬츠', 'BOTTOM', 'SLACKS', 'ZENSAI', '2025SA', 75000, 60000, 45000, 27000, '와이드핏', '레귤러'),
       ('ZS25SA-D001', '셔링 미디 원피스', 'DRESS', 'LONG_DRESS', 'ZENSAI', '2025SA', 109000, 87000, 69000, 39000, '레귤러핏', '롱'),
       ('ZS26SS-A001', '레더 미니 백', 'ACC', 'BAG', 'ZENSAI', '2026SA', 129000, 103000, 79000, 45000, NULL, NULL),
-      ('ZS26SA-A002', '코튼 버킷햇', 'ACC', 'HAT', 'ZENSAI', '2026SA', 35000, 28000, 22000, 12000, NULL, NULL),
-      ('ZS26SA-A003', '레더 스퀘어 벨트', 'ACC', 'BELT', 'ZENSAI', '2026SA', 49000, 39000, 29000, 17000, NULL, NULL)
+      ('ZS26SA-A002', '코튼 버킷햇', 'ACC', 'HAT', 'ZENSAI', '2026SA', 35000, 28000, NULL, 12000, NULL, NULL),
+      ('ZS26SA-A003', '레더 스퀘어 벨트', 'ACC', 'BELT', 'ZENSAI', '2026SA', 49000, 39000, NULL, 17000, NULL, NULL)
     ON CONFLICT (product_code) DO UPDATE SET
       discount_price = EXCLUDED.discount_price,
       event_price = EXCLUDED.event_price,

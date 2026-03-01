@@ -86,11 +86,15 @@ const roleMatrixData = [
   { key: '28', feature: '거래처별 매출', SYS: true, ADMIN: true, HQ: true, STORE: false, STAFF: false },
   { key: '29', feature: '생산기획 (CUD)', SYS: true, ADMIN: true, HQ: false, STORE: false, STAFF: false },
   { key: '30', feature: '생산기획 (조회)', SYS: true, ADMIN: true, HQ: true, STORE: false, STAFF: false },
-  { key: '31', feature: '원단/자재', SYS: true, ADMIN: true, HQ: '조회만', STORE: false, STAFF: false },
+  { key: '31', feature: '부자재 관리', SYS: true, ADMIN: true, HQ: '조회만', STORE: false, STAFF: false },
   { key: '32', feature: '자금계획', SYS: false, ADMIN: true, HQ: false, STORE: false, STAFF: false },
   { key: '33', feature: '직원 관리', SYS: true, ADMIN: true, HQ: true, STORE: '자기매장', STAFF: false },
   { key: '34', feature: '시스템 설정', SYS: true, ADMIN: true, HQ: false, STORE: false, STAFF: false },
   { key: '35', feature: '감사로그/삭제복원', SYS: true, ADMIN: true, HQ: false, STORE: false, STAFF: false },
+
+  { key: '37', feature: '클레임/AS', SYS: true, ADMIN: true, HQ: true, STORE: true, STAFF: false },
+  { key: '38', feature: '공지사항', SYS: true, ADMIN: true, HQ: true, STORE: true, STAFF: true },
+  { key: '39', feature: '교환 처리', SYS: true, ADMIN: true, HQ: true, STORE: '당일만', STAFF: false },
 ];
 const matrixColumns = [
   { title: '기능', dataIndex: 'feature', width: 200, fixed: 'left' as const },
@@ -108,10 +112,12 @@ const dbTableData = [
   { key: '4', group: '거래처', table: 'partners', pk: 'partner_code (VARCHAR)', fields: 'partner_name, partner_type(직영/가맹/온라인/대리점/백화점/아울렛/HQ), business_number, phone, address, is_active', relations: '← users, inventory, sales, shipments' },
   { key: '5', group: '상품', table: 'products', pk: 'product_code (VARCHAR)', fields: 'product_name, category, sub_category, brand, season, year, fit, length, base_price, cost_price, discount_price, event_price, sale_status, image_url, is_active', relations: '← product_variants' },
   { key: '6', group: '상품', table: 'product_variants', pk: 'variant_id (SERIAL)', fields: 'product_code, color, size, sku(UNIQUE), barcode(UNIQUE), stock_qty, alert_enabled, is_active', relations: '→ products ← inventory, sales' },
+  { key: '6b', group: '상품', table: 'product_materials', pk: 'product_material_id (SERIAL)', fields: 'product_code, material_id, usage_qty(NUMERIC 10,2) | UNIQUE(product_code, material_id)', relations: '→ products, materials. 원가 자동계산: SUM(usage_qty×unit_price)' },
   { key: '7', group: '상품', table: 'master_codes', pk: 'code_id (SERIAL)', fields: 'code_type(11종), code_value, code_label, sort_order, parent_code, is_active', relations: '자기참조(parent_code→code_id)' },
   { key: '8', group: '재고', table: 'inventory', pk: 'inventory_id (SERIAL)', fields: 'partner_code, variant_id, qty | UNIQUE(partner_code, variant_id)', relations: '→ partners, product_variants' },
   { key: '9', group: '재고', table: 'inventory_transactions', pk: 'tx_id (SERIAL)', fields: 'tx_type(9종), ref_id, partner_code, variant_id, qty_change, qty_after, created_by, memo', relations: '불변 로그 (UPDATE/DELETE 없음)' },
-  { key: '10', group: '판매', table: 'sales', pk: 'sale_id (SERIAL)', fields: 'sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type(정상/할인/행사/반품), tax_free, memo', relations: '→ partners, product_variants' },
+  { key: '10', group: '판매', table: 'sales', pk: 'sale_id (SERIAL)', fields: 'sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type(정상/할인/행사/반품), tax_free, return_reason, memo', relations: '→ partners, product_variants ← sales_exchanges' },
+  { key: '10b', group: '판매', table: 'sales_exchanges', pk: 'exchange_id (BIGSERIAL)', fields: 'original_sale_id, return_sale_id, new_sale_id, exchange_date, memo, created_by', relations: '→ sales(×3). 교환=반품+신규판매 단일 트랜잭션' },
   { key: '11', group: '출고', table: 'shipment_requests', pk: 'request_id (SERIAL)', fields: 'request_no(SR+YYMMDD+###), from_partner, to_partner, request_type(출고/반품/수평이동), status(PENDING/SHIPPED/RECEIVED/CANCELLED)', relations: '← shipment_request_items' },
   { key: '12', group: '출고', table: 'shipment_request_items', pk: 'item_id (SERIAL)', fields: 'request_id, variant_id, request_qty, shipped_qty, received_qty', relations: '→ shipment_requests' },
   { key: '13', group: '재입고', table: 'restock_requests', pk: 'request_id (SERIAL)', fields: 'request_no(RS+YYMMDD+###), partner_code, status(DRAFT/APPROVED/ORDERED/RECEIVED/CANCELLED), received_date', relations: '← restock_request_items' },
@@ -126,7 +132,7 @@ const dbTableData = [
   { key: '22', group: '자금', table: 'fund_plans', pk: 'fund_plan_id (SERIAL)', fields: 'plan_year, plan_month, category_id, plan_amount, actual_amount', relations: '→ fund_categories' },
   { key: '23', group: '시스템', table: 'audit_logs', pk: 'log_id (SERIAL)', fields: 'table_name, record_id, action(INSERT/UPDATE/DELETE), old_data(JSONB), new_data(JSONB), changed_by', relations: '삭제 데이터 복원 기반' },
 ];
-const dbGroups = ['인증','인증','인증','거래처','상품','상품','상품','재고','재고','판매','출고','출고','재입고','재입고','생산','생산','자재','자재','알림','알림','자금','자금','시스템'];
+const dbGroups = ['인증','인증','인증','거래처','상품','상품','상품','상품','재고','재고','판매','판매','출고','출고','재입고','재입고','생산','생산','자재','자재','알림','알림','자금','자금','시스템'];
 const dbColumns = [
   { title: '그룹', dataIndex: 'group', width: 70,
     onCell: (_: any, index?: number) => { if (index === undefined) return {}; const prev = index > 0 ? dbGroups[index-1] : null; const cur = dbGroups[index]; if (prev === cur) return { rowSpan: 0 }; let span = 1; for (let i = index+1; i < dbGroups.length && dbGroups[i] === cur; i++) span++; return { rowSpan: span }; },
@@ -149,6 +155,7 @@ const txTypeData = [
   { key: '7', type: 'ADJUST', direction: '±', trigger: '수동 조정', desc: '관리자 직접 조정. 감사로그 기록', formula: 'inventory.qty += adjust_qty' },
   { key: '8', type: 'RESTOCK', direction: '+', trigger: '재입고 수령', desc: 'receive()에서만 처리 (이중 방지)', formula: 'inventory.qty += received_qty' },
   { key: '9', type: 'PRODUCTION', direction: '+', trigger: '생산완료', desc: 'variant_id NOT NULL + produced_qty>0 → HQ 입고', formula: 'hq.qty += produced_qty' },
+  { key: '10', type: 'EXCHANGE', direction: '±', trigger: '교환 (POST /:id/exchange)', desc: '원본 반품(RETURN +qty) + 새 상품 판매(SALE -qty) 단일 트랜잭션', formula: 'old +qty(RETURN), new -qty(SALE)' },
 ];
 
 // ═══ 워크플로우 ═══
@@ -189,6 +196,12 @@ const workflows = [
     { step: '2', action: '읽음', detail: 'PENDING→READ' },
     { step: '3', action: '승인+수평이동', detail: '승인 시 TRANSFER 자동생성. 동일 variant PENDING 자동 CANCELLED' },
   ]},
+  { title: '교환 플로우', color: '#13c2c2', icon: <SwapOutlined />, steps: [
+    { step: '1', action: '교환 요청', detail: 'POST /:id/exchange. 원본 sale_id + new_variant_id/qty/unit_price + return_reason 필수' },
+    { step: '2', action: '반품 처리', detail: '원본 상품 반품: sales INSERT(sale_type=반품, total=-), inventory +qty(RETURN)' },
+    { step: '3', action: '신규 판매', detail: '교환 상품 판매: sales INSERT(sale_type=정상), inventory -qty(SALE)' },
+    { step: '4', action: '교환 기록', detail: 'sales_exchanges INSERT. 원본/반품/신규 3건 연결. 전체 트랜잭션' },
+  ]},
 ];
 
 // ═══ API 모듈 ═══
@@ -217,6 +230,7 @@ const moduleData = [
       { method: 'DELETE', path: '/:code', desc: 'Soft 삭제' },
       { method: 'POST', path: '/:code/image', desc: '이미지 업로드 (5MB)' },
       { method: 'GET', path: '/variants/search', desc: 'SKU/바코드/색상/사이즈 검색' },
+      { method: 'GET', path: '/variants/options', desc: '색상/사이즈 옵션 목록' },
       { method: 'POST', path: '/:code/variants', desc: '옵션 추가' },
       { method: 'PUT', path: '/:code/variants/:id', desc: '옵션 수정' },
       { method: 'DELETE', path: '/:code/variants/:id', desc: '옵션 삭제' },
@@ -274,6 +288,7 @@ const moduleData = [
       { method: 'GET', path: '/dashboard-stats', desc: '매출 KPI' },
       { method: 'GET', path: '/monthly-sales', desc: '월별 추이' },
       { method: 'GET', path: '/style-analytics', desc: '스타일 분석' },
+      { method: 'GET', path: '/yearly-overview', desc: '연간 개요' },
       { method: 'GET', path: '/year-comparison', desc: '연도별 비교' },
       { method: 'GET', path: '/style-by-range', desc: '기간별 스타일' },
       { method: 'GET', path: '/product-variant-sales', desc: '컬러×사이즈 매트릭스' },
@@ -283,9 +298,11 @@ const moduleData = [
       { method: 'GET', path: '/drop-analysis', desc: '드랍 분석' },
       { method: 'GET', path: '/comprehensive', desc: '종합 매출' },
       { method: 'GET', path: '/store-comparison', desc: '매장 비교' },
+      { method: 'GET', path: '/exchanges/list', desc: '교환 이력 조회' },
+      { method: 'POST', path: '/:id/exchange', desc: '교환 처리 (반품+신규 트랜잭션)' },
       { method: 'GET', path: '/excel/template', desc: '엑셀 템플릿' },
       { method: 'POST', path: '/excel/upload', desc: '엑셀 업로드' },
-    ], logic: '유형: 정상/할인/행사/반품. Tax-free: /1.1. 당일=DB CURRENT_DATE. 삭제보호: 반품 연결 시 차단.' },
+    ], logic: '유형: 정상/할인/행사/반품. Tax-free: /1.1. 당일=DB CURRENT_DATE. 삭제보호: 반품 연결 시 차단. 교환: 반품+신규 단일 트랜잭션.' },
   { key: 'shipment', icon: <ExportOutlined />, title: '출고', color: '#2f54eb', basePath: '/api/shipments',
     endpoints: [
       { method: 'GET', path: '/', desc: '목록 (매장 자동필터)' },
@@ -293,11 +310,12 @@ const moduleData = [
       { method: 'POST', path: '/', desc: '의뢰 등록 (SR+YYMMDD+###)' },
       { method: 'PUT', path: '/:id', desc: '수정/상태변경' },
       { method: 'DELETE', path: '/:id', desc: '삭제 (PENDING만)' },
-      { method: 'PUT', path: '/:id/shipped-qty', desc: '출고수량 → SHIPPED' },
+      { method: 'PUT', path: '/:id/shipped-qty', desc: '출고수량 입력' },
+      { method: 'PUT', path: '/:id/ship-confirm', desc: '출고확인 → SHIPPED' },
       { method: 'PUT', path: '/:id/receive', desc: '수령확인 → RECEIVED' },
       { method: 'GET', path: '/excel/template', desc: '엑셀 템플릿' },
       { method: 'POST', path: '/excel/upload', desc: '엑셀 업로드' },
-    ], logic: '상태전이: PENDING→[SHIPPED,CANCELLED], SHIPPED→[RECEIVED,CANCELLED]. CANCELLED 롤백.' },
+    ], logic: '상태전이: PENDING→[SHIPPED,CANCELLED], SHIPPED→[RECEIVED,CANCELLED]. CANCELLED 롤백. ship-confirm: 출고확인 분리.' },
   { key: 'restock', icon: <SyncOutlined />, title: '재입고', color: '#eb2f96', basePath: '/api/restocks',
     endpoints: [
       { method: 'GET', path: '/', desc: '목록' }, { method: 'GET', path: '/:id', desc: '상세' },
@@ -356,8 +374,10 @@ const moduleData = [
 // ═══ 설정/채번/인프라/응답/페이지/에러 ═══
 const settingsData = [
   { key: '1', name: 'LOW_STOCK_THRESHOLD', default: '5', desc: '재고 부족 기준' },
-  { key: '2', name: 'MED_STOCK_THRESHOLD', default: '20', desc: '재고 보통 기준' },
-  { key: '3', name: 'PRODUCTION_SALES_PERIOD_DAYS', default: '60', desc: '생산 분석 기간(일)' },
+  { key: '2', name: 'MEDIUM_STOCK_THRESHOLD', default: '20', desc: '재고 보통 기준' },
+  { key: '3', name: 'PRODUCTION_SALES_PERIOD_DAYS', default: '60', desc: '리오더 분석 기간(일)' },
+  { key: '3a', name: 'AUTO_PROD_SALES_PERIOD_DAYS', default: '14', desc: '자동생산등급 분석 기간(일)' },
+  { key: '3b', name: 'PRODUCTION_SELL_THROUGH_THRESHOLD', default: '30', desc: '생산 판매율 기준(%)' },
   { key: '4', name: 'AUTO_PROD_SAFETY_BUFFER', default: '1.2', desc: '안전 버퍼 배수' },
   { key: '5', name: 'AUTO_PROD_GRADE_S_MIN', default: '80', desc: 'S등급 최소 판매율(%)' },
   { key: '6', name: 'AUTO_PROD_GRADE_S_MULT', default: '1.5', desc: 'S등급 배수' },
@@ -365,8 +385,12 @@ const settingsData = [
   { key: '8', name: 'AUTO_PROD_GRADE_A_MULT', default: '1.2', desc: 'A등급 배수' },
   { key: '9', name: 'AUTO_PROD_GRADE_B_MIN', default: '30', desc: 'B등급 최소 판매율(%)' },
   { key: '10', name: 'AUTO_PROD_GRADE_B_MULT', default: '1.0', desc: 'B등급 배수' },
-  { key: '11', name: 'SEASON_WEIGHT_SS', default: '1.0', desc: '봄/여름 가중치' },
-  { key: '12', name: 'SEASON_WEIGHT_FW', default: '1.0', desc: '가을/겨울 가중치' },
+  { key: '11', name: 'SEASON_WEIGHT_SA_SA~WN_WN', default: '0.00~1.00', desc: '시즌 가중치 매트릭스 (9종: 현재시즌×상품시즌)' },
+  { key: '12', name: 'EVENT_REC_BROKEN_SIZE_WEIGHT', default: '0.6', desc: '행사추천: 깨진사이즈 가중치' },
+  { key: '13', name: 'EVENT_REC_LOW_SALES_WEIGHT', default: '0.4', desc: '행사추천: 저판매 가중치' },
+  { key: '14', name: 'EVENT_REC_SALES_PERIOD_DAYS', default: '60', desc: '행사추천: 판매 분석 기간(일)' },
+  { key: '15', name: 'EVENT_REC_MIN_SALES_THRESHOLD', default: '5', desc: '행사추천: 최소 판매 기준' },
+  { key: '16', name: 'EVENT_REC_MAX_RESULTS', default: '50', desc: '행사추천: 최대 결과 수' },
 ];
 const autoNumberData = [
   { key: '1', target: '출고의뢰', pattern: 'SR+YYMMDD+###', example: 'SR260226001', table: 'shipment_requests.request_no' },
@@ -376,16 +400,19 @@ const autoNumberData = [
   { key: '5', target: 'SKU', pattern: 'product_code+color+size', example: 'ABC001-BLK-M', table: 'product_variants.sku' },
 ];
 const clientInfraData = [
-  { key: '1', category: '상태관리', name: 'Zustand 스토어 (9개)', desc: 'auth, product, partner, user, inventory, shipment, restock, production, material' },
+  { key: '1', category: '상태관리', name: 'Zustand 스토어 (10개)', desc: 'auth, product, partner, user, inventory, shipment, restock, production, material + crud.store 팩토리' },
   { key: '2', category: 'API', name: 'apiFetch()', desc: 'JWT 자동첨부. 401→토큰갱신→실패→로그아웃' },
   { key: '3', category: 'API', name: 'crudApi<T>(base)', desc: '제네릭 CRUD 팩토리: getAll/getById/create/update/remove' },
   { key: '4', category: '컴포넌트', name: 'PageHeader', desc: '페이지 제목 + extra 영역' },
   { key: '5', category: '컴포넌트', name: 'ProtectedRoute', desc: '인증+역할 검사' },
   { key: '6', category: '컴포넌트', name: 'BarcodeScanner', desc: '카메라 바코드/QR 스캔' },
   { key: '7', category: '컴포넌트', name: 'ErrorBoundary', desc: 'React 에러 경계' },
+  { key: '7b', category: '컴포넌트', name: 'PendingActionsBanner', desc: '대기 작업 배너 (대시보드)' },
+  { key: '7c', category: '컴포넌트', name: 'LoadingSpinner', desc: '로딩 스피너' },
   { key: '8', category: '모달', name: 'ShippedQtyModal', desc: '출고수량 입력' },
   { key: '9', category: '모달', name: 'ReceivedQtyModal', desc: '수령수량 입력' },
   { key: '10', category: '모달', name: 'ShipmentDetailModal', desc: '출고 상세 보기' },
+  { key: '10b', category: '상수', name: 'ShipmentConstants', desc: '출고 상태/유형 상수 모음' },
   { key: '11', category: '유틸', name: 'date-presets', desc: '오늘/이번주/이번달/30일/90일/올해' },
   { key: '12', category: '유틸', name: 'size-order', desc: 'XS=1~FREE=7 정렬' },
   { key: '13', category: '유틸', name: 'export-excel', desc: '데이터→엑셀 다운로드' },
@@ -436,6 +463,10 @@ const pageMapData = [
   { key: '33', path: '/system/data-upload', page: 'DataUploadPage', category: '시스템', roles: 'ADMIN/SYS', desc: '데이터 업로드' },
   { key: '34', path: '/system/deleted-data', page: 'DeletedDataPage', category: '시스템', roles: 'ADMIN/SYS', desc: '삭제데이터 복원' },
   { key: '35', path: '/system/overview', page: 'SystemOverviewPage', category: '시스템', roles: 'ADMIN/SYS', desc: '시스템 현황 & ERP 문서' },
+
+  { key: '37', path: '/claims', page: 'ClaimManagePage', category: '클레임', roles: 'ADMIN/HQ/STORE', desc: '클레임/AS 관리 (UI)' },
+  { key: '38', path: '/notices', page: 'NoticeBoardPage', category: '공지', roles: 'ALL', desc: '공지사항 게시판 (UI)' },
+  { key: '39', path: '/seasons', page: 'SeasonManagePage', category: '시즌', roles: 'ADMIN/HQ', desc: '시즌/컬렉션 관리 (UI)' },
 ];
 const errorMessages = [
   { msg: '상태를 X에서 Y(으)로 변경할 수 없습니다', cause: '출고 상태전이 위반', fix: 'ALLOWED_TRANSITIONS 참조' },
@@ -447,6 +478,8 @@ const errorMessages = [
   { msg: '로그인 시도가 너무 많습니다', cause: 'rate limit (10/15min)', fix: '15분 대기' },
   { msg: '토큰 갱신 요청이 너무 많습니다', cause: 'rate limit (30/15min)', fix: '15분 대기' },
   { msg: '출고수량은 0 이상이어야 합니다', cause: '음수 shipped_qty', fix: '양수 입력' },
+  { msg: '교환 사유를 선택해주세요', cause: '교환 시 return_reason 누락', fix: 'return_reason 필수 입력' },
+  { msg: 'new_variant_id, new_qty, new_unit_price 필수', cause: '교환 파라미터 누락', fix: '교환 상품 정보 필수 입력' },
 ];
 
 // ═══ 렌더링 ═══
@@ -476,7 +509,7 @@ export default function SystemOverviewPage() {
         {lastUpdated && <Text type="secondary" style={{ fontSize: 12 }}>갱신: {lastUpdated}</Text>}
         <Badge dot={loading} color="blue"><Button icon={<ReloadOutlined spin={loading} />} onClick={loadStats} loading={loading}>새로고침</Button></Badge>
       </Space>} />
-      <Alert message="60초 자동갱신. 15개 모듈, 130+ API, 23 DB 테이블, 6개 워크플로우 문서화." type="info" showIcon style={{ marginBottom: 16 }} />
+      <Alert message="60초 자동갱신. 16개 모듈, 170+ API, 25 DB 테이블, 7개 워크플로우 문서화." type="info" showIcon style={{ marginBottom: 16 }} />
 
       {/* 실시간 현황 */}
       <Card title={<><DatabaseOutlined /> 실시간 시스템 현황</>} style={{ marginBottom: 16 }} size="small">
@@ -545,7 +578,7 @@ export default function SystemOverviewPage() {
           children: <Table dataSource={dbTableData} columns={dbColumns} rowKey="key" size="small" pagination={false} scroll={{ x: 1000 }} bordered /> },
         { key: 'tx', label: <Space><SwapOutlined /><Text strong>재고 트랜잭션 ({txTypeData.length}종)</Text></Space>,
           children: <Table dataSource={txTypeData} rowKey="key" size="small" pagination={false} columns={[
-            { title: '타입', dataIndex: 'type', width: 110, render: (v: string) => <Tag color={{ SALE:'#f5222d',SALE_EDIT:'#d4380d',SALE_DELETE:'#cf1322',RETURN:'#52c41a',SHIPMENT:'#1677ff',TRANSFER:'#722ed1',ADJUST:'#fa8c16',RESTOCK:'#13c2c2',PRODUCTION:'#eb2f96' }[v]}>{v}</Tag> },
+            { title: '타입', dataIndex: 'type', width: 110, render: (v: string) => <Tag color={{ SALE:'#f5222d',SALE_EDIT:'#d4380d',SALE_DELETE:'#cf1322',RETURN:'#52c41a',SHIPMENT:'#1677ff',TRANSFER:'#722ed1',ADJUST:'#fa8c16',RESTOCK:'#13c2c2',PRODUCTION:'#eb2f96',EXCHANGE:'#faad14' }[v]}>{v}</Tag> },
             { title: '±', dataIndex: 'direction', width: 40, align: 'center' as const, render: (v: string) => <Text strong style={{ color: v==='+'?'#52c41a':v==='-'?'#f5222d':'#722ed1' }}>{v}</Text> },
             { title: '트리거', dataIndex: 'trigger', width: 220 }, { title: '설명', dataIndex: 'desc', width: 250 },
             { title: '수식', dataIndex: 'formula', render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
@@ -575,7 +608,7 @@ export default function SystemOverviewPage() {
           ]} /> },
         { key: 'infra', label: <Space><AppstoreOutlined /><Text strong>클라이언트 인프라</Text></Space>,
           children: <Table dataSource={clientInfraData} rowKey="key" size="small" pagination={false} columns={[
-            { title: '분류', dataIndex: 'category', width: 90, render: (v: string) => <Tag color={{ '상태관리':'blue','API':'green','컴포넌트':'purple','모달':'cyan','유틸':'orange','레이아웃':'gold' }[v]}>{v}</Tag> },
+            { title: '분류', dataIndex: 'category', width: 90, render: (v: string) => <Tag color={{ '상태관리':'blue','API':'green','컴포넌트':'purple','모달':'cyan','상수':'geekblue','유틸':'orange','레이아웃':'gold' }[v]}>{v}</Tag> },
             { title: '이름', dataIndex: 'name', width: 180, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> }, { title: '설명', dataIndex: 'desc' },
           ]} /> },
         { key: 'resp', label: <Space><AuditOutlined /><Text strong>API 응답 형식</Text></Space>,
@@ -594,6 +627,7 @@ export default function SystemOverviewPage() {
             <li><Text strong>Tax Free:</Text> 부가세(10%) 자동 제외</li>
             <li><Text strong>반품:</Text> 원본 수량 이하. total_price 음수. direct-return 지원</li>
             <li><Text strong>삭제 보호:</Text> 반품 연결 시 차단</li>
+            <li><Text strong>교환:</Text> 반품+신규판매 단일 트랜잭션. sales_exchanges 테이블에 3건 연결</li>
             <li><Text strong>금액:</Text> Math.round(qty × unit_price)</li>
             <li><Text strong>당일:</Text> DB CURRENT_DATE 기준</li>
           </ul>
@@ -642,7 +676,7 @@ export default function SystemOverviewPage() {
           <Descriptions bordered size="small" column={2}>
             <Descriptions.Item label="프론트엔드">React 18 + TypeScript + Ant Design 5 + Vite</Descriptions.Item>
             <Descriptions.Item label="백엔드">Express + TypeScript + PostgreSQL (Raw SQL)</Descriptions.Item>
-            <Descriptions.Item label="상태관리">Zustand (9개 스토어)</Descriptions.Item>
+            <Descriptions.Item label="상태관리">Zustand (10개 스토어)</Descriptions.Item>
             <Descriptions.Item label="차트">Recharts / Ant Charts</Descriptions.Item>
             <Descriptions.Item label="타입 체크">cd client && npx tsc --noEmit / cd server && npx tsc --noEmit</Descriptions.Item>
             <Descriptions.Item label="서버">PORT=3000, DB=Render PostgreSQL (Singapore, SSL)</Descriptions.Item>
@@ -650,7 +684,7 @@ export default function SystemOverviewPage() {
         </div>) },
         { key: 'pages', label: <Space><SafetyCertificateOutlined /><Text strong>페이지 ({pageMapData.length}개)</Text></Space>,
           children: <Table dataSource={pageMapData} rowKey="key" size="small" pagination={false} scroll={{ x: 1000 }} columns={[
-            { title: '분류', dataIndex: 'category', width: 70, render: (v: string) => <Tag color={{ '대시보드':'blue','바코드':'cyan','마스터':'green','거래처':'orange','상품':'gold','재고':'lime','재입고':'purple','출고':'geekblue','판매':'volcano','생산':'magenta','자금':'red','직원':'default','시스템':'#595959' }[v]}>{v}</Tag> },
+            { title: '분류', dataIndex: 'category', width: 70, render: (v: string) => <Tag color={{ '대시보드':'blue','바코드':'cyan','마스터':'green','거래처':'orange','상품':'gold','재고':'lime','재입고':'purple','출고':'geekblue','판매':'volcano','생산':'magenta','자금':'red','직원':'default','시스템':'#595959','클레임':'#eb2f96','공지':'#faad14','시즌':'#13c2c2' }[v]}>{v}</Tag> },
             { title: '경로', dataIndex: 'path', width: 200, render: (v: string) => <Text code style={{ fontSize: 11 }}>{v}</Text> },
             { title: '페이지', dataIndex: 'page', width: 200, render: (v: string) => <Text type="secondary" style={{ fontSize: 11 }}>{v}</Text> },
             { title: '권한', dataIndex: 'roles', width: 130, render: (v: string) => <Tag color={v==='ALL'?'green':v.includes('STORE')?'blue':'orange'}>{v}</Tag> },

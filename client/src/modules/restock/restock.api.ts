@@ -37,7 +37,7 @@ export const restockApi = {
     return data.data as Array<{ status: string; count: number; total_qty: number }>;
   },
 
-  receive: async (id: number, items: Array<{ variant_id: number; received_qty: number }>) => {
+  receive: async (id: number, items: Array<{ item_id: number; received_qty: number }>) => {
     const res = await apiFetch(`/api/restocks/${id}/receive`, {
       method: 'PUT',
       body: JSON.stringify({ items }),

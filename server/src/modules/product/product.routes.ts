@@ -157,6 +157,25 @@ router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) =
 }));
 router.get('/',      authMiddleware, productController.list);
 router.get('/variants/search', authMiddleware, productController.searchVariants);
+
+// 상품-부자재 연결 API
+router.get('/:code/materials', ...write, asyncHandler(async (req, res) => {
+  const { productRepository } = await import('./product.repository');
+  const materials = await productRepository.getProductMaterials(req.params.code as string);
+  res.json({ success: true, data: materials });
+}));
+
+router.put('/:code/materials', ...write, asyncHandler(async (req, res) => {
+  const { materials } = req.body;
+  if (!Array.isArray(materials) || materials.length === 0) {
+    res.status(400).json({ success: false, error: '부자재를 1개 이상 등록해야 합니다.' });
+    return;
+  }
+  const { productRepository } = await import('./product.repository');
+  const result = await productRepository.saveProductMaterials(req.params.code as string, materials);
+  res.json({ success: true, data: result });
+}));
+
 router.get('/:code', authMiddleware, productController.getById);
 router.post('/',     ...write, validateRequired(['product_code', 'product_name']), productController.create);
 router.put('/:code/event-price', ...write, productController.updateEventPrice);

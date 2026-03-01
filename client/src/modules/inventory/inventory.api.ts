@@ -105,4 +105,13 @@ export const inventoryApi = {
     if (!data.success) throw new Error(data.error);
     return data.data;
   },
+
+  deadStock: async (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/inventory/dead-stock${q}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as any[];
+  },
+
 };

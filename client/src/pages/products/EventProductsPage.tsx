@@ -88,6 +88,8 @@ export default function EventProductsPage() {
   const [recStoreCodes, setRecStoreCodes] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
 
+  const [eventStatusFilter, setEventStatusFilter] = useState('');
+
   /* ── 마스터 코드 로드 ── */
   useEffect(() => {
     codeApi.getByType('CATEGORY').then((data: any[]) => {
@@ -132,6 +134,8 @@ export default function EventProductsPage() {
       if (fitFilter) params.fit = fitFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (eventStatusFilter === 'active') params.active = 'true';
+      if (eventStatusFilter === 'expired') params.expired = 'true';
       const result = await productApi.listEventProducts(params);
       setData(result.data);
       setTotal(result.total);
@@ -139,7 +143,7 @@ export default function EventProductsPage() {
     finally { setLoading(false); }
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter, sizeFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, eventStatusFilter]);
 
   /* ── 매장 목록 로드 ── */
   useEffect(() => {
@@ -425,10 +429,6 @@ export default function EventProductsPage() {
       },
     },
     {
-      title: '판매량', dataIndex: 'total_sold', key: 'total_sold', width: 70, align: 'right' as const,
-      render: (v: number) => <span style={{ color: Number(v || 0) === 0 ? '#ff4d4f' : '#333' }}>{Number(v || 0)}</span>,
-    },
-    {
       title: '사이즈 현황', key: 'size_detail', width: 200,
       render: (_: any, record: any) => <SizeChips sizeDetail={record.size_detail} />,
     },
@@ -490,6 +490,9 @@ export default function EventProductsPage() {
           <Select showSearch optionFilterProp="label" value={sizeFilter}
             onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={eventStatusFilter} onChange={(v) => { setEventStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체', value: '' }, { label: '진행중', value: 'active' }, { label: '만료', value: 'expired' }]} /></div>
         <Button onClick={handleSearch}>조회</Button>
       </div>
 
@@ -556,7 +559,7 @@ export default function EventProductsPage() {
         pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
         title={() => (
           <span style={{ color: '#888', fontSize: 12 }}>
-            사이즈 깨짐(60%) + 저판매(40%) 가중 점수 · 365일 판매 기반 · 판매중 & 행사가 미설정 · FREE 사이즈 제외 · 점수 내림차순 · 최대 50건
+            사이즈 깨짐(60%) + 남은재고(40%) 가중 점수 · 깨짐 있거나 재고 상위 30% 이상 · 리오더 진행중 제외 · 판매중 & 행사가 미설정 · FREE 사이즈 제외 · 점수 내림차순 · 최대 50건
           </span>
         )}
       />

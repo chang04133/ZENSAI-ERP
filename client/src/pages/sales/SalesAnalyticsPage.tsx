@@ -10,19 +10,15 @@ import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
+import { fmt, fmtW } from '../../utils/format';
+import { CAT_COLORS, COLORS } from '../../utils/constants';
 dayjs.extend(isoWeek);
 
-const fmt = (v: number) => Number(v).toLocaleString();
-const fmtW = (v: number) => `${fmt(v)}원`;
 const ML = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
-const CAT_COLORS: Record<string, string> = {
-  TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4',
-};
 const SEASON_COLORS: Record<string, string> = {
   '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8',
 };
-const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
 
 const growthTag = (cur: number, prev: number) => {
   if (!prev) return cur > 0 ? <Tag color="blue">NEW</Tag> : <Tag color="default">-</Tag>;
@@ -118,7 +114,25 @@ function PeriodTab() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(mode, refDate, categoryFilter); }, []);
+  useEffect(() => {
+    // 초기 로드: 현재 달 데이터 조회 후, 데이터 없으면 이전 달로 자동 이동
+    const r = getRange(mode, refDate);
+    setLoading(true);
+    salesApi.styleByRange(r.from, r.to)
+      .then((d) => {
+        if (d?.totals?.sale_count > 0 || d?.byCategory?.length > 0) {
+          setData(d);
+        } else {
+          // 데이터 없으면 이전 달로 이동
+          const prev = moveRef(mode, refDate, -1);
+          setRefDate(prev);
+          load(mode, prev, categoryFilter);
+          return;
+        }
+      })
+      .catch((e: any) => message.error(e.message))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleModeChange = (v: string) => { const m = v as ViewMode; setMode(m); load(m, refDate, categoryFilter); };
   const handleMove = (dir: number) => { const next = moveRef(mode, refDate, dir); setRefDate(next); load(mode, next, categoryFilter); };

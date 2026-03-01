@@ -89,14 +89,17 @@ class ProductionService extends BaseService<ProductionPlan> {
           [id],
         );
         if (planItems.rows.length > 0) {
-          // 본사 파트너 코드 조회 (partner_type = 'HQ' 또는 '본사' 또는 '직영')
-          const hqResult = await client.query(
-            `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
-          );
-          const hqPartner = hqResult.rows[0]?.partner_code || 'HQ';
+          // 입고 거래처: plan에 지정된 partner_code 사용, 없으면 본사 자동 조회
+          let targetPartner = plan.partner_code;
+          if (!targetPartner) {
+            const hqResult = await client.query(
+              `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
+            );
+            targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
+          }
           for (const item of planItems.rows) {
             await inventoryRepository.applyChange(
-              hqPartner, item.variant_id, item.produced_qty,
+              targetPartner, item.variant_id, item.produced_qty,
               'PRODUCTION', id, userId, client,
             );
           }

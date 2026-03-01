@@ -301,6 +301,19 @@ class InventoryController extends BaseController<Inventory> {
     const result = await inventoryRepository.listTransactions(query);
     res.json({ success: true, data: result });
   });
+  /** 악성재고 분석 */
+  deadStock = asyncHandler(async (req: Request, res: Response) => {
+    const { inventoryRepository } = await import('./inventory.repository');
+    const { min_age_years, category } = req.query;
+    const partnerCode = getStorePartnerCode(req) || undefined;
+    const data = await inventoryRepository.deadStockAnalysis({
+      minAgeYears: min_age_years ? parseInt(min_age_years as string, 10) : undefined,
+      category: category as string | undefined,
+      partnerCode,
+    });
+    res.json({ success: true, data });
+  });
+
 }
 
 export const inventoryController = new InventoryController();

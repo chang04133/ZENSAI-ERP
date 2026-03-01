@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
-import { Form, Input, InputNumber, Select, Switch, Button, Card, Space, Divider, Upload, Image, message } from 'antd';
-import { MinusCircleOutlined, PlusOutlined, UploadOutlined } from '@ant-design/icons';
+import { useEffect, useState, useCallback, useMemo } from 'react';
+import { Form, Input, InputNumber, Select, Switch, Button, Card, Space, Divider, Upload, Image, Table, Tag, message } from 'antd';
+import { MinusCircleOutlined, PlusOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
+import { materialApi } from '../../modules/production/material.api';
 import { codeApi } from '../../modules/code/code.api';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
@@ -34,6 +35,9 @@ export default function ProductFormPage() {
   const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
+  const [allMaterials, setAllMaterials] = useState<any[]>([]);
+  const [productMaterials, setProductMaterials] = useState<Array<{ material_id: number; usage_qty: number }>>([]);
+  const [materialSaving, setMaterialSaving] = useState(false);
 
   const updateSubCategories = useCallback((categoryValue: string | undefined, allCats: any[]) => {
     if (!categoryValue) {
@@ -50,6 +54,13 @@ export default function ProductFormPage() {
     } else {
       setSubCategoryOptions([]);
     }
+  }, []);
+
+  useEffect(() => {
+    materialApi.list({ limit: '500' }).then((res: any) => {
+      const items = res?.data || res || [];
+      setAllMaterials(Array.isArray(items) ? items : []);
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -79,13 +90,17 @@ export default function ProductFormPage() {
   useEffect(() => {
     if (isEdit && code) {
       setFetching(true);
-      productApi.get(code)
-        .then((data) => {
+      Promise.all([
+        productApi.get(code),
+        productApi.getProductMaterials(code),
+      ])
+        .then(([data, mats]) => {
           form.setFieldsValue(data);
           if ((data as any).image_url) setImageUrl((data as any).image_url);
           if (data.category && allCategoryCodes.length > 0) {
             updateSubCategories(data.category, allCategoryCodes);
           }
+          setProductMaterials(mats.map((m: any) => ({ material_id: m.material_id, usage_qty: Number(m.usage_qty) })));
         })
         .catch((e) => message.error(e.message))
         .finally(() => setFetching(false));
@@ -110,21 +125,62 @@ export default function ProductFormPage() {
     return false; // prevent default upload
   };
 
+  // 부자재 기반 원가 계산
+  const materialMap = useMemo(() => {
+    const m: Record<number, any> = {};
+    for (const mat of allMaterials) m[mat.material_id] = mat;
+    return m;
+  }, [allMaterials]);
+
+  const calculatedCostPrice = useMemo(() => {
+    return productMaterials.reduce((sum, pm) => {
+      const mat = materialMap[pm.material_id];
+      if (!mat) return sum;
+      return sum + (pm.usage_qty || 1) * Number(mat.unit_price || 0);
+    }, 0);
+  }, [productMaterials, materialMap]);
+
+  const addMaterial = (materialId: number) => {
+    if (productMaterials.some((pm) => pm.material_id === materialId)) {
+      message.warning('이미 추가된 부자재입니다.');
+      return;
+    }
+    setProductMaterials((prev) => [...prev, { material_id: materialId, usage_qty: 1 }]);
+  };
+
+  const removeMaterial = (materialId: number) => {
+    setProductMaterials((prev) => prev.filter((pm) => pm.material_id !== materialId));
+  };
+
+  const updateMaterialQty = (materialId: number, qty: number) => {
+    setProductMaterials((prev) =>
+      prev.map((pm) => (pm.material_id === materialId ? { ...pm, usage_qty: qty } : pm)),
+    );
+  };
+
   const handleCategoryChange = (value: string) => {
     form.setFieldValue('sub_category', undefined);
     updateSubCategories(value, allCategoryCodes);
   };
 
   const onFinish = async (values: any) => {
+    if (productMaterials.length === 0) {
+      message.warning('부자재를 1개 이상 등록해야 합니다.');
+      return;
+    }
     setLoading(true);
     try {
+      const productCode = isEdit ? code! : values.product_code;
+      // cost_price는 부자재 기반 자동계산
+      values.cost_price = calculatedCostPrice;
       if (isEdit) {
-        await productApi.update(code!, values);
-        message.success('상품이 수정되었습니다.');
+        await productApi.update(productCode, values);
       } else {
         await productApi.create(values);
-        message.success('상품이 등록되었습니다.');
       }
+      // 부자재 저장
+      await productApi.saveProductMaterials(productCode, productMaterials);
+      message.success(isEdit ? '상품이 수정되었습니다.' : '상품이 등록되었습니다.');
       navigate('/products');
     } catch (e: any) {
       message.error(e.message);
@@ -198,8 +254,9 @@ export default function ProductFormPage() {
             <Form.Item name="base_price" label="기본가 (판매가)">
               <InputNumber style={{ width: 160 }} min={0} formatter={priceFormatter} />
             </Form.Item>
-            <Form.Item name="cost_price" label="매입가 (원가)">
-              <InputNumber style={{ width: 160 }} min={0} formatter={priceFormatter} />
+            <Form.Item label="매입가 (원가)">
+              <InputNumber style={{ width: 160 }} value={calculatedCostPrice} formatter={priceFormatter} disabled />
+              <div style={{ fontSize: 11, color: '#888' }}>부자재 합산 자동계산</div>
             </Form.Item>
             <Form.Item name="discount_price" label="할인가">
               <InputNumber style={{ width: 160 }} min={0} formatter={priceFormatter} placeholder="선택" />
@@ -209,7 +266,66 @@ export default function ProductFormPage() {
             </Form.Item>
           </Space>
 
-          <Form.Item name="sale_status" label="판매상태" style={{ maxWidth: 200 }}>
+          <Divider orientation="left">부자재 구성</Divider>
+          <div style={{ marginBottom: 16 }}>
+            <Select
+              showSearch
+              optionFilterProp="label"
+              placeholder="부자재 검색/추가"
+              style={{ width: 320 }}
+              value={undefined}
+              onChange={(v: number) => addMaterial(v)}
+              options={allMaterials
+                .filter((m: any) => m.is_active !== false)
+                .map((m: any) => ({
+                  label: `${m.material_code} - ${m.material_name} (${m.material_type}) ₩${Number(m.unit_price || 0).toLocaleString()}`,
+                  value: m.material_id,
+                }))}
+            />
+          </div>
+          {productMaterials.length === 0 ? (
+            <Tag color="warning">부자재를 1개 이상 등록해야 합니다</Tag>
+          ) : (
+            <Table
+              dataSource={productMaterials.map((pm) => {
+                const mat = materialMap[pm.material_id] || {};
+                const subtotal = (pm.usage_qty || 1) * Number(mat.unit_price || 0);
+                return { ...pm, ...mat, subtotal };
+              })}
+              rowKey="material_id"
+              pagination={false}
+              size="small"
+              columns={[
+                { title: '자재코드', dataIndex: 'material_code', width: 100 },
+                { title: '자재명', dataIndex: 'material_name', width: 140 },
+                { title: '유형', dataIndex: 'material_type', width: 80, render: (v: string) => <Tag>{v === 'FABRIC' ? '원단' : v === 'ACCESSORY' ? '부속' : v === 'PACKAGING' ? '포장' : v}</Tag> },
+                { title: '단가', dataIndex: 'unit_price', width: 100, render: (v: number) => `₩${Number(v || 0).toLocaleString()}` },
+                { title: '사용량', dataIndex: 'usage_qty', width: 100,
+                  render: (_: any, record: any) => (
+                    <InputNumber
+                      min={0.01} step={0.1} value={record.usage_qty}
+                      style={{ width: 80 }}
+                      onChange={(v) => updateMaterialQty(record.material_id, v || 1)}
+                    />
+                  ),
+                },
+                { title: '소계', dataIndex: 'subtotal', width: 100, render: (v: number) => `₩${Math.round(v).toLocaleString()}` },
+                { title: '', key: 'action', width: 50,
+                  render: (_: any, record: any) => (
+                    <Button type="text" danger icon={<DeleteOutlined />} onClick={() => removeMaterial(record.material_id)} />
+                  ),
+                },
+              ]}
+              summary={() => (
+                <Table.Summary.Row>
+                  <Table.Summary.Cell index={0} colSpan={5} align="right"><strong>원가 합계</strong></Table.Summary.Cell>
+                  <Table.Summary.Cell index={5} colSpan={2}><strong>₩{Math.round(calculatedCostPrice).toLocaleString()}</strong></Table.Summary.Cell>
+                </Table.Summary.Row>
+              )}
+            />
+          )}
+
+          <Form.Item name="sale_status" label="판매상태" style={{ maxWidth: 200, marginTop: 16 }}>
             <Select options={SALE_STATUS_OPTIONS} />
           </Form.Item>
 

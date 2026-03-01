@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, CSSProperties } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import {
   Card, Col, Row, Table, Tag, Input, AutoComplete, Spin, Button,
   InputNumber, Select, Space, Modal, Form, Segmented, message,
@@ -13,6 +13,7 @@ import {
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
+import { restockApi } from '../../modules/restock/restock.api';
 
 import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
@@ -21,18 +22,10 @@ import { ROLES } from '../../../../shared/constants/roles';
 import { apiFetch } from '../../core/api.client';
 import RestockManagePage from '../restock/RestockManagePage';
 import { sizeSort } from '../../utils/size-order';
+import { CAT_COLORS, CAT_TAG_COLORS } from '../../utils/constants';
+import StatCard from '../../components/StatCard';
+import HBar from '../../components/HBar';
 
-
-/* ══════════════════════════════════════════
-   공통 상수 / 유틸
-   ══════════════════════════════════════════ */
-const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
-const CAT_COLORS: Record<string, string> = {
-  TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4', '미분류': '#94a3b8',
-};
-const CAT_TAG_COLORS: Record<string, string> = {
-  TOP: 'blue', BOTTOM: 'green', OUTER: 'orange', DRESS: 'magenta', ACC: 'purple',
-};
 const TX_TYPE_LABELS: Record<string, string> = {
   ADJUST: '수동조정', SHIPMENT: '출고', RETURN: '반품', TRANSFER: '이동', SALE: '판매', RESTOCK: '재입고',
 };
@@ -46,70 +39,6 @@ const renderQty = (qty: number) => {
   return <strong style={{ color, fontSize: 14 }}>{n.toLocaleString()}</strong>;
 };
 
-/* ── Stat Card ── */
-function StatCard({ title, value, icon, bg, color, sub, onClick }: {
-  title: string; value: string | number; icon: React.ReactNode;
-  bg: string; color: string; sub?: string; onClick?: () => void;
-}) {
-  const style: CSSProperties = {
-    background: bg, borderRadius: 12, padding: '18px 22px', cursor: onClick ? 'pointer' : 'default',
-    display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 100,
-    transition: 'transform 0.15s', border: 'none',
-  };
-  return (
-    <div style={style} onClick={onClick}
-      onMouseEnter={(e) => onClick && (e.currentTarget.style.transform = 'translateY(-2px)')}
-      onMouseLeave={(e) => onClick && (e.currentTarget.style.transform = 'translateY(0)')}>
-      <div>
-        <div style={{ fontSize: 12, color: color + 'cc', marginBottom: 2 }}>{title}</div>
-        <div style={{ fontSize: 26, fontWeight: 700, color, lineHeight: 1.2 }}>
-          {typeof value === 'number' ? value.toLocaleString() : value}
-        </div>
-        {sub && <div style={{ fontSize: 11, color: color + '99', marginTop: 3 }}>{sub}</div>}
-      </div>
-      <div style={{ fontSize: 32, color: color + '44' }}>{icon}</div>
-    </div>
-  );
-}
-
-/* ── Horizontal Bar ── */
-function HBar({ data, colorKey, onBarClick }: {
-  data: Array<{ label: string; value: number; sub?: string }>;
-  colorKey?: Record<string, string>;
-  onBarClick?: (label: string) => void;
-}) {
-  if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
-  const max = Math.max(...data.map(d => d.value), 1);
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {data.map((d, i) => {
-        const pct = (d.value / max) * 100;
-        const c = colorKey?.[d.label] || COLORS[i % COLORS.length];
-        const clickable = !!onBarClick;
-        return (
-          <div key={d.label} onClick={() => onBarClick?.(d.label)}
-            style={{ cursor: clickable ? 'pointer' : 'default', borderRadius: 8, padding: '2px 4px', transition: 'background 0.15s' }}
-            onMouseEnter={(e) => clickable && (e.currentTarget.style.background = '#f0f1f3')}
-            onMouseLeave={(e) => clickable && (e.currentTarget.style.background = 'transparent')}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
-                {d.value.toLocaleString()}개
-                {d.sub && <span style={{ fontWeight: 400, color: '#999', marginLeft: 6 }}>{d.sub}</span>}
-              </span>
-            </div>
-            <div style={{ background: '#f3f4f6', borderRadius: 6, height: 18, overflow: 'hidden' }}>
-              <div style={{
-                width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${c}, ${c}aa)`,
-                borderRadius: 6, transition: 'width 0.5s ease',
-              }} />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 /* ══════════════════════════════════════════
    Tab 1: 대시보드 (기존 InventoryStatusPage)
@@ -131,6 +60,8 @@ function DashboardTab() {
   const [searchLoading, setSearchLoading] = useState(false);
   const [srchColorFilter, setSrchColorFilter] = useState('');
   const [srchSizeFilter, setSrchSizeFilter] = useState('');
+  const [srchCategoryFilter, setSrchCategoryFilter] = useState('');
+  const [srchSeasonFilter, setSrchSeasonFilter] = useState('');
   const [srchColorOpts, setSrchColorOpts] = useState<{ label: string; value: string }[]>([]);
   const [srchSizeOpts, setSrchSizeOpts] = useState<{ label: string; value: string }[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
@@ -138,6 +69,13 @@ function DashboardTab() {
 
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
+
+  // 재입고 제안
+  const [restockData, setRestockData] = useState<any[]>([]);
+  const [restockLoading, setRestockLoading] = useState(false);
+  const [restockOpen, setRestockOpen] = useState(false);
+  const [restockGradeFilter, setRestockGradeFilter] = useState('');
+  const restockRef = useRef<HTMLDivElement>(null);
 
   // 드릴다운 상태
   const [drillDown, setDrillDown] = useState<{ title: string; params: Record<string, string> } | null>(null);
@@ -184,6 +122,18 @@ function DashboardTab() {
     loadDrill(params, 1, 'qty_desc');
     setTimeout(() => drillRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
   }, [loadDrill]);
+
+  const openRestockSuggestions = useCallback(async () => {
+    if (restockOpen) { setRestockOpen(false); return; }
+    setRestockOpen(true);
+    setRestockLoading(true);
+    try {
+      const data = await restockApi.getRestockSuggestions();
+      setRestockData(data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setRestockLoading(false); }
+    setTimeout(() => restockRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 150);
+  }, [restockOpen]);
 
   useEffect(() => {
     if (drillDown) loadDrill(drillDown.params, drillPage);
@@ -291,9 +241,16 @@ function DashboardTab() {
   const bySeason = (stats?.bySeason || []) as Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
   const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
   const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
+  const searchResultRef = useRef<HTMLDivElement>(null);
+
+  const analyzeProduct = (productCode: string) => {
+    onSearchSelect(productCode);
+    setTimeout(() => searchResultRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 200);
+  };
+
   const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
-      render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
+      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a>,
     },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
     { title: 'Color', dataIndex: 'color', key: 'color', width: 55 },
@@ -349,7 +306,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
+      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a>,
     },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
@@ -397,7 +354,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a> },
+      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a> },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
@@ -412,7 +369,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a> },
+      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a> },
     { title: '색상', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
@@ -473,10 +430,10 @@ function DashboardTab() {
         )}
         {!effectiveStore && (
           <Col xs={24} sm={12} lg={6}>
-            <StatCard title="재입고 관리" value="바로가기"
+            <StatCard title="재입고 제안" value={restockOpen ? restockData.length : '조회'}
               icon={<ReloadOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
               sub="보충 필요 품목 확인"
-              onClick={() => navigate('/inventory/restock')} />
+              onClick={openRestockSuggestions} />
           </Col>
         )}
         <Col xs={24} sm={8} lg={6}>
@@ -488,7 +445,7 @@ function DashboardTab() {
 
       {/* 재고찾기 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 16, marginBottom: searchResult ? 16 : 0, alignItems: 'flex-end' }}>
-        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>재고찾기</div>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete value={searchText} onChange={onSearchChange} onSelect={onSearchSelect}
             style={{ width: '100%' }}
             options={searchSuggestions.map(s => ({
@@ -503,20 +460,45 @@ function DashboardTab() {
             <Input placeholder="상품명, SKU, 상품코드" prefix={<SearchOutlined />}
               onPressEnter={() => searchText.trim() && onSearchSelect(searchText.trim())} />
           </AutoComplete></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select value={srchCategoryFilter} onChange={(v) => { setSrchCategoryFilter(v); if (v) { openDrillDown(`카테고리: ${v}`, { category: v, ...(srchSeasonFilter ? { season: srchSeasonFilter } : {}) }); } }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...byCategory.map(c => ({ label: c.category, value: c.category }))]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select value={srchSeasonFilter} onChange={(v) => { setSrchSeasonFilter(v); if (v) { openDrillDown(`시즌: ${v}`, { season: v, ...(srchCategoryFilter ? { category: srchCategoryFilter } : {}) }); } }} style={{ width: 120 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
+              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+            ]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
-          <Select value={srchColorFilter} onChange={setSrchColorFilter} style={{ width: 110 }}
-            options={[{ label: '전체', value: '' }, ...srchColorOpts]} /></div>
+          <Select showSearch optionFilterProp="label" value={srchColorFilter} onChange={setSrchColorFilter} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...srchColorOpts]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-          <Select value={srchSizeFilter} onChange={setSrchSizeFilter} style={{ width: 100 }}
-            options={[{ label: '전체', value: '' }, ...srchSizeOpts]} /></div>
-        <Button onClick={() => searchText.trim() && onSearchSelect(searchText.trim())} loading={searchLoading}>조회</Button>
+          <Select showSearch optionFilterProp="label" value={srchSizeFilter} onChange={setSrchSizeFilter} style={{ width: 110 }}
+            options={[{ label: '전체 보기', value: '' }, ...srchSizeOpts]} /></div>
+        <Button onClick={() => {
+          if (searchText.trim()) { onSearchSelect(searchText.trim()); return; }
+          const params: Record<string, string> = {};
+          if (srchCategoryFilter) params.category = srchCategoryFilter;
+          if (srchSeasonFilter) params.season = srchSeasonFilter;
+          if (srchColorFilter) params.color = srchColorFilter;
+          if (srchSizeFilter) params.size = srchSizeFilter;
+          if (Object.keys(params).length > 0) {
+            const parts = [];
+            if (params.category) parts.push(params.category);
+            if (params.season) parts.push(params.season);
+            if (params.color) parts.push(params.color);
+            if (params.size) parts.push(params.size);
+            openDrillDown(`필터: ${parts.join(' · ')}`, params);
+          }
+        }} loading={searchLoading}>조회</Button>
       </div>
         {searchLoading && <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>}
         {!searchLoading && searchResult && !searchResult.product && (
           <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>검색 결과가 없습니다</div>
         )}
         {!searchLoading && searchResult?.product && (
-          <div>
+          <div ref={searchResultRef}>
             <div style={{ marginBottom: 12, padding: '8px 12px', background: '#f8f9fb', borderRadius: 8 }}>
               <span style={{ fontSize: 16, fontWeight: 700 }}>{searchResult.product.product_name}</span>
               <span style={{ marginLeft: 12, color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{searchResult.product.product_code}</span>
@@ -635,6 +617,95 @@ function DashboardTab() {
             </div>
           )}
         </Card>
+      )}
+
+      {/* 재입고 제안 */}
+      {restockOpen && (
+        <div ref={restockRef} style={{ marginTop: 16 }}>
+          <Card
+            size="small"
+            style={{ borderRadius: 10, border: '2px solid #d946ef' }}
+            title={
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ReloadOutlined style={{ color: '#d946ef' }} />
+                <span style={{ fontSize: 16, fontWeight: 700 }}>재입고 제안</span>
+                <Tag color="purple">{(restockGradeFilter ? restockData.filter(r => r.grade === restockGradeFilter) : restockData).length}건</Tag>
+              </div>
+            }
+            extra={
+              <Space size="middle" wrap>
+                <Segmented size="small" value={restockGradeFilter}
+                  onChange={(v) => setRestockGradeFilter(v as string)}
+                  options={[
+                    { label: '전체', value: '' },
+                    { label: 'S', value: 'S' },
+                    { label: 'A', value: 'A' },
+                    { label: 'B', value: 'B' },
+                    { label: 'C', value: 'C' },
+                  ]} />
+                <Button size="small" onClick={() => navigate('/inventory/restock')}>재입고 관리</Button>
+                <Button size="small" onClick={() => setRestockOpen(false)}>닫기</Button>
+              </Space>
+            }
+          >
+            <Table
+              columns={[
+                { title: '등급', dataIndex: 'grade', key: 'grade', width: 60, align: 'center' as const,
+                  render: (v: string) => {
+                    const colors: Record<string, string> = { S: 'red', A: 'orange', B: 'blue', C: 'default' };
+                    return <Tag color={colors[v] || 'default'} style={{ fontWeight: 700 }}>{v}</Tag>;
+                  },
+                },
+                { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 130, ellipsis: true,
+                  render: (v: string) => <a onClick={() => analyzeProduct(v)}>{v}</a>,
+                },
+                { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, ellipsis: true },
+                { title: '색상', dataIndex: 'color', key: 'color', width: 65 },
+                { title: '사이즈', dataIndex: 'size', key: 'size', width: 65, render: (v: string) => <Tag>{v}</Tag> },
+                { title: '현재고', dataIndex: 'current_stock', key: 'stock', width: 75, align: 'right' as const,
+                  render: (v: number) => {
+                    const n = Number(v);
+                    return <strong style={{ color: n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333' }}>{n}</strong>;
+                  },
+                },
+                { title: '30일수요', dataIndex: 'demand_30d', key: 'demand', width: 80, align: 'right' as const,
+                  render: (v: number) => <span style={{ fontWeight: 600 }}>{Number(v)}</span>,
+                },
+                { title: '부족량', dataIndex: 'shortage_qty', key: 'shortage', width: 75, align: 'right' as const,
+                  render: (v: number) => <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{Number(v)}</span>,
+                },
+                { title: '제안수량', dataIndex: 'suggested_qty', key: 'suggest', width: 80, align: 'right' as const,
+                  render: (v: number) => <Tag color="purple" style={{ fontWeight: 700 }}>{Number(v)}</Tag>,
+                },
+                { title: '잔여일', dataIndex: 'days_of_stock', key: 'days', width: 70, align: 'right' as const,
+                  render: (v: number) => {
+                    const d = Number(v);
+                    const color = d <= 3 ? '#ff4d4f' : d <= 7 ? '#fa8c16' : d <= 14 ? '#faad14' : '#333';
+                    return <span style={{ fontWeight: 700, color }}>{d}일</span>;
+                  },
+                },
+                { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 80, align: 'center' as const,
+                  render: (v: string) => {
+                    const m: Record<string, { color: string; label: string }> = {
+                      CRITICAL: { color: 'red', label: '긴급' },
+                      WARNING: { color: 'orange', label: '주의' },
+                      NORMAL: { color: 'green', label: '정상' },
+                    };
+                    const info = m[v] || { color: 'default', label: v };
+                    return <Tag color={info.color}>{info.label}</Tag>;
+                  },
+                },
+              ]}
+              dataSource={restockGradeFilter ? restockData.filter(r => r.grade === restockGradeFilter) : restockData}
+              rowKey="variant_id"
+              loading={restockLoading}
+              size="small"
+              scroll={{ x: 1100, y: 'calc(100vh - 400px)' }}
+              pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+            />
+          </Card>
+        </div>
       )}
 
       {/* 드릴다운 결과 */}
@@ -944,10 +1015,7 @@ function StoreInventoryTab() {
 /* ══════════════════════════════════════════
    Tab 3: 재고조정 (기존 InventoryAdjustPage)
    ══════════════════════════════════════════ */
-type AdjustViewMode = 'inventory' | 'history';
-
 function AdjustTab() {
-  const [viewMode, setViewMode] = useState<AdjustViewMode>('inventory');
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -961,6 +1029,7 @@ function AdjustTab() {
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
+  const [lastAdjust, setLastAdjust] = useState<any>(null);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<any>(null);
@@ -973,14 +1042,6 @@ function AdjustTab() {
   const [expandedKeys, setExpandedKeys] = useState<number[]>([]);
   const [txCache, setTxCache] = useState<Record<string, any[]>>({});
   const [txLoadingKeys, setTxLoadingKeys] = useState<string[]>([]);
-
-  const [txData, setTxData] = useState<any[]>([]);
-  const [txTotal, setTxTotal] = useState(0);
-  const [txLoading, setTxLoading] = useState(false);
-  const [txPage, setTxPage] = useState(1);
-  const [txSearch, setTxSearch] = useState('');
-  const [txTypeFilter, setTxTypeFilter] = useState('');
-  const [txPartnerFilter, setTxPartnerFilter] = useState('');
 
   const load = async (p?: number) => {
     const currentPage = p ?? page;
@@ -998,21 +1059,6 @@ function AdjustTab() {
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  };
-
-  const loadTx = async (p?: number) => {
-    const currentPage = p ?? txPage;
-    setTxLoading(true);
-    try {
-      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
-      if (txSearch) params.search = txSearch;
-      if (txTypeFilter) params.tx_type = txTypeFilter;
-      if (txPartnerFilter) params.partner_code = txPartnerFilter;
-      const result = await inventoryApi.transactions(params);
-      setTxData(result.data);
-      setTxTotal(result.total);
-    } catch (e: any) { message.error(e.message); }
-    finally { setTxLoading(false); }
   };
 
   const loadItemTx = async (record: any) => {
@@ -1037,15 +1083,22 @@ function AdjustTab() {
     } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
   };
 
+  const loadLastAdjust = async () => {
+    try {
+      const result = await inventoryApi.transactions({ tx_type: 'ADJUST', limit: '1' });
+      setLastAdjust(result.data?.[0] || null);
+    } catch { /* ignore */ }
+  };
+
   useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, seasonFilter, colorFilter, sizeFilter]);
   useEffect(() => {
     loadPartners();
+    loadLastAdjust();
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
     }).catch(() => {});
   }, []);
-  useEffect(() => { if (viewMode === 'history') loadTx(); }, [viewMode, txPage, txTypeFilter, txPartnerFilter]);
 
   const openAdjust = (record: any) => {
     setAdjustTarget(record);
@@ -1069,6 +1122,7 @@ function AdjustTab() {
       setTxCache(prev => { const next = { ...prev }; delete next[key]; return next; });
       if (expandedKeys.includes(adjustTarget.inventory_id)) loadItemTx(adjustTarget);
       load();
+      loadLastAdjust();
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -1093,6 +1147,7 @@ function AdjustTab() {
       setNewModalOpen(false);
       newForm.resetFields();
       load();
+      loadLastAdjust();
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -1148,105 +1203,64 @@ function AdjustTab() {
       render: (_: any, record: any) => <Button size="small" icon={<EditOutlined />} onClick={(e) => { e.stopPropagation(); openAdjust(record); }}>조정</Button> },
   ];
 
-  const txColumns = [
-    { title: '일시', dataIndex: 'created_at', key: 'time', width: 155, render: (v: string) => new Date(v).toLocaleString('ko-KR'),
-      sorter: (a: any, b: any) => a.created_at.localeCompare(b.created_at) },
-    { title: '유형', dataIndex: 'tx_type', key: 'type', width: 85, render: (v: string) => <Tag color={TX_TYPE_COLORS[v]}>{TX_TYPE_LABELS[v] || v}</Tag> },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner', width: 110, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 130 },
-    { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
-    { title: '색상', dataIndex: 'color', key: 'color', width: 65, render: (v: string) => v || '-' },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 60, render: (v: string) => v || '-' },
-    { title: '변동', dataIndex: 'qty_change', key: 'change', width: 75, align: 'right' as const,
-      render: (v: number) => <span style={{ color: v > 0 ? '#52c41a' : '#ff4d4f', fontWeight: 700 }}>{v > 0 ? '+' : ''}{v}</span> },
-    { title: '조정후', dataIndex: 'qty_after', key: 'after', width: 70, align: 'right' as const },
-    { title: '메모', dataIndex: 'memo', key: 'memo', ellipsis: true, render: (v: string) => v || '-' },
-    { title: '작업자', dataIndex: 'created_by', key: 'user', width: 90 },
-  ];
-
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
-            value={viewMode === 'inventory' ? search : txSearch}
-            onChange={(e) => viewMode === 'inventory' ? setSearch(e.target.value) : setTxSearch(e.target.value)}
-            onPressEnter={() => {
-              if (viewMode === 'inventory') { setPage(1); load(1); }
-              else { setTxPage(1); loadTx(1); }
-            }} style={{ width: '100%' }} /></div>
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={() => { setPage(1); load(1); }} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
-          <Select showSearch optionFilterProp="label"
-            value={viewMode === 'inventory' ? partnerFilter : txPartnerFilter}
-            onChange={(v) => {
-              if (viewMode === 'inventory') { setPartnerFilter(v); setPage(1); }
-              else { setTxPartnerFilter(v); setTxPage(1); }
-            }} style={{ width: 180 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} /></div>
-        {viewMode === 'inventory' && (
-          <>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-              <Select style={{ width: 120 }} value={categoryFilter}
-                onChange={(v) => { setCategoryFilter(v); setPage(1); }}
-                options={[{ label: '전체 보기', value: '' }, { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' }, { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' }]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-              <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[
-                  { label: '전체 보기', value: '' },
-                  { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-                  { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-                ]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
-              <Select showSearch optionFilterProp="label" value={colorFilter}
-                onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-              <Select showSearch optionFilterProp="label" value={sizeFilter}
-                onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
-                options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
-          </>
-        )}
-        {viewMode === 'history' && (
-          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
-            <Select style={{ width: 120 }} value={txTypeFilter}
-              onChange={(v) => { setTxTypeFilter(v); setTxPage(1); }}
-              options={[{ label: '전체 보기', value: '' }, ...Object.entries(TX_TYPE_LABELS).map(([k, v]) => ({ label: v, value: k }))]} /></div>
-        )}
-        <Button onClick={() => {
-          if (viewMode === 'inventory') { setPage(1); load(1); }
-          else { setTxPage(1); loadTx(1); }
-        }}>조회</Button>
+          <Select showSearch optionFilterProp="label" value={partnerFilter}
+            onChange={(v) => { setPartnerFilter(v); setPage(1); }}
+            style={{ width: 180 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select style={{ width: 120 }} value={categoryFilter}
+            onChange={(v) => { setCategoryFilter(v); setPage(1); }}
+            options={[{ label: '전체 보기', value: '' }, { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' }, { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' }]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
+              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+            ]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select showSearch optionFilterProp="label" value={colorFilter}
+            onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
+          <Select showSearch optionFilterProp="label" value={sizeFilter}
+            onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+        <Button onClick={() => { setPage(1); load(1); }}>조회</Button>
         <Button type="primary" icon={<PlusOutlined />}
           onClick={() => { newForm.resetFields(); setVariantOptions([]); setNewModalOpen(true); }}>
           신규 재고 등록
         </Button>
       </div>
 
-      <div style={{ marginBottom: 12 }}>
-        <Segmented value={viewMode} onChange={(v) => setViewMode(v as AdjustViewMode)}
-          options={[
-            { label: '재고현황', value: 'inventory', icon: <InboxOutlined /> },
-            { label: '조정이력', value: 'history', icon: <HistoryOutlined /> },
-          ]} size="small" />
-      </div>
+      {lastAdjust && (
+        <div style={{ marginBottom: 12, fontSize: 12, color: '#888' }}>
+          <HistoryOutlined style={{ marginRight: 4 }} />
+          최근 조정: {new Date(lastAdjust.created_at).toLocaleString('ko-KR')}
+          <span style={{ marginLeft: 6, color: '#aaa' }}>
+            ({lastAdjust.partner_name} · {lastAdjust.product_name} · {lastAdjust.created_by})
+          </span>
+        </div>
+      )}
 
-      {viewMode === 'inventory' && (
-        <Table columns={invColumns} dataSource={data} rowKey="inventory_id" loading={loading} size="small"
-          scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
-          pagination={{ current: page, total, pageSize: 50, onChange: (p) => setPage(p), showTotal: (t) => `총 ${t}건`, size: 'small' }}
-          expandable={{
-            expandedRowKeys: expandedKeys,
-            onExpand: (expanded, record) => {
-              if (expanded) { setExpandedKeys(prev => [...prev, record.inventory_id]); loadItemTx(record); }
-              else { setExpandedKeys(prev => prev.filter(k => k !== record.inventory_id)); }
-            },
-            expandedRowRender,
-          }} />
-      )}
-      {viewMode === 'history' && (
-        <Table columns={txColumns} dataSource={txData} rowKey="tx_id" loading={txLoading} size="small"
-          scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
-          pagination={{ current: txPage, total: txTotal, pageSize: 50, onChange: (p) => setTxPage(p), showTotal: (t) => `총 ${t}건`, size: 'small' }} />
-      )}
+      <Table columns={invColumns} dataSource={data} rowKey="inventory_id" loading={loading} size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: (p) => setPage(p), showTotal: (t) => `총 ${t}건`, size: 'small' }}
+        expandable={{
+          expandedRowKeys: expandedKeys,
+          onExpand: (expanded, record) => {
+            if (expanded) { setExpandedKeys(prev => [...prev, record.inventory_id]); loadItemTx(record); }
+            else { setExpandedKeys(prev => prev.filter(k => k !== record.inventory_id)); }
+          },
+          expandedRowRender,
+        }} />
 
       {/* 조정 모달 */}
       <Modal title="재고 조정" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="조정" cancelText="취소">

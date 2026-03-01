@@ -4,6 +4,7 @@ import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOut
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { sizeSort } from '../../utils/size-order';
+import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
 
 const STOCK_LEVELS = [
   { label: '전체', value: '' },
@@ -12,9 +13,6 @@ const STOCK_LEVELS = [
   { label: '보통', value: 'medium' },
   { label: '충분', value: 'good' },
 ];
-
-const CATEGORY_OPTIONS = ['TOP', 'BOTTOM', 'OUTER', 'DRESS', 'ACC', 'SET'].map(c => ({ label: c, value: c }));
-const SIZE_OPTIONS = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'].map(s => ({ label: s, value: s }));
 type ViewMode = 'product' | 'color' | 'size';
 
 export default function MyStoreInventoryPage() {

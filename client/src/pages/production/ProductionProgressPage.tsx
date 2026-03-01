@@ -3,6 +3,7 @@ import { Card, Table, Tag, Button, Modal, InputNumber, Progress, Space, Select, 
 import { SyncOutlined, SaveOutlined } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import type { ProductionPlan, ProductionPlanItem } from '../../../../shared/types/production';
+import { fmtNum } from '../../utils/format';
 
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'default', CONFIRMED: 'blue', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
@@ -10,8 +11,6 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
-
-const fmtNum = (v: number) => v.toLocaleString();
 
 export default function ProductionProgressPage() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);

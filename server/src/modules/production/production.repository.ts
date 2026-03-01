@@ -83,6 +83,17 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           [plan.plan_id, item.category, item.sub_category || null, item.fit || null, item.length || null,
            item.plan_qty, item.unit_cost || null, item.memo || null],
         );
+
+        // 매칭 상품 is_reorder = TRUE 자동 업데이트
+        const matchConds: string[] = ['p.category = $1'];
+        const matchParams: any[] = [item.category];
+        let mi = 2;
+        if (item.fit) { matchConds.push(`p.fit = $${mi}`); matchParams.push(item.fit); mi++; }
+        if (item.length) { matchConds.push(`p.length = $${mi}`); matchParams.push(item.length); mi++; }
+        await client.query(
+          `UPDATE products p SET is_reorder = TRUE WHERE is_active = TRUE AND is_reorder = FALSE AND ${matchConds.join(' AND ')}`,
+          matchParams,
+        );
       }
 
       await client.query('COMMIT');
@@ -186,12 +197,13 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const limit = options.limit || 30;
 
     // 설정값 조회: 판매기간(일), 판매율 임계값(%)
+    // 자동생산등급용 별도 기간 (AUTO_PROD_SALES_PERIOD_DAYS, 기본 14일)
     const settingsResult = await pool.query(
-      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('AUTO_PROD_SALES_PERIOD_DAYS', 'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
     );
     const settingsMap: Record<string, string> = {};
     for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
-    const salesPeriodDays = parseInt(settingsMap.PRODUCTION_SALES_PERIOD_DAYS || '60', 10);
+    const salesPeriodDays = parseInt(settingsMap.AUTO_PROD_SALES_PERIOD_DAYS || '14', 10);
     const sellThroughThreshold = parseFloat(settingsMap.PRODUCTION_SELL_THROUGH_THRESHOLD || '40');
 
     const conditions: string[] = [];
@@ -295,7 +307,18 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       LIMIT $${idx}`;
 
     const result = await pool.query(sql, [...params, limit]);
-    return result.rows;
+
+    // 등급 분류 추가
+    const gradeSettings = await this.autoGenerateSettings();
+    return result.rows.map((r: any) => {
+      const rate = Number(r.sell_through_rate);
+      let grade: string;
+      if (rate >= gradeSettings.gradeS.min) grade = 'S';
+      else if (rate >= gradeSettings.gradeA.min) grade = 'A';
+      else if (rate >= gradeSettings.gradeB.min) grade = 'B';
+      else grade = 'C';
+      return { ...r, grade };
+    });
   }
 
   async categorySummary(): Promise<any[]> {
@@ -479,12 +502,13 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
   async productVariantDetail(productCode: string): Promise<any[]> {
     const pool = getPool();
-    // 설정값: 판매기간
+    // 설정값: 자동생산등급용 판매기간
     const settingsResult = await pool.query(
-      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'PRODUCTION_SALES_PERIOD_DAYS'",
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('AUTO_PROD_SALES_PERIOD_DAYS', 'PRODUCTION_SALES_PERIOD_DAYS')",
     );
-    const salesPeriodDays = settingsResult.rows.length > 0
-      ? parseInt(settingsResult.rows[0].code_label || '60', 10) : 60;
+    const settingsMap: Record<string, string> = {};
+    for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
+    const salesPeriodDays = parseInt(settingsMap.AUTO_PROD_SALES_PERIOD_DAYS || '14', 10);
 
     const sql = `
       SELECT pv.color, pv.size, pv.sku,
@@ -600,10 +624,14 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         const planNo = (await pool.query('SELECT generate_plan_no() as no')).rows[0].no;
         const planName = `[자동] ${cat} 생산기획 (${gradeSummary})`;
 
+        // target_date: 현재 월 1일 (자금계획 연동을 위해 필수)
+        const now = new Date();
+        const targetDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
         const planResult = await client.query(
-          `INSERT INTO production_plans (plan_no, plan_name, season, memo, created_by)
-           VALUES ($1, $2, $3, $4, $5) RETURNING *`,
-          [planNo, planName, currentSeason,
+          `INSERT INTO production_plans (plan_no, plan_name, season, target_date, memo, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [planNo, planName, currentSeason, targetDate,
            `판매율 기반 자동 생성. ${items.length}개 품목, 총 ${totalQty}개. ${gradeSummary}`,
            userId],
         );

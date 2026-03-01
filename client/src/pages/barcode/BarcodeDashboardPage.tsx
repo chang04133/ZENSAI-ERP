@@ -12,11 +12,8 @@ import { productApi } from '../../modules/product/product.api';
 import { salesApi } from '../../modules/sales/sales.api';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
 import BarcodeScanner from '../../components/BarcodeScanner';
-
-const fmt = (v: number) => Number(v).toLocaleString();
-const CAT_COLORS: Record<string, string> = {
-  TOP: 'blue', BOTTOM: 'green', OUTER: 'orange', DRESS: 'magenta', ACC: 'purple',
-};
+import { fmt } from '../../utils/format';
+import { CAT_TAG_COLORS as CAT_COLORS } from '../../utils/constants';
 
 interface ScanResult {
   variant_id: number;

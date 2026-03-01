@@ -317,7 +317,27 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         END ASC,
         shortage_qty DESC
       LIMIT 200`;
-    return (await this.pool.query(sql, [salesPeriodDays])).rows;
+    const rows = (await this.pool.query(sql, [salesPeriodDays])).rows;
+
+    // 등급 분류 추가 (자동생산등급 기준)
+    const gradeResult = await this.pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'AUTO_PROD_GRADE_%_MIN'",
+    );
+    const gradeMap: Record<string, number> = {};
+    for (const r of gradeResult.rows) gradeMap[r.code_value] = parseInt(r.code_label || '0', 10);
+    const sMin = gradeMap.AUTO_PROD_GRADE_S_MIN || 80;
+    const aMin = gradeMap.AUTO_PROD_GRADE_A_MIN || 50;
+    const bMin = gradeMap.AUTO_PROD_GRADE_B_MIN || 30;
+
+    return rows.map((r: any) => {
+      const rate = Number(r.sell_through_rate);
+      let grade: string;
+      if (rate >= sMin) grade = 'S';
+      else if (rate >= aMin) grade = 'A';
+      else if (rate >= bMin) grade = 'B';
+      else grade = 'C';
+      return { ...r, grade };
+    });
   }
 
   /** 진행중인 재입고 통계 */

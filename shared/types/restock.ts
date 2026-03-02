@@ -58,6 +58,10 @@ export interface RestockSuggestion {
   color: string;
   size: string;
   season: string;
+  category: string;
+  sub_category: string | null;
+  fit: string | null;
+  length: string | null;
   // 판매 분석 (시스템 설정 기간 기반)
   total_sold: number;
   avg_daily: number;

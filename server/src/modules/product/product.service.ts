@@ -39,9 +39,6 @@ class ProductService extends BaseService<Product> {
     return productRepository.bulkUpdateEventPrices(updates, storeCodes);
   }
 
-  async eventRecommendations(options: { category?: string; limit?: number }) {
-    return productRepository.eventRecommendations(options);
-  }
 }
 
 export const productService = new ProductService();

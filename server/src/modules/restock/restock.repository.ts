@@ -179,7 +179,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       sales_velocity AS (
         SELECT
           pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
-          p.season,
+          p.season, p.category, p.sub_category, p.fit, p.length,
           CASE
             WHEN p.season LIKE '%SA' THEN 'SA'
             WHEN p.season LIKE '%SM' THEN 'SM'
@@ -197,7 +197,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
-        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
+        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season, p.category, p.sub_category, p.fit, p.length
       ),
       current_stock AS (
         SELECT variant_id, COALESCE(SUM(qty), 0)::int AS total_stock
@@ -224,7 +224,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       ),
       zero_stock AS (
         SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
-               p.season, 'SA' AS product_season,
+               p.season, p.category, p.sub_category, p.fit, p.length, 'SA' AS product_season,
                0 AS total_sold, 0::numeric AS avg_daily, 0 AS predicted_30d
         FROM product_variants pv
         JOIN products p ON pv.product_code = p.product_code
@@ -234,7 +234,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           AND COALESCE(i.qty, 0) = 0
           AND pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
           AND pv.variant_id NOT IN (SELECT variant_id FROM pending_restocks WHERE pending_qty > 0)
-        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season
+        GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season, p.category, p.sub_category, p.fit, p.length
       ),
       broken_size_check AS (
         SELECT pv.variant_id
@@ -254,7 +254,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       ),
       broken_size_items AS (
         SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
-               p.season,
+               p.season, p.category, p.sub_category, p.fit, p.length,
                CASE
                  WHEN p.season LIKE '%SA' THEN 'SA' WHEN p.season LIKE '%SM' THEN 'SM'
                  WHEN p.season LIKE '%WN' THEN 'WN' WHEN p.season LIKE '%SS' THEN 'SA'
@@ -276,7 +276,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       )
       SELECT
         sv.variant_id, sv.product_code, sv.product_name, sv.sku, sv.color, sv.size,
-        sv.season,
+        sv.season, sv.category, sv.sub_category, sv.fit, sv.length,
         sv.total_sold,
         sv.avg_daily::float,
         COALESCE(sw.weight, 1.0)::float AS season_weight,

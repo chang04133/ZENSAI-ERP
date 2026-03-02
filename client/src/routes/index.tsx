@@ -14,7 +14,6 @@ const PartnerFormPage = lazy(() => import('../pages/partners/PartnerFormPage'));
 const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
-const EventProductsPage = lazy(() => import('../pages/products/EventProductsPage'));
 const DeadStockPage = lazy(() => import('../pages/products/DeadStockPage'));
 
 // Users
@@ -62,6 +61,7 @@ const BarcodeDashboardPage = lazy(() => import('../pages/barcode/BarcodeDashboar
 const DeletedDataPage = lazy(() => import('../pages/system/DeletedDataPage'));
 const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage'));
 const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
+const ActivityLogPage = lazy(() => import('../pages/system/ActivityLogPage'));
 
 // ── NEW: 신규 모듈 ──
 // Claim (클레임/AS)
@@ -98,7 +98,6 @@ export const appRoutes: AppRoute[] = [
 
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
-  { path: '/products/events', element: <EventProductsPage />, roles: ADMIN_HQ_STORE },
   { path: '/products/dead-stock', element: <DeadStockPage />, roles: ADMIN_HQ_STORE },
   { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
@@ -120,8 +119,7 @@ export const appRoutes: AppRoute[] = [
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+{ path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/inbound', element: <InboundPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
@@ -162,6 +160,7 @@ export const appRoutes: AppRoute[] = [
 
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
   { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
+  { path: '/system/activity-logs', element: <ActivityLogPage />, roles: ADMIN_SYS },
 
 ];
 

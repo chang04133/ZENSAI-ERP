@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,7 @@ import { codeApi } from '../../modules/code/code.api';
 import { getToken, apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 import { SALE_STATUS_COLORS } from '../../utils/constants';
+import { exportToExcel } from '../../utils/export-excel';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
@@ -41,6 +42,7 @@ export default function ProductListPage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([]);
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string | undefined>();
+  const [issueFilter, setIssueFilter] = useState('');
   const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
@@ -134,6 +136,22 @@ export default function ProductListPage() {
     }
   };
 
+  const handleToggleEvent = async (productCode: string, checked: boolean, record: any) => {
+    try {
+      if (checked) {
+        const price = record.discount_price || record.base_price || 0;
+        await productApi.updateEventPrice(productCode, price);
+        message.success(`${record.product_name} 행사 등록 (${Number(price).toLocaleString()}원)`);
+      } else {
+        await productApi.updateEventPrice(productCode, null);
+        message.success(`${record.product_name} 행사 해제`);
+      }
+      load();
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
   const handleDownloadTemplate = () => {
     const token = getToken();
     fetch('/api/products/excel/template', {
@@ -185,6 +203,53 @@ export default function ProductListPage() {
     return false;
   };
 
+  const [excelLoading, setExcelLoading] = useState(false);
+
+  const handleExcelDownload = async () => {
+    setExcelLoading(true);
+    try {
+      const params: Record<string, string> = {};
+      if (search) params.search = search;
+      if (categoryFilter) params.category = categoryFilter;
+      if (subCategoryFilter) params.sub_category = subCategoryFilter;
+      if (seasonFilter) params.season = seasonFilter;
+      if (fitFilter) params.fit = fitFilter;
+      if (statusFilter) params.sale_status = statusFilter;
+      if (colorFilter) params.color = colorFilter;
+      if (sizeFilter) params.size = sizeFilter;
+      const rows = await productApi.exportVariants(params);
+      const excelCols = [
+        { title: '상품코드', key: 'product_code' },
+        { title: 'SKU', key: 'sku' },
+        { title: '상품명', key: 'product_name' },
+        { title: '카테고리', key: 'category' },
+        { title: '세부카테고리', key: 'sub_category' },
+        { title: '브랜드', key: 'brand' },
+        { title: '시즌', key: 'season' },
+        { title: '핏', key: 'fit' },
+        { title: '기장', key: 'length' },
+        { title: '색상', key: 'color' },
+        { title: '사이즈', key: 'size' },
+        { title: '바코드(SKU)', key: 'barcode' },
+        { title: '별도 바코드', key: 'custom_barcode' },
+        { title: '기본가', key: 'base_price' },
+        ...(!isStore ? [{ title: '매입가', key: 'cost_price' }] : []),
+        { title: '할인가', key: 'discount_price' },
+        { title: '행사가', key: 'event_price' },
+        { title: '행사여부', key: 'event_yn' },
+        { title: '판매상태', key: 'sale_status' },
+        { title: '수량', key: 'stock_qty' },
+      ];
+      const excelRows = rows.map((r: any) => ({ ...r, event_yn: r.event_price ? 'ON' : 'OFF' }));
+      exportToExcel(excelRows, excelCols, `상품목록_${new Date().toISOString().slice(0, 10)}`);
+      message.success(`${rows.length}건 엑셀 다운로드 완료`);
+    } catch (e: any) {
+      message.error('엑셀 다운로드 실패: ' + e.message);
+    } finally {
+      setExcelLoading(false);
+    }
+  };
+
   const handleExpand = async (expanded: boolean, record: any) => {
     if (!expanded || variantsMap[record.product_code]) return;
     setVariantsLoading((prev) => ({ ...prev, [record.product_code]: true }));
@@ -228,6 +293,18 @@ export default function ProductListPage() {
     );
   };
 
+  const filteredProducts = useMemo(() => {
+    if (!issueFilter) return products;
+    return products.filter((p: any) => {
+      const broken = Number(p.broken_size_count || 0);
+      const inv = Number(p.total_inv_qty || 0);
+      if (issueFilter === 'broken1') return broken >= 1;
+      if (issueFilter === 'broken2') return broken >= 2;
+      if (issueFilter === 'low10') return inv < 10;
+      return true;
+    });
+  }, [products, issueFilter]);
+
   const columns = [
     { title: '', dataIndex: 'image_url', key: 'image_url', width: 50,
       render: (v: string) => v
@@ -256,6 +333,14 @@ export default function ProductListPage() {
     { title: '행사가', dataIndex: 'event_price', key: 'event_price', width: 90,
       render: (v: number) => v ? <span style={{ color: '#fa8c16' }}>{Number(v).toLocaleString()}원</span> : '-',
     },
+    { title: '행사', dataIndex: 'event_price', key: 'event_on', width: 60, align: 'center' as const,
+      filters: [{ text: '행사중', value: 'on' }, { text: '일반', value: 'off' }],
+      onFilter: (v: any, r: any) => v === 'on' ? !!r.event_price : !r.event_price,
+      render: (_v: number, record: any) => (
+        <Switch size="small" checked={!!record.event_price}
+          onChange={(checked) => handleToggleEvent(record.product_code, checked, record)} />
+      ),
+    },
     { title: '상태', dataIndex: 'sale_status', key: 'sale_status', width: 75,
       render: (v: string) => <Tag color={SALE_STATUS_COLORS[v] || 'default'}>{v}</Tag>,
     },
@@ -269,16 +354,6 @@ export default function ProductListPage() {
       render: (v: number) => {
         const qty = Number(v || 0);
         return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
-      },
-    },
-    { title: '사이즈', dataIndex: 'broken_store_count', key: 'broken_size', width: 65, align: 'center' as const,
-      filters: [{ text: '깨짐', value: 'broken' }, { text: '정상', value: 'ok' }],
-      onFilter: (v: any, r: any) => v === 'broken' ? Number(r.broken_store_count) > 0 : Number(r.broken_store_count) === 0,
-      render: (_: any, record: any) => {
-        const cnt = Number(record.broken_store_count || 0);
-        return cnt > 0
-          ? <Tag color="red" style={{ fontWeight: 700 }}>{cnt}곳</Tag>
-          : <Tag color="green" style={{ fontWeight: 700 }}>-</Tag>;
       },
     },
     { title: '리오더', dataIndex: 'is_reorder', key: 'is_reorder', width: 65, align: 'center' as const,
@@ -315,9 +390,12 @@ export default function ProductListPage() {
     <div>
       <PageHeader
         title="상품 관리"
-        extra={canWrite && (
+        extra={
           <Space>
-            <Button icon={<UploadOutlined />} onClick={() => {
+            {canWrite && <Button icon={<DownloadOutlined />} onClick={handleExcelDownload} loading={excelLoading}>
+              엑셀 다운로드
+            </Button>}
+            {canWrite && <Button icon={<UploadOutlined />} onClick={() => {
               setUploadModalOpen(true); setUploadResult(null);
               if (uploadPartners.length === 0) {
                 apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
@@ -326,12 +404,12 @@ export default function ProductListPage() {
               }
             }}>
               엑셀 업로드
-            </Button>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
+            </Button>}
+            {canWrite && <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
               상품 등록
-            </Button>
+            </Button>}
           </Space>
-        )}
+        }
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
@@ -370,6 +448,14 @@ export default function ProductListPage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>하자</div>
+          <Select value={issueFilter} onChange={(v) => setIssueFilter(v)} style={{ width: 150 }}
+            options={[
+              { label: '전체 보기', value: '' },
+              { label: '사이즈 1개 깨짐', value: 'broken1' },
+              { label: '사이즈 2개+ 깨짐', value: 'broken2' },
+              { label: '총수량 10개 미만', value: 'low10' },
+            ]} /></div>
         <Button onClick={load}>조회</Button>
       </div>
       {canWrite && selectedRowKeys.length > 0 && (
@@ -383,12 +469,12 @@ export default function ProductListPage() {
       )}
       <Table
         columns={columns}
-        dataSource={products}
+        dataSource={filteredProducts}
         rowKey="product_code"
         loading={loading || bulkLoading}
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        pagination={{ current: page, total: issueFilter ? filteredProducts.length : total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
         expandable={{ expandedRowRender, onExpand: handleExpand }}
         rowSelection={canWrite ? {
           selectedRowKeys,

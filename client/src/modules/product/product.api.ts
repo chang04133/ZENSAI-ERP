@@ -19,6 +19,22 @@ export const productApi = {
     return data.data as Array<{ variant_id: number; sku: string; color: string; size: string; price: number; product_code: string; product_name: string; category: string }>;
   },
 
+  // Variant 일괄 조회 (variant_id 배열 → 상품+variant 상세)
+  bulkGetVariants: async (variantIds: number[]) => {
+    const res = await apiFetch('/api/products/variants/bulk', {
+      method: 'POST',
+      body: JSON.stringify({ variant_ids: variantIds }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{
+      variant_id: number; sku: string; color: string; size: string; price: number;
+      product_code: string; product_name: string; category: string; sub_category: string | null;
+      fit: string | null; length: string | null; base_price: number; cost_price: number;
+      season: string; current_stock: number;
+    }>;
+  },
+
   // Variant 관련 API
   addVariant: async (productCode: string, body: any) => {
     const res = await apiFetch(`/api/products/${productCode}/variants`, { method: 'POST', body: JSON.stringify(body) });
@@ -62,18 +78,6 @@ export const productApi = {
     const res = await apiFetch('/api/products/events/bulk', {
       method: 'PUT', body: JSON.stringify(body),
     });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-    return data.data;
-  },
-
-  // 행사 추천
-  eventRecommendations: async (params?: { category?: string; limit?: number }) => {
-    const qs = new URLSearchParams();
-    if (params?.category) qs.set('category', params.category);
-    if (params?.limit) qs.set('limit', String(params.limit));
-    const q = qs.toString() ? `?${qs}` : '';
-    const res = await apiFetch(`/api/products/events/recommendations${q}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data;
@@ -126,6 +130,16 @@ export const productApi = {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as { materials: any[]; cost_price: number };
+  },
+
+  // SKU별 내보내기 (엑셀 다운로드용)
+  exportVariants: async (params?: Record<string, string>) => {
+    const filtered = params ? Object.entries(params).filter(([, v]) => v !== undefined && v !== '') : [];
+    const query = filtered.length > 0 ? '?' + new URLSearchParams(filtered).toString() : '';
+    const res = await apiFetch(`/api/products/export/variants${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as any[];
   },
 
   // 바코드 등록/수정

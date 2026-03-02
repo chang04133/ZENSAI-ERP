@@ -4,8 +4,10 @@ import {
   Input, Space, message, Popconfirm, Tag,
 } from 'antd';
 import {
-  PlusOutlined, DeleteOutlined, ImportOutlined,
+  PlusOutlined, DeleteOutlined, ImportOutlined, UploadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
+import type { UploadFile } from 'antd/es/upload';
+import Upload from 'antd/es/upload';
 import { inboundApi } from '../../modules/inbound/inbound.api';
 import { useInboundStore } from '../../modules/inbound/inbound.store';
 import { apiFetch } from '../../core/api.client';
@@ -33,6 +35,57 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   const [form] = Form.useForm();
   const [items, setItems] = useState<VariantRow[]>([]);
   const [creating, setCreating] = useState(false);
+
+  // ── 엑셀 일괄 입고 ──
+  const [excelOpen, setExcelOpen] = useState(false);
+  const [excelForm] = Form.useForm();
+  const [excelFile, setExcelFile] = useState<UploadFile | null>(null);
+  const [excelUploading, setExcelUploading] = useState(false);
+  const [excelResult, setExcelResult] = useState<any>(null);
+
+  const handleTemplateDownload = () => {
+    window.open('/api/inbounds/excel/template', '_blank');
+  };
+
+  const handleExcelUpload = async () => {
+    try {
+      await excelForm.validateFields();
+    } catch { return; }
+    if (!excelFile) { message.warning('엑셀 파일을 선택해주세요.'); return; }
+
+    const values = excelForm.getFieldsValue();
+    const fd = new FormData();
+    fd.append('file', excelFile as any);
+    fd.append('partner_code', values.excel_partner_code);
+    fd.append('inbound_date', values.excel_inbound_date ? values.excel_inbound_date.format('YYYY-MM-DD') : dayjs().format('YYYY-MM-DD'));
+    if (values.excel_memo) fd.append('memo', values.excel_memo);
+
+    setExcelUploading(true);
+    setExcelResult(null);
+    try {
+      const res = await apiFetch('/api/inbounds/excel/upload', { method: 'POST', body: fd });
+      const d = await res.json();
+      if (d.success) {
+        setExcelResult(d.data);
+        message.success(`${d.data.created}건 입고 등록 완료`);
+        onCreated();
+      } else {
+        setExcelResult(d.data || null);
+        message.error(d.error || '업로드 실패');
+      }
+    } catch (e: any) {
+      message.error(e.message || '업로드 실패');
+    } finally {
+      setExcelUploading(false);
+    }
+  };
+
+  const handleExcelClose = () => {
+    setExcelOpen(false);
+    setExcelFile(null);
+    setExcelResult(null);
+    excelForm.resetFields();
+  };
 
   // 상품 검색 (Select 자동완성)
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
@@ -172,6 +225,62 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
           <Input placeholder="비고" style={{ width: 200 }} />
         </Form.Item>
       </Form>
+
+      {/* 엑셀 일괄 입고 버튼 */}
+      <div style={{ marginBottom: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <Button icon={<UploadOutlined />} onClick={() => setExcelOpen(true)}>엑셀 일괄 입고</Button>
+      </div>
+
+      {/* 엑셀 입고 모달 */}
+      <Modal title="엑셀 일괄 입고" open={excelOpen} onCancel={handleExcelClose} width={520}
+        footer={[
+          <Button key="cancel" onClick={handleExcelClose}>닫기</Button>,
+          <Button key="upload" type="primary" icon={<UploadOutlined />}
+            onClick={handleExcelUpload} loading={excelUploading}
+            disabled={!excelFile}>업로드</Button>,
+        ]}>
+        <Form form={excelForm} layout="vertical" initialValues={{ excel_inbound_date: dayjs() }}>
+          <Form.Item name="excel_partner_code" label="거래처" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
+            <Select placeholder="거래처 선택" showSearch optionFilterProp="label"
+              options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
+          </Form.Item>
+          <Form.Item name="excel_inbound_date" label="입고일">
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="excel_memo" label="비고">
+            <Input placeholder="비고 (선택)" />
+          </Form.Item>
+        </Form>
+
+        <div style={{ marginBottom: 12 }}>
+          <Button icon={<DownloadOutlined />} size="small" onClick={handleTemplateDownload}>
+            템플릿 다운로드
+          </Button>
+          <span style={{ marginLeft: 8, fontSize: 12, color: '#888' }}>SKU / 수량 / 단가 / 메모</span>
+        </div>
+
+        <Upload.Dragger
+          accept=".xlsx,.xls"
+          maxCount={1}
+          beforeUpload={(file) => { setExcelFile(file as any); return false; }}
+          onRemove={() => { setExcelFile(null); }}
+          fileList={excelFile ? [excelFile] : []}
+        >
+          <p style={{ fontSize: 14, color: '#666' }}>엑셀 파일을 드래그하거나 클릭하여 선택</p>
+          <p style={{ fontSize: 12, color: '#999' }}>xlsx, xls (최대 5MB)</p>
+        </Upload.Dragger>
+
+        {excelResult && (
+          <div style={{ marginTop: 16, padding: 12, background: '#f6ffed', border: '1px solid #b7eb8f', borderRadius: 6 }}>
+            <div>전체: <b>{excelResult.total}</b>건 / 등록: <b>{excelResult.created}</b>건 / 건너뜀: <b>{excelResult.skipped || 0}</b>건</div>
+            {excelResult.errors && excelResult.errors.length > 0 && (
+              <div style={{ marginTop: 8, color: '#cf1322', fontSize: 12 }}>
+                {excelResult.errors.map((e: string, i: number) => <div key={i}>{e}</div>)}
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
 
       {/* 상품 추가 (자동완성) */}
       <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>

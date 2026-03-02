@@ -25,7 +25,6 @@ export const menuItems: MenuItem[] = [
     key: '/products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ },
-      { key: '/products/events', label: '행사 상품', icon: 'FireOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
@@ -33,10 +32,9 @@ export const menuItems: MenuItem[] = [
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/store', label: '매장재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
+{ key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/inbound', label: '입고관리', icon: 'ImportOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/restock', label: '재입고', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
   {
@@ -80,6 +78,7 @@ export const menuItems: MenuItem[] = [
       { key: '/system/settings', label: '시스템 설정', icon: 'SettingOutlined', roles: ADMIN_SYS },
       { key: '/system/deleted-data', label: '삭제데이터 조회', icon: 'DeleteOutlined', roles: ADMIN_SYS },
       { key: '/system/overview', label: '시스템 현황', icon: 'FileTextOutlined', roles: ADMIN_SYS },
+      { key: '/system/activity-logs', label: '활동 로그', icon: 'FileSearchOutlined', roles: ADMIN_SYS },
     ],
   },
 ];

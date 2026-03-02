@@ -137,9 +137,9 @@ router.post('/excel/upload',
             const sku = `${code}-${v.color}-${v.size}`;
             try {
               const variantResult = await client.query(
-                `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, warehouse_location, stock_qty)
-                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING variant_id`,
-                [code, v.color, v.size, sku, v.price || product.base_price, v.barcode, v.warehouse_location, v.stock_qty],
+                `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, custom_barcode, warehouse_location, stock_qty)
+                 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING variant_id`,
+                [code, v.color, v.size, sku, v.price || product.base_price, sku, v.barcode, v.warehouse_location, v.stock_qty],
               );
               // 재고수량이 있고 거래처가 선택된 경우 재고 등록
               if (v.stock_qty > 0 && partnerCode && variantResult.rows.length > 0) {

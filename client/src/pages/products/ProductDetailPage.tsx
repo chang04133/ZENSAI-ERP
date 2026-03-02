@@ -77,7 +77,7 @@ export default function ProductDetailPage() {
       color: record.color,
       size: record.size,
       price: record.price,
-      barcode: record.barcode,
+      custom_barcode: record.custom_barcode,
       warehouse_location: record.warehouse_location,
       stock_qty: record.stock_qty ?? 0,
       is_active: record.is_active,
@@ -123,7 +123,8 @@ export default function ProductDetailPage() {
     { title: '컬러', dataIndex: 'color', key: 'color', width: 80 },
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
     { title: '가격', dataIndex: 'price', key: 'price', width: 100, render: fmtPrice },
-    { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+    { title: '바코드(SKU)', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+    { title: '별도 바코드', dataIndex: 'custom_barcode', key: 'custom_barcode', width: 140, render: (v: string) => v || <span style={{ color: '#ccc' }}>-</span> },
     { title: '창고위치', dataIndex: 'warehouse_location', key: 'warehouse_location', width: 100, render: (v: string) => v || '-' },
     { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
       render: (v: number) => {
@@ -239,7 +240,7 @@ export default function ProductDetailPage() {
       {/* 변형 목록 (옵션/재고/위치) */}
       <Card
         title={`옵션별 재고/위치 관리 (${product.variants?.length || 0}개)`}
-        extra={canWrite && <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>변형 추가</Button>}
+        extra={canWrite && <Button type="primary" icon={<EditOutlined />} onClick={() => setAddModalOpen(true)}>수정</Button>}
       >
         <Table
           columns={variantColumns}
@@ -249,10 +250,10 @@ export default function ProductDetailPage() {
           scroll={{ x: 1100 }}
           summary={() => (
             <Table.Summary.Row>
-              <Table.Summary.Cell index={0} colSpan={6} align="right"><strong>총 합계</strong></Table.Summary.Cell>
-              <Table.Summary.Cell index={6}><Tag color="blue" style={{ fontSize: 14 }}><strong>{totalStock}</strong></Tag></Table.Summary.Cell>
-              <Table.Summary.Cell index={7}>{totalInProduction > 0 ? <Tag color="purple" style={{ fontSize: 14 }}><strong>{totalInProduction}</strong></Tag> : '-'}</Table.Summary.Cell>
-              <Table.Summary.Cell index={8} colSpan={2} />
+              <Table.Summary.Cell index={0} colSpan={7} align="right"><strong>총 합계</strong></Table.Summary.Cell>
+              <Table.Summary.Cell index={7}><Tag color="blue" style={{ fontSize: 14 }}><strong>{totalStock}</strong></Tag></Table.Summary.Cell>
+              <Table.Summary.Cell index={8}>{totalInProduction > 0 ? <Tag color="purple" style={{ fontSize: 14 }}><strong>{totalInProduction}</strong></Tag> : '-'}</Table.Summary.Cell>
+              <Table.Summary.Cell index={9} colSpan={2} />
             </Table.Summary.Row>
           )}
         />
@@ -304,8 +305,8 @@ export default function ProductDetailPage() {
               <InputNumber min={0} style={{ width: 120 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="barcode" label="바코드">
-            <Input placeholder="예: 8801234567890" />
+          <Form.Item name="custom_barcode" label="별도 바코드 (선택)">
+            <Input placeholder="미입력 시 SKU가 바코드로 자동 적용" />
           </Form.Item>
           <Space style={{ display: 'flex' }} align="start">
             <Form.Item name="warehouse_location" label="창고위치">
@@ -339,8 +340,8 @@ export default function ProductDetailPage() {
               <InputNumber min={0} style={{ width: 120 }} />
             </Form.Item>
           </Space>
-          <Form.Item name="barcode" label="바코드">
-            <Input placeholder="예: 8801234567890" />
+          <Form.Item name="custom_barcode" label="별도 바코드 (선택)">
+            <Input placeholder="미입력 시 SKU가 바코드로 자동 적용" />
           </Form.Item>
           <Space style={{ display: 'flex' }} align="start">
             <Form.Item name="warehouse_location" label="창고위치">

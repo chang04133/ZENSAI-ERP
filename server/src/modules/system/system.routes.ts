@@ -74,6 +74,42 @@ router.post('/restore', ...admin, asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
+// GET /api/system/activity-logs - 활동 로그 조회
+router.get('/activity-logs', ...admin, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const { page = '1', limit = '50', user_id, method, path: pathFilter, start_date, end_date } = req.query;
+  const p = parseInt(page as string, 10);
+  const l = Math.min(parseInt(limit as string, 10) || 50, 200);
+  const offset = (p - 1) * l;
+
+  let where = '';
+  const params: any[] = [];
+  let idx = 1;
+  if (user_id) { where += ` AND user_id = $${idx}`; params.push(user_id); idx++; }
+  if (method) { where += ` AND method = $${idx}`; params.push(method); idx++; }
+  if (pathFilter) { where += ` AND path ILIKE $${idx}`; params.push(`%${pathFilter}%`); idx++; }
+  if (start_date) { where += ` AND created_at >= $${idx}`; params.push(start_date); idx++; }
+  if (end_date) { where += ` AND created_at < ($${idx}::date + 1)`; params.push(end_date); idx++; }
+
+  const total = parseInt(
+    (await pool.query(`SELECT COUNT(*) FROM activity_logs WHERE 1=1 ${where}`, params)).rows[0].count, 10,
+  );
+  const data = await pool.query(
+    `SELECT * FROM activity_logs WHERE 1=1 ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+    [...params, l, offset],
+  );
+  res.json({ success: true, data: { data: data.rows, total, page: p, limit: l, totalPages: Math.ceil(total / l) } });
+}));
+
+// GET /api/system/activity-logs/users - 활동 로그 사용자 목록 (전체 사용자)
+router.get('/activity-logs/users', ...admin, asyncHandler(async (_req, res) => {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT user_id, user_name FROM users WHERE is_active = TRUE ORDER BY user_id`,
+  );
+  res.json({ success: true, data: result.rows });
+}));
+
 // GET /api/system/settings - 시스템 설정 조회
 router.get('/settings', ...admin, asyncHandler(async (_req, res) => {
   const pool = getPool();
@@ -96,13 +132,6 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
     'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD',
     'AUTO_PROD_SALES_PERIOD_DAYS',
-    'AUTO_PROD_GRADE_S_MIN', 'AUTO_PROD_GRADE_S_MULT',
-    'AUTO_PROD_GRADE_A_MIN', 'AUTO_PROD_GRADE_A_MULT',
-    'AUTO_PROD_GRADE_B_MIN', 'AUTO_PROD_GRADE_B_MULT',
-    'AUTO_PROD_SAFETY_BUFFER',
-    'EVENT_REC_BROKEN_SIZE_WEIGHT', 'EVENT_REC_LOW_SALES_WEIGHT',
-    'EVENT_REC_SALES_PERIOD_DAYS', 'EVENT_REC_MIN_SALES_THRESHOLD',
-    'EVENT_REC_MAX_RESULTS',
     'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD',
     'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS',
     'RESTOCK_EXCLUDE_AGE_DAYS',
@@ -115,10 +144,6 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
       const fv = parseFloat(value);
       if (isNaN(fv) || fv < 0 || fv > 1) continue;
       saveVal = fv.toFixed(2);
-    } else if (key.endsWith('_MULT') || key === 'AUTO_PROD_SAFETY_BUFFER') {
-      const fv = parseFloat(value);
-      if (isNaN(fv) || fv < 0) continue;
-      saveVal = String(fv);
     } else {
       const numVal = parseInt(value, 10);
       if (isNaN(numVal) || numVal < 0) continue;

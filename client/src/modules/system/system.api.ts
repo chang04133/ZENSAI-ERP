@@ -20,4 +20,11 @@ export const systemApi = {
       body: JSON.stringify({ table_name: tableName, id, pk_column: pkColumn }),
     }));
   },
+  getActivityLogs: async (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return parse(await apiFetch(`/api/system/activity-logs${q}`));
+  },
+  getActivityLogUsers: async () => {
+    return parse(await apiFetch('/api/system/activity-logs/users'));
+  },
 };

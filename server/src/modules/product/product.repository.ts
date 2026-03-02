@@ -79,23 +79,36 @@ export class ProductRepository extends BaseRepository<Product> {
         GROUP BY ppi.product_code
       ) prod ON p.product_code = prod.product_code
       LEFT JOIN LATERAL (
-        SELECT COUNT(DISTINCT sub.partner_code)::int AS store_count,
-               COALESCE(SUM(sub.broken_cnt), 0)::int AS broken_count
+        SELECT
+          COALESCE(COUNT(*) FILTER (
+            WHERE w.total_qty <= ${brokenQtyThreshold}
+              AND w.size_order > w.min_stocked
+              AND w.size_order < w.max_stocked
+          ), 0)::int AS broken_count,
+          CASE WHEN COUNT(*) FILTER (
+            WHERE w.total_qty <= ${brokenQtyThreshold}
+              AND w.size_order > w.min_stocked
+              AND w.size_order < w.max_stocked
+          ) > 0 THEN 1 ELSE 0 END::int AS store_count
         FROM (
-          SELECT si.partner_code,
-                 COUNT(*) FILTER (WHERE si.qty <= ${brokenQtyThreshold})::int AS broken_cnt
-          FROM product_variants spv
-          JOIN inventory si ON spv.variant_id = si.variant_id
-          JOIN partners sp ON si.partner_code = sp.partner_code AND sp.partner_type != '본사'
-          WHERE spv.product_code = p.product_code AND spv.is_active = TRUE AND spv.size != 'FREE'
-          GROUP BY si.partner_code
-          HAVING (
-            SELECT COUNT(DISTINCT pv2.size)
-            FROM product_variants pv2
-            WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE AND pv2.size != 'FREE'
-          ) >= ${brokenMinSizes}
-          AND COUNT(*) FILTER (WHERE si.qty <= ${brokenQtyThreshold}) > 0
-        ) sub
+          SELECT s.size_order, s.total_qty,
+            MIN(s.size_order) FILTER (WHERE s.total_qty > ${brokenQtyThreshold}) OVER () AS min_stocked,
+            MAX(s.size_order) FILTER (WHERE s.total_qty > ${brokenQtyThreshold}) OVER () AS max_stocked
+          FROM (
+            SELECT
+              CASE spv.size
+                WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
+                WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
+                ELSE 99
+              END AS size_order,
+              COALESCE(SUM(si.qty), 0) AS total_qty
+            FROM product_variants spv
+            LEFT JOIN inventory si ON spv.variant_id = si.variant_id
+            WHERE spv.product_code = p.product_code AND spv.is_active = TRUE AND spv.size != 'FREE'
+            GROUP BY spv.size
+          ) s
+        ) w
+        HAVING COUNT(*) >= ${brokenMinSizes}
       ) bs ON TRUE
       ${whereClause}${variantFilter}
       ORDER BY p.created_at DESC
@@ -156,12 +169,12 @@ export class ProductRepository extends BaseRepository<Product> {
         for (const v of data.variants) {
           const sku = `${data.product_code}-${v.color}-${v.size}`;
           await client.query(
-            `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, warehouse_location, stock_qty)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, custom_barcode, warehouse_location, stock_qty)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               data.product_code, v.color, v.size, sku,
               v.price || data.base_price || 0,
-              v.barcode || null, v.warehouse_location || null, v.stock_qty || 0,
+              sku, v.custom_barcode || null, v.warehouse_location || null, v.stock_qty || 0,
             ],
           );
         }
@@ -180,11 +193,11 @@ export class ProductRepository extends BaseRepository<Product> {
     const pool = getPool();
     const sku = `${productCode}-${data.color}-${data.size}`;
     const result = await pool.query(
-      `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, warehouse_location, stock_qty)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, custom_barcode, warehouse_location, stock_qty)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
       [
         productCode, data.color, data.size, sku,
-        data.price, data.barcode || null, data.warehouse_location || null, data.stock_qty || 0,
+        data.price, sku, data.custom_barcode || null, data.warehouse_location || null, data.stock_qty || 0,
       ],
     );
     return result.rows[0];
@@ -192,14 +205,18 @@ export class ProductRepository extends BaseRepository<Product> {
 
   async updateVariant(id: number, data: any) {
     const pool = getPool();
+    // SKU 재생성을 위해 product_code 조회
+    const existing = await pool.query('SELECT product_code FROM product_variants WHERE variant_id = $1', [id]);
+    const productCode = existing.rows[0]?.product_code || '';
+    const sku = `${productCode}-${data.color}-${data.size}`;
     const result = await pool.query(
       `UPDATE product_variants
-       SET color=$1, size=$2, price=$3, is_active=$4, barcode=$5, warehouse_location=$6, stock_qty=$7
-       WHERE variant_id=$8 RETURNING *`,
+       SET color=$1, size=$2, price=$3, is_active=$4, barcode=$5, custom_barcode=$6, warehouse_location=$7, stock_qty=$8, sku=$9
+       WHERE variant_id=$10 RETURNING *`,
       [
         data.color, data.size, data.price, data.is_active ?? true,
-        data.barcode || null, data.warehouse_location || null, data.stock_qty ?? 0,
-        id,
+        sku, data.custom_barcode || null, data.warehouse_location || null, data.stock_qty ?? 0,
+        sku, id,
       ],
     );
     return result.rows[0] || null;
@@ -400,141 +417,6 @@ export class ProductRepository extends BaseRepository<Product> {
     );
   }
 
-  async eventRecommendations(options: { category?: string; limit?: number } = {}): Promise<any[]> {
-    const pool = getPool();
-
-    // 설정값 로드
-    const settingsResult = await pool.query(
-      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'EVENT_REC_%'",
-    );
-    const sm: Record<string, string> = {};
-    for (const r of settingsResult.rows) sm[r.code_value] = r.code_label;
-    const maxResults = options.limit || parseInt(sm.EVENT_REC_MAX_RESULTS || '50', 10);
-
-    const params: any[] = [];
-    let idx = 1;
-    let catFilter = '';
-    if (options.category) {
-      catFilter = `AND p.category = $${idx}`;
-      params.push(options.category);
-      idx++;
-    }
-    params.push(maxResults);
-    const limitIdx = idx;
-
-    const sql = `
-      WITH reorder_variants AS (
-        -- 리오더 진행중인 variant_id 목록 (DRAFT/APPROVED/ORDERED)
-        SELECT DISTINCT ri.variant_id
-        FROM restock_request_items ri
-        JOIN restock_requests rr ON ri.request_id = rr.request_id
-        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED')
-      ),
-      reorder_products AS (
-        -- 리오더 진행중인 product_code 목록
-        SELECT DISTINCT pv.product_code
-        FROM reorder_variants rv
-        JOIN product_variants pv ON rv.variant_id = pv.variant_id
-      ),
-      product_sizes AS (
-        SELECT
-          p.product_code, p.product_name, p.category, p.season,
-          p.base_price, p.cost_price,
-          pv.size,
-          CASE pv.size
-            WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
-            WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6
-            ELSE 99
-          END AS size_order,
-          COALESCE(SUM(i.qty), 0)::int AS total_stock
-        FROM products p
-        JOIN product_variants pv ON p.product_code = pv.product_code AND pv.is_active = TRUE
-        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
-        WHERE p.is_active = TRUE
-          AND p.sale_status = '판매중'
-          AND pv.size != 'FREE'
-          AND p.event_price IS NULL
-          AND p.product_code NOT IN (SELECT product_code FROM reorder_products)
-          ${catFilter}
-        GROUP BY p.product_code, p.product_name, p.category, p.season,
-                 p.base_price, p.cost_price, pv.size
-      ),
-      size_range AS (
-        SELECT
-          product_code,
-          MIN(size_order) FILTER (WHERE total_stock > 0) AS min_stocked,
-          MAX(size_order) FILTER (WHERE total_stock > 0) AS max_stocked
-        FROM product_sizes
-        GROUP BY product_code
-      ),
-      broken_analysis AS (
-        SELECT
-          ps.product_code,
-          COUNT(*)::int AS total_sizes,
-          COUNT(*) FILTER (WHERE ps.total_stock > 0)::int AS sizes_with_stock,
-          COUNT(*) FILTER (
-            WHERE ps.total_stock = 0
-              AND ps.size_order > sr.min_stocked
-              AND ps.size_order < sr.max_stocked
-          )::int AS broken_count
-        FROM product_sizes ps
-        JOIN size_range sr ON ps.product_code = sr.product_code
-        GROUP BY ps.product_code
-        HAVING COUNT(*) >= 3
-          AND COUNT(*) FILTER (WHERE ps.total_stock > 0) >= 2
-      ),
-      product_inventory AS (
-        SELECT
-          pv.product_code,
-          COALESCE(SUM(i.qty), 0)::int AS total_stock
-        FROM product_variants pv
-        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
-        WHERE pv.is_active = TRUE
-        GROUP BY pv.product_code
-      ),
-      size_detail AS (
-        SELECT
-          product_code,
-          json_agg(
-            json_build_object('size', size, 'stock', total_stock)
-            ORDER BY size_order
-          ) AS sizes
-        FROM product_sizes
-        GROUP BY product_code
-      )
-      SELECT
-        ps_info.product_code,
-        ps_info.product_name,
-        ps_info.category,
-        ps_info.season,
-        ps_info.base_price,
-        COALESCE(pi.total_stock, 0) AS total_stock,
-        COALESCE(ba.broken_count, 0) AS broken_count,
-        COALESCE(ba.total_sizes, 0) AS total_sizes,
-        COALESCE(ba.sizes_with_stock, 0) AS sizes_with_stock,
-        sd.sizes AS size_detail,
-        LEAST(100, ROUND(COALESCE(ba.broken_count, 0)::numeric / GREATEST(COALESCE(ba.total_sizes, 3) - 2, 1)::numeric * 100))::int AS broken_score,
-        ROUND(
-          LEAST(100, COALESCE(ba.broken_count, 0)::numeric / GREATEST(COALESCE(ba.total_sizes, 3) - 2, 1)::numeric * 100) * 0.6
-          + LEAST(100, COALESCE(pi.total_stock, 0)::numeric / GREATEST(
-              (SELECT PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY pi2.total_stock)
-               FROM product_inventory pi2), 1) * 100) * 0.4
-        )::int AS recommendation_score
-      FROM (
-        SELECT DISTINCT product_code, product_name, category, season, base_price
-        FROM product_sizes
-      ) ps_info
-      LEFT JOIN broken_analysis ba ON ps_info.product_code = ba.product_code
-      LEFT JOIN product_inventory pi ON ps_info.product_code = pi.product_code
-      LEFT JOIN size_detail sd ON ps_info.product_code = sd.product_code
-      WHERE COALESCE(ba.broken_count, 0) > 0
-         OR COALESCE(pi.total_stock, 0) >= (SELECT GREATEST(PERCENTILE_CONT(0.7) WITHIN GROUP (ORDER BY pi2.total_stock), 1) FROM product_inventory pi2)
-      ORDER BY recommendation_score DESC, COALESCE(ba.broken_count, 0) DESC, COALESCE(pi.total_stock, 0) DESC
-      LIMIT $${limitIdx}`;
-
-    const result = await pool.query(sql, params);
-    return result.rows;
-  }
 }
 
 export const productRepository = new ProductRepository();

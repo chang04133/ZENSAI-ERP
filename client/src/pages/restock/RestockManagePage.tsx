@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag, Button, Switch, message } from 'antd';
-import { ReloadOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { ReloadOutlined, CheckCircleOutlined, SendOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { restockApi } from '../../modules/restock/restock.api';
 import type { RestockSuggestion } from '../../../../shared/types/restock';
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; border: string }> = {
-  ALERT: { label: '재입고 알림', color: 'red', bg: '#fff1f0', border: '#ffa39e' },
+  ALERT: { label: '재입고 추천', color: 'red', bg: '#fff1f0', border: '#ffa39e' },
   CONSIDER: { label: '고려 대상', color: 'orange', bg: '#fff7e6', border: '#ffd591' },
   NORMAL: { label: '정상', color: 'default', bg: '#f5f5f5', border: '#d9d9d9' },
 };
@@ -42,10 +42,17 @@ export default function RestockManagePage() {
   const normalItems = filtered.filter(s => s.restock_status === 'NORMAL');
   const brokenItems = filtered.filter(s => s.is_broken_size);
 
+  const sendToProduction = (items: RestockSuggestion[]) => {
+    if (items.length === 0) { message.warning('해당 항목이 없습니다.'); return; }
+    // variant_id + suggested_qty만 전달, 나머지는 생산기획 페이지에서 API로 조회
+    const restockItems = items.map(s => ({ variant_id: s.variant_id, suggested_qty: s.suggested_qty }));
+    navigate('/production/plans', { state: { restockItems } });
+  };
+
   const columns = [
     { title: '상태', dataIndex: 'restock_status', key: 'restock_status', width: 110,
       filters: [
-        { text: '재입고 알림', value: 'ALERT' },
+        { text: '재입고 추천', value: 'ALERT' },
         { text: '고려 대상', value: 'CONSIDER' },
         { text: '정상', value: 'NORMAL' },
         { text: '깨짐', value: 'BROKEN' },
@@ -102,19 +109,23 @@ export default function RestockManagePage() {
     <div>
       {/* 상태별 요약 카드 */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 16, flexWrap: 'wrap' }}>
-        {(['ALERT', 'CONSIDER', 'NORMAL'] as const).map(status => {
-          const items = status === 'ALERT' ? alertItems : status === 'CONSIDER' ? considerItems : normalItems;
+        {(['ALERT', 'CONSIDER'] as const).map(status => {
+          const items = status === 'ALERT' ? alertItems : considerItems;
           const cfg = STATUS_CONFIG[status];
           const totalQty = items.reduce((s, r) => s + r.suggested_qty, 0);
           return (
             <div key={status} style={{
-              flex: 1, minWidth: 160, padding: '10px 14px', borderRadius: 8,
+              flex: 1, minWidth: 180, padding: '10px 14px', borderRadius: 8,
               background: items.length > 0 ? cfg.bg : '#fafafa',
               border: `1px solid ${items.length > 0 ? cfg.border : '#f0f0f0'}`,
               opacity: items.length > 0 ? 1 : 0.5,
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <Tag color={cfg.color} style={{ fontWeight: 700 }}>{cfg.label}</Tag>
+                {items.length > 0 && (
+                  <Button type="link" size="small" icon={<SendOutlined />} style={{ fontSize: 11, padding: 0 }}
+                    onClick={() => sendToProduction(items)}>생산기획</Button>
+                )}
               </div>
               <div style={{ marginTop: 6, fontSize: 13 }}>
                 <strong>{items.length}</strong>건 · <strong>{totalQty.toLocaleString()}</strong>개
@@ -122,12 +133,27 @@ export default function RestockManagePage() {
             </div>
           );
         })}
+        <div style={{
+          flex: 1, minWidth: 180, padding: '10px 14px', borderRadius: 8,
+          background: normalItems.length > 0 ? STATUS_CONFIG.NORMAL.bg : '#fafafa',
+          border: `1px solid ${normalItems.length > 0 ? STATUS_CONFIG.NORMAL.border : '#f0f0f0'}`,
+          opacity: normalItems.length > 0 ? 1 : 0.5,
+        }}>
+          <Tag color={STATUS_CONFIG.NORMAL.color} style={{ fontWeight: 700 }}>{STATUS_CONFIG.NORMAL.label}</Tag>
+          <div style={{ marginTop: 6, fontSize: 13 }}>
+            <strong>{normalItems.length}</strong>건 · <strong>{normalItems.reduce((s, r) => s + r.suggested_qty, 0).toLocaleString()}</strong>개
+          </div>
+        </div>
         {brokenItems.length > 0 && (
           <div style={{
-            minWidth: 120, padding: '10px 14px', borderRadius: 8,
+            minWidth: 160, padding: '10px 14px', borderRadius: 8,
             background: '#f9f0ff', border: '1px solid #d3adf7',
           }}>
-            <Tag color="purple" style={{ fontWeight: 700 }}>깨짐</Tag>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Tag color="purple" style={{ fontWeight: 700 }}>깨짐</Tag>
+              <Button type="link" size="small" icon={<SendOutlined />} style={{ fontSize: 11, padding: 0, color: '#722ed1' }}
+                onClick={() => sendToProduction(brokenItems)}>생산기획</Button>
+            </div>
             <div style={{ marginTop: 6, fontSize: 13 }}>
               <strong>{brokenItems.length}</strong>건
             </div>

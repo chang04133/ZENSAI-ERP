@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
 import { materialApi } from '../../modules/production/material.api';
+import { partnerApi } from '../../modules/partner/partner.api';
 import { codeApi } from '../../modules/code/code.api';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
@@ -38,6 +39,7 @@ export default function ProductFormPage() {
   const [allMaterials, setAllMaterials] = useState<any[]>([]);
   const [productMaterials, setProductMaterials] = useState<Array<{ material_id: number; usage_qty: number }>>([]);
   const [materialSaving, setMaterialSaving] = useState(false);
+  const [partnerOptions, setPartnerOptions] = useState<{ label: string; value: string }[]>([]);
 
   const updateSubCategories = useCallback((categoryValue: string | undefined, allCats: any[]) => {
     if (!categoryValue) {
@@ -60,6 +62,9 @@ export default function ProductFormPage() {
     materialApi.list({ limit: '500' }).then((res: any) => {
       const items = res?.data || res || [];
       setAllMaterials(Array.isArray(items) ? items : []);
+    }).catch(() => {});
+    partnerApi.list({ limit: '1000' }).then((r) => {
+      setPartnerOptions(r.data.map((p: any) => ({ label: `${p.partner_name} (${p.partner_code})`, value: p.partner_code })));
     }).catch(() => {});
   }, []);
 
@@ -195,7 +200,7 @@ export default function ProductFormPage() {
     <div>
       <PageHeader title={isEdit ? '상품 수정' : '상품 등록'} />
       <Card style={{ maxWidth: 800 }}>
-        <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ base_price: 0, cost_price: 0, sale_status: '판매중', low_stock_alert: true }}>
+        <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ base_price: 0, cost_price: 0, sale_status: '승인대기', low_stock_alert: true }}>
           <Form.Item name="product_code" label="상품코드" rules={[{ required: true, message: '상품코드를 입력해주세요' }]}>
             <Input disabled={isEdit} placeholder="예: TS-001" />
           </Form.Item>
@@ -325,23 +330,23 @@ export default function ProductFormPage() {
             />
           )}
 
-          <Form.Item name="sale_status" label="판매상태" style={{ maxWidth: 200, marginTop: 16 }}>
-            <Select options={SALE_STATUS_OPTIONS} />
-          </Form.Item>
-
-          <Divider orientation="left">재입고 알림</Divider>
+          <Divider orientation="left">상태 / 기타</Divider>
           <Space style={{ display: 'flex' }} align="start" wrap>
-            <Form.Item name="low_stock_alert" label="알림 활성화" valuePropName="checked">
-              <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+            <Form.Item name="sale_status" label="판매상태">
+              <Select options={SALE_STATUS_OPTIONS} style={{ width: 160 }} />
             </Form.Item>
-            <Form.Item name="low_stock_threshold" label="임계값 (미입력시 기본값)">
-              <InputNumber min={0} style={{ width: 160 }} placeholder="기본값 사용" />
+            <Form.Item name="warehouse_location" label="창고위치 (거래처)">
+              <Select showSearch allowClear optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} style={{ width: 200 }} />
+            </Form.Item>
+            <Form.Item name="low_stock_alert" label="재입고 알림" valuePropName="checked">
+              <Switch checkedChildren="ON" unCheckedChildren="OFF" />
             </Form.Item>
           </Space>
 
           {!isEdit && (
             <>
-              <Divider orientation="left">변형 (컬러/사이즈/바코드/창고위치/재고)</Divider>
+              <Divider orientation="left">변형 (컬러/사이즈/바코드/재고)</Divider>
+              <div style={{ fontSize: 12, color: '#888', marginBottom: 8 }}>바코드(SKU) 자동 적용 + 별도 바코드 입력 가능</div>
               <Form.List name="variants">
                 {(fields, { add, remove }) => (
                   <>
@@ -356,11 +361,8 @@ export default function ProductFormPage() {
                         <Form.Item {...rest} name={[name, 'price']}>
                           <InputNumber placeholder="가격" min={0} style={{ width: 110 }} />
                         </Form.Item>
-                        <Form.Item {...rest} name={[name, 'barcode']}>
-                          <Input placeholder="바코드" style={{ width: 140 }} />
-                        </Form.Item>
-                        <Form.Item {...rest} name={[name, 'warehouse_location']}>
-                          <Input placeholder="창고위치" style={{ width: 110 }} />
+                        <Form.Item {...rest} name={[name, 'custom_barcode']}>
+                          <Input placeholder="별도 바코드 (선택)" style={{ width: 150 }} />
                         </Form.Item>
                         <Form.Item {...rest} name={[name, 'stock_qty']}>
                           <InputNumber placeholder="재고" min={0} style={{ width: 80 }} />

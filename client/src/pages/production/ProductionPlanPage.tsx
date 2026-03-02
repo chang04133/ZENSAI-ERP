@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, Collapse, Divider, message, Typography } from 'antd';
 import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
@@ -6,6 +7,7 @@ import {
   FileTextOutlined, CheckCircleOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
+import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
 import { partnerApi } from '../../modules/partner/partner.api';
 import type { ProductionPlan } from '../../../../shared/types/production';
@@ -39,6 +41,13 @@ interface SubItem {
   plan_qty: number;
   unit_cost: number | null;
   memo: string | null;
+  // 재입고에서 prefill 시 표시용
+  _sku?: string;
+  _product_code?: string;
+  _product_name?: string;
+  _color?: string;
+  _size?: string;
+  _current_stock?: number;
 }
 
 interface CategoryGroup {
@@ -48,6 +57,7 @@ interface CategoryGroup {
 }
 
 export default function ProductionPlanPage() {
+  const location = useLocation();
   const keySeqRef = useRef(0);
   const newSubItem = (): SubItem => ({ key: ++keySeqRef.current, sub_category: null, fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null });
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
@@ -141,6 +151,58 @@ export default function ProductionPlanPage() {
         setPartners((result.data || []).filter((p: any) => p.is_active).map((p: any) => ({ label: `${p.partner_name} (${p.partner_type})`, value: p.partner_code })));
       } catch { /* ignore */ }
     })();
+  }, []);
+
+  // --- 재입고에서 prefill 수신 (variant_id + suggested_qty → API 조회 → 자동 입력) ---
+  useEffect(() => {
+    const state = location.state as any;
+    if (state?.restockItems) {
+      const restockItems = state.restockItems as Array<{ variant_id: number; suggested_qty: number }>;
+      window.history.replaceState({}, '');
+
+      (async () => {
+        try {
+          const variantIds = restockItems.map(r => r.variant_id);
+          const variants = await productApi.bulkGetVariants(variantIds);
+
+          // suggested_qty 매핑
+          const qtyMap = new Map(restockItems.map(r => [r.variant_id, r.suggested_qty]));
+
+          // 카테고리별 그룹핑
+          const catMap = new Map<string, typeof variants>();
+          for (const v of variants) {
+            const cat = v.category || 'ETC';
+            if (!catMap.has(cat)) catMap.set(cat, []);
+            catMap.get(cat)!.push(v);
+          }
+
+          const groups: CategoryGroup[] = Array.from(catMap.entries()).map(([category, items]) => ({
+            key: ++keySeqRef.current,
+            category,
+            items: items.map(v => ({
+              key: ++keySeqRef.current,
+              sub_category: v.sub_category || null,
+              fit: v.fit || null,
+              length: v.length || null,
+              plan_qty: qtyMap.get(v.variant_id) || 1,
+              unit_cost: v.cost_price || null,
+              memo: null,
+              _sku: v.sku,
+              _product_code: v.product_code,
+              _product_name: v.product_name,
+              _color: v.color,
+              _size: v.size,
+              _current_stock: v.current_stock,
+            })),
+          }));
+
+          setCatGroups(groups);
+          setCreateOpen(true);
+        } catch (e: any) {
+          message.error('상품 정보 조회 실패: ' + e.message);
+        }
+      })();
+    }
   }, []);
 
   // --- 카테고리 그룹 조작 ---
@@ -390,6 +452,8 @@ export default function ProductionPlanPage() {
             const groupCost = group.items.reduce((s, i) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
             const catColor = CATEGORY_COLORS[group.category] || '#666';
 
+            const isPrefillGroup = group.items.some(i => i._sku);
+
             return (
               <Card
                 key={group.key}
@@ -397,96 +461,137 @@ export default function ProductionPlanPage() {
                 style={{ borderLeft: `4px solid ${group.category ? catColor : '#d9d9d9'}`, borderRadius: 8 }}
                 title={
                   <Space>
-                    <Select
-                      value={group.category || undefined}
-                      onChange={(v) => updateGroupCategory(group.key, v)}
-                      placeholder="카테고리 선택"
-                      style={{ width: 160 }}
-                      showSearch optionFilterProp="label"
-                    >
-                      {categoryOptions
-                        .filter(o => o.value === group.category || !usedCategories.has(o.value))
-                        .map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
-                    </Select>
+                    {isPrefillGroup ? (
+                      <Tag color={CATEGORY_COLORS[group.category] || 'default'} style={{ fontWeight: 600, fontSize: 13 }}>
+                        {catLabelMap[group.category] || group.category}
+                      </Tag>
+                    ) : (
+                      <Select
+                        value={group.category || undefined}
+                        onChange={(v) => updateGroupCategory(group.key, v)}
+                        placeholder="카테고리 선택"
+                        style={{ width: 160 }}
+                        showSearch optionFilterProp="label"
+                      >
+                        {categoryOptions
+                          .filter(o => o.value === group.category || !usedCategories.has(o.value))
+                          .map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+                      </Select>
+                    )}
                     <Tag>{groupQty}개</Tag>
                     {groupCost > 0 && <Tag color="gold">{groupCost.toLocaleString()}원</Tag>}
                   </Space>
                 }
                 extra={
-                  catGroups.length > 1 ? (
+                  !isPrefillGroup && catGroups.length > 1 ? (
                     <Button size="small" danger type="text" icon={<DeleteOutlined />}
                       onClick={() => removeCategoryGroup(group.key)} />
                   ) : null
                 }
               >
                 {group.items.map((item) => (
-                  <div key={item.key} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-                    {subCategoryMap[group.category]?.length > 0 && (
-                      <Select
-                        value={item.sub_category || undefined}
-                        onChange={(v) => updateSubItem(group.key, item.key, 'sub_category', v || null)}
-                        placeholder="세부카테고리"
-                        allowClear showSearch optionFilterProp="label"
-                        style={{ width: 140 }}
-                        options={subCategoryMap[group.category]}
-                      />
+                  <div key={item.key} style={{ marginBottom: 8 }}>
+                    {item._sku ? (
+                      /* ── prefill 아이템: 상품정보 읽기전용, 수량만 수정 가능 ── */
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '6px 0' }}>
+                        <Tag color="blue" style={{ fontSize: 11 }}>{item._sku}</Tag>
+                        <span style={{ fontWeight: 600, fontSize: 13 }}>{item._product_name}</span>
+                        <Tag>{item._color}/{item._size}</Tag>
+                        {item.sub_category && <Tag color="cyan">{subCatLabelMap[item.sub_category] || item.sub_category}</Tag>}
+                        {item.fit && <Tag>{fitLabelMap[item.fit] || item.fit}</Tag>}
+                        {item.length && <Tag>{lenLabelMap[item.length] || item.length}</Tag>}
+                        <span style={{ color: '#999', fontSize: 12 }}>현재고: <b style={{ color: (item._current_stock || 0) === 0 ? '#f5222d' : '#333' }}>{item._current_stock || 0}</b></span>
+                        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <InputNumber
+                            min={1}
+                            value={item.plan_qty}
+                            onChange={(v) => updateSubItem(group.key, item.key, 'plan_qty', v || 1)}
+                            style={{ width: 90 }}
+                            addonAfter="개"
+                          />
+                          {item.unit_cost ? (
+                            <span style={{ fontSize: 12, color: '#888', minWidth: 70, textAlign: 'right' }}>@{(item.unit_cost).toLocaleString()}원</span>
+                          ) : null}
+                          <span style={{ fontWeight: 600, fontSize: 12, color: '#555', minWidth: 80, textAlign: 'right' }}>
+                            {((item.plan_qty || 0) * (item.unit_cost || 0)).toLocaleString()}원
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── 수동 추가 아이템: 전체 수정 가능 ── */
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        {subCategoryMap[group.category]?.length > 0 && (
+                          <Select
+                            value={item.sub_category || undefined}
+                            onChange={(v) => updateSubItem(group.key, item.key, 'sub_category', v || null)}
+                            placeholder="세부카테고리"
+                            allowClear showSearch optionFilterProp="label"
+                            style={{ width: 140 }}
+                            options={subCategoryMap[group.category]}
+                          />
+                        )}
+                        <Select
+                          value={item.fit || undefined}
+                          onChange={(v) => updateSubItem(group.key, item.key, 'fit', v || null)}
+                          placeholder="핏"
+                          allowClear showSearch optionFilterProp="label"
+                          style={{ width: 130 }}
+                          options={fitOptions}
+                        />
+                        <Select
+                          value={item.length || undefined}
+                          onChange={(v) => updateSubItem(group.key, item.key, 'length', v || null)}
+                          placeholder="기장"
+                          allowClear showSearch optionFilterProp="label"
+                          style={{ width: 110 }}
+                          options={lengthOptions}
+                        />
+                        <InputNumber
+                          min={1}
+                          value={item.plan_qty}
+                          onChange={(v) => updateSubItem(group.key, item.key, 'plan_qty', v || 1)}
+                          style={{ width: 80 }}
+                          placeholder="수량"
+                          addonAfter="개"
+                        />
+                        <InputNumber
+                          min={0}
+                          value={item.unit_cost}
+                          onChange={(v) => updateSubItem(group.key, item.key, 'unit_cost', v)}
+                          style={{ width: 120 }}
+                          placeholder="단가"
+                          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                          parser={(v) => Number((v || '').replace(/,/g, ''))}
+                        />
+                        <span style={{ width: 90, textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#555', flexShrink: 0 }}>
+                          {((item.plan_qty || 0) * (item.unit_cost || 0)).toLocaleString()}원
+                        </span>
+                        {group.items.length > 1 ? (
+                          <Button size="small" type="text" danger icon={<MinusCircleOutlined />}
+                            onClick={() => removeSubItem(group.key, item.key)} />
+                        ) : <div style={{ width: 32 }} />}
+                      </div>
                     )}
-                    <Select
-                      value={item.fit || undefined}
-                      onChange={(v) => updateSubItem(group.key, item.key, 'fit', v || null)}
-                      placeholder="핏"
-                      allowClear showSearch optionFilterProp="label"
-                      style={{ width: 130 }}
-                      options={fitOptions}
-                    />
-                    <Select
-                      value={item.length || undefined}
-                      onChange={(v) => updateSubItem(group.key, item.key, 'length', v || null)}
-                      placeholder="기장"
-                      allowClear showSearch optionFilterProp="label"
-                      style={{ width: 110 }}
-                      options={lengthOptions}
-                    />
-                    <InputNumber
-                      min={1}
-                      value={item.plan_qty}
-                      onChange={(v) => updateSubItem(group.key, item.key, 'plan_qty', v || 1)}
-                      style={{ width: 80 }}
-                      placeholder="수량"
-                      addonAfter="개"
-                    />
-                    <InputNumber
-                      min={0}
-                      value={item.unit_cost}
-                      onChange={(v) => updateSubItem(group.key, item.key, 'unit_cost', v)}
-                      style={{ width: 120 }}
-                      placeholder="단가"
-                      formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                      parser={(v) => Number((v || '').replace(/,/g, ''))}
-                    />
-                    <span style={{ width: 90, textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#555', flexShrink: 0 }}>
-                      {((item.plan_qty || 0) * (item.unit_cost || 0)).toLocaleString()}원
-                    </span>
-                    {group.items.length > 1 ? (
-                      <Button size="small" type="text" danger icon={<MinusCircleOutlined />}
-                        onClick={() => removeSubItem(group.key, item.key)} />
-                    ) : <div style={{ width: 32 }} />}
                   </div>
                 ))}
-                <Button size="small" type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 4 }}
-                  onClick={() => addSubItem(group.key)}>
-                  핏/기장 추가
-                </Button>
+                {!group.items.some(i => i._sku) && (
+                  <Button size="small" type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 4 }}
+                    onClick={() => addSubItem(group.key)}>
+                    핏/기장 추가
+                  </Button>
+                )}
               </Card>
             );
           })}
         </div>
 
-        <Button type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 12, height: 40 }}
-          onClick={addCategoryGroup}
-          disabled={catGroups.length >= categoryOptions.length}>
-          + 카테고리 추가
-        </Button>
+        {!catGroups.some(g => g.items.some(i => i._sku)) && (
+          <Button type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 12, height: 40 }}
+            onClick={addCategoryGroup}
+            disabled={catGroups.length >= categoryOptions.length}>
+            + 카테고리 추가
+          </Button>
+        )}
       </Modal>
 
       {/* 상세 모달 */}

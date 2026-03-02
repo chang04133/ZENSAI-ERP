@@ -28,6 +28,7 @@ import notificationRoutes from './modules/notification/notification.routes';
 import productionRoutes from './modules/production/production.routes';
 import materialRoutes from './modules/production/material.routes';
 import fundRoutes from './modules/fund/fund.routes';
+import inboundExcelRoutes from './modules/inbound/inbound-excel.routes';
 import inboundRoutes from './modules/inbound/inbound.routes';
 
 const app = express();
@@ -82,6 +83,10 @@ const uploadsDir = path.join(__dirname, '../../uploads/products');
 fs.mkdirSync(uploadsDir, { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
+// Activity logging
+import { activityLogger } from './middleware/activity-logger';
+app.use('/api', activityLogger);
+
 // Routes
 app.use(healthRoutes);
 app.use('/api/auth', authRoutes);
@@ -104,6 +109,7 @@ app.use('/api/notifications', notificationRoutes);
 app.use('/api/productions', productionRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/funds', fundRoutes);
+app.use('/api/inbounds', inboundExcelRoutes);  // Excel routes first
 app.use('/api/inbounds', inboundRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {

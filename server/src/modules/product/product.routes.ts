@@ -66,7 +66,7 @@ router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) =
   }
 
   const variantSql = `
-    SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.barcode,
+    SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.barcode, pv.custom_barcode,
            p.product_code, p.product_name, p.category, p.sub_category,
            p.base_price, p.discount_price
            ${inventorySelect}
@@ -88,16 +88,16 @@ router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) =
   res.json({ success: true, data: { stats, variants: safeVariants } });
 }));
 
-// 바코드 등록/수정 (매장 매니저도 가능)
+// 바코드 등록/수정 (매장 매니저도 가능) - custom_barcode 저장
 router.put('/variants/:id/barcode', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();
   const variantId = parseInt(req.params.id as string, 10);
   const { barcode } = req.body;
 
-  // 중복 체크
+  // 중복 체크 (custom_barcode 기준)
   if (barcode) {
     const dup = await pool.query(
-      `SELECT variant_id FROM product_variants WHERE barcode = $1 AND variant_id != $2`,
+      `SELECT variant_id FROM product_variants WHERE custom_barcode = $1 AND variant_id != $2`,
       [barcode, variantId],
     );
     if (dup.rows.length > 0) {
@@ -107,7 +107,7 @@ router.put('/variants/:id/barcode', authMiddleware, asyncHandler(async (req, res
   }
 
   const result = await pool.query(
-    `UPDATE product_variants SET barcode = $1 WHERE variant_id = $2 RETURNING *`,
+    `UPDATE product_variants SET custom_barcode = $1 WHERE variant_id = $2 RETURNING *`,
     [barcode || null, variantId],
   );
   if (result.rows.length === 0) {
@@ -146,8 +146,41 @@ router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(
 
 // 행사 상품
 router.get('/events', authMiddleware, productController.listEventProducts);
-router.get('/events/recommendations', authMiddleware, productController.eventRecommendations);
 router.put('/events/bulk', ...write, productController.bulkUpdateEventPrices);
+
+// Variant 일괄 조회 (variant_id 배열 → 상품+variant 상세)
+router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const { variant_ids } = req.body;
+  if (!Array.isArray(variant_ids) || variant_ids.length === 0) {
+    res.status(400).json({ success: false, error: 'variant_ids 배열이 필요합니다.' });
+    return;
+  }
+  // 최대 500개 제한
+  const ids = variant_ids.slice(0, 500).map(Number).filter(n => !isNaN(n));
+  if (ids.length === 0) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+
+  const placeholders = ids.map((_, i) => `$${i + 1}`).join(',');
+  const sql = `
+    SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.price,
+           p.product_code, p.product_name, p.category, p.sub_category,
+           p.fit, p.length, p.base_price, p.cost_price, p.season,
+           COALESCE(inv.total_qty, 0)::int AS current_stock
+    FROM product_variants pv
+    JOIN products p ON pv.product_code = p.product_code
+    LEFT JOIN (
+      SELECT variant_id, SUM(qty)::int AS total_qty
+      FROM inventory
+      GROUP BY variant_id
+    ) inv ON pv.variant_id = inv.variant_id
+    WHERE pv.variant_id IN (${placeholders})
+    ORDER BY p.category, p.product_code, pv.color, pv.size`;
+  const result = await pool.query(sql, ids);
+  res.json({ success: true, data: result.rows });
+}));
 
 router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) => {
   const pool = getPool();
@@ -155,6 +188,7 @@ router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) =
   const sizes = await pool.query("SELECT size FROM (SELECT DISTINCT size FROM product_variants WHERE is_active = TRUE AND size IS NOT NULL) sub ORDER BY CASE size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END");
   res.json({ success: true, data: { colors: colors.rows.map((r: any) => r.color), sizes: sizes.rows.map((r: any) => r.size) } });
 }));
+router.get('/export/variants', ...write, productController.exportVariants);
 router.get('/',      authMiddleware, productController.list);
 router.get('/variants/search', authMiddleware, productController.searchVariants);
 

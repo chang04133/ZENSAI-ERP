@@ -146,6 +146,49 @@ class ProductController extends BaseController<Product> {
     res.json({ success: true, data: stripCostFromResult(product, req) });
   });
 
+  /** 엑셀 내보내기용: SKU별 플랫 데이터 */
+  exportVariants = asyncHandler(async (req: Request, res: Response) => {
+    const pool = getPool();
+    const { search, category, sub_category, season, fit, sale_status, color, size } = req.query;
+    const conditions: string[] = ['p.is_active = TRUE', 'pv.is_active = TRUE'];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(p.product_code ILIKE $${idx} OR p.product_name ILIKE $${idx} OR pv.sku ILIKE $${idx})`);
+      idx++;
+    }
+    if (category) { params.push(category); conditions.push(`p.category = $${idx}`); idx++; }
+    if (sub_category) { params.push(sub_category); conditions.push(`p.sub_category = $${idx}`); idx++; }
+    if (season) { params.push(season); conditions.push(`p.season = $${idx}`); idx++; }
+    if (fit) { params.push(fit); conditions.push(`p.fit = $${idx}`); idx++; }
+    if (sale_status) { params.push(sale_status); conditions.push(`p.sale_status = $${idx}`); idx++; }
+    if (color) { params.push(color); conditions.push(`pv.color = $${idx}`); idx++; }
+    if (size) { params.push(size); conditions.push(`pv.size = $${idx}`); idx++; }
+
+    const sql = `
+      SELECT p.product_code, pv.sku, p.product_name, p.category, p.sub_category,
+             p.brand, p.season, p.fit, p.length,
+             pv.color, pv.size, pv.barcode, pv.custom_barcode,
+             p.base_price, p.cost_price, p.discount_price, p.event_price, p.sale_status,
+             COALESCE(SUM(i.qty), 0)::int AS stock_qty
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+      WHERE ${conditions.join(' AND ')}
+      GROUP BY p.product_code, pv.variant_id, pv.sku, p.product_name, p.category, p.sub_category,
+               p.brand, p.season, p.fit, p.length,
+               pv.color, pv.size, pv.barcode, pv.custom_barcode,
+               p.base_price, p.cost_price, p.discount_price, p.event_price, p.sale_status
+      ORDER BY p.product_code, pv.color, pv.size
+      LIMIT 5000`;
+
+    const result = await pool.query(sql, params);
+    const rows = isStoreRole(req) ? result.rows.map(stripCost) : result.rows;
+    res.json({ success: true, data: rows });
+  });
+
   bulkUpdateEventPrices = asyncHandler(async (req: Request, res: Response) => {
     const { updates, event_store_codes } = req.body;
     if (!Array.isArray(updates) || updates.length === 0) {
@@ -159,14 +202,6 @@ class ProductController extends BaseController<Product> {
     res.json({ success: true, data: result });
   });
 
-  eventRecommendations = asyncHandler(async (req: Request, res: Response) => {
-    const { limit, category } = req.query;
-    const data = await productService.eventRecommendations({
-      limit: limit ? parseInt(limit as string, 10) : undefined,
-      category: category as string | undefined,
-    });
-    res.json({ success: true, data: stripCostFromResult(data, req) });
-  });
 }
 
 export const productController = new ProductController();

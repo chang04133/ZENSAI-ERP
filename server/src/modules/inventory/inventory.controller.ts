@@ -194,7 +194,7 @@ class InventoryController extends BaseController<Inventory> {
         p.product_code = $1
         OR p.product_code ILIKE $2
         OR p.product_name ILIKE $2
-        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_code = p.product_code AND pv.is_active = TRUE AND (pv.sku ILIKE $2 OR pv.barcode = $1))
+        OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_code = p.product_code AND pv.is_active = TRUE AND (pv.sku ILIKE $2 OR pv.barcode = $1 OR pv.custom_barcode = $1))
       )
       ORDER BY CASE WHEN p.product_code = $1 THEN 0 WHEN p.product_code ILIKE $2 THEN 1 ELSE 2 END, p.product_name
       LIMIT 1`;

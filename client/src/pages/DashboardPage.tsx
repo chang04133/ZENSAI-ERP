@@ -322,7 +322,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToProcess || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/store')}
+                        onClick={() => navigate('/shipment/view')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -347,7 +347,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToReceive || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/store')}
+                        onClick={() => navigate('/shipment/view')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -372,7 +372,7 @@ export default function DashboardPage() {
                   {(pa.restockPending || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/restock/progress')}
+                        onClick={() => navigate('/inventory/restock')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -428,7 +428,7 @@ export default function DashboardPage() {
                   {(pa.pendingRestocks || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/restock/progress')}
+                        onClick={() => navigate('/inventory/restock')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -453,7 +453,7 @@ export default function DashboardPage() {
                   {(pa.shippedAwaitingReceipt || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/process')}
+                        onClick={() => navigate('/shipment/request')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -838,7 +838,7 @@ export default function DashboardPage() {
               <Card
                 title={<span>재입고 제안 <Badge count={restockSuggestions.length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
                 size="small" style={{ borderRadius: 10 }} loading={loading}
-                extra={<a onClick={() => navigate('/restock/manage')}>전체보기</a>}
+                extra={<a onClick={() => navigate('/inventory/restock')}>전체보기</a>}
               >
                 <Row gutter={[6, 6]} style={{ marginBottom: 12 }}>
                   {(['ALERT', 'CONSIDER', 'NORMAL'] as const).map(st => {
@@ -850,7 +850,7 @@ export default function DashboardPage() {
                         <div style={{
                           background: conf.bg, border: `1px solid ${conf.border}`, borderRadius: 8,
                           padding: '8px 4px', textAlign: 'center', cursor: 'pointer',
-                        }} onClick={() => navigate('/restock/manage')}>
+                        }} onClick={() => navigate('/inventory/restock')}>
                           <div style={{ fontSize: 14, fontWeight: 800, color: conf.color }}>{conf.label}</div>
                           <div style={{ fontSize: 18, fontWeight: 800, color: conf.color, lineHeight: 1.2 }}>{items.length}</div>
                           <div style={{ fontSize: 10, color: '#888' }}>{totalQty.toLocaleString()}개</div>

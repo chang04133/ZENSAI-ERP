@@ -101,14 +101,14 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const qtyAfter = inv.rows[0].qty;
 
     // 음수 재고 경고 로깅
-    if (qtyAfter < 0) {
-      console.warn(`[재고 경고] ${partnerCode}:${variantId} 재고 음수 (${qtyAfter}), txType=${txType}, refId=${refId}`);
-    }
+    const negMemo = qtyAfter < 0
+      ? `[AUTO] 음수재고 경고: ${qtyAfter}개 (${txType}, ref=${refId})`
+      : null;
 
     await client.query(
-      `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId],
+      `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by, memo)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId, negMemo],
     );
   }
 
@@ -197,6 +197,11 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     this.thresholdCache.med = val;
     this.thresholdCache.ts = now;
     return val;
+  }
+
+  /** 임계값 캐시 수동 무효화 */
+  invalidateThresholdCache(): void {
+    this.thresholdCache = { ts: 0 };
   }
 
   /** 매장별 임계값 조회 (없으면 전역 값 사용) */
@@ -400,6 +405,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       );
       const currentQty = current.rows.length > 0 ? current.rows[0].qty : 0;
       const newQty = Math.max(0, currentQty + qtyChange);
+      const actualChange = newQty - currentQty; // 실제 적용된 변동량
 
       // Upsert inventory
       const inv = await client.query(
@@ -409,11 +415,14 @@ export class InventoryRepository extends BaseRepository<Inventory> {
          RETURNING *`,
         [partnerCode, variantId, newQty],
       );
-      // Record transaction
+      // Record transaction — 실제 적용된 변동량 기록
+      const txMemo = actualChange !== qtyChange
+        ? `${memo || ''} [요청: ${qtyChange}, 실적용: ${actualChange}]`.trim()
+        : (memo || null);
       await client.query(
         `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by, memo)
          VALUES ('ADJUST', $1, $2, $3, $4, $5, $6)`,
-        [partnerCode, variantId, qtyChange, newQty, userId, memo || null],
+        [partnerCode, variantId, actualChange, newQty, userId, txMemo],
       );
       await client.query('COMMIT');
 
@@ -491,8 +500,9 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const currentYear = new Date().getFullYear();
     const maxSeasonYear = currentYear - minAgeYears;
 
-    const params: any[] = [maxSeasonYear];
-    let idx = 2;
+    // 파라미터: $1=maxSeasonYear, $2=currentYear, $3=brokenQtyThreshold, $4=brokenMinSizes
+    const params: any[] = [maxSeasonYear, currentYear, brokenSettings.qtyThreshold, brokenSettings.minSizes];
+    let idx = 5;
     let extraFilters = '';
     let invPartnerFilter = '';
 
@@ -544,7 +554,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              END AS days_without_sale,
              (p.base_price * st.current_stock)::bigint AS stock_value,
              ti.total_qty,
-             ${currentYear} - CAST(LEFT(p.season, 4) AS int) AS age_years,
+             $2 - CASE WHEN p.season ~ '^[0-9]{4}' THEN CAST(LEFT(p.season, 4) AS int) ELSE $2 END AS age_years,
              COALESCE(bs.broken_store_count, 0)::int AS broken_store_count,
              COALESCE(bs.broken_size_count, 0)::int AS broken_size_count
       FROM products p
@@ -556,7 +566,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                COALESCE(SUM(sub.broken_cnt), 0)::int AS broken_size_count
         FROM (
           SELECT si.partner_code,
-                 COUNT(*) FILTER (WHERE si.qty <= ${brokenSettings.qtyThreshold})::int AS broken_cnt
+                 COUNT(*) FILTER (WHERE si.qty <= $3)::int AS broken_cnt
           FROM product_variants spv
           JOIN inventory si ON spv.variant_id = si.variant_id
           JOIN partners sp ON si.partner_code = sp.partner_code AND sp.partner_type != '본사'
@@ -566,8 +576,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
             SELECT COUNT(DISTINCT pv2.size)
             FROM product_variants pv2
             WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE AND pv2.size != 'FREE'
-          ) >= ${brokenSettings.minSizes}
-          AND COUNT(*) FILTER (WHERE si.qty <= ${brokenSettings.qtyThreshold}) > 0
+          ) >= $4
+          AND COUNT(*) FILTER (WHERE si.qty <= $3) > 0
         ) sub
       ) bs ON TRUE
       WHERE p.is_active = TRUE

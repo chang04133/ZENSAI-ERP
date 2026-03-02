@@ -23,6 +23,14 @@ export default function WarehouseInventoryPage() {
   const [color, setColor] = useState('');
   const [sortField, setSortField] = useState('qty');
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('DESC');
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+
+  useEffect(() => {
+    inventoryApi.summaryBySeason().then((d: any) => {
+      const seasons = (Array.isArray(d) ? d : d?.data || []).filter((s: any) => s.season);
+      setSeasonOptions(seasons.map((s: any) => ({ label: s.season, value: s.season })));
+    }).catch(() => {});
+  }, []);
 
   const load = useCallback(async (p?: number) => {
     const currentPage = p ?? page;
@@ -248,7 +256,7 @@ export default function WarehouseInventoryPage() {
             style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
           <Select size="small" value={season} onChange={(v) => { setSeason(v); setPage(1); }}
-            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }]} /></div>
+            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...seasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
           <Select size="small" value={size} onChange={(v) => { setSize(v); setPage(1); }}
             style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} /></div>

@@ -3,6 +3,7 @@ import { InboundRecord } from '../../../../shared/types/inbound';
 import { getPool } from '../../db/connection';
 import { QueryBuilder } from '../../core/query-builder';
 import { inventoryRepository } from '../inventory/inventory.repository';
+import { audit } from '../../core/audit';
 
 export class InboundRepository extends BaseRepository<InboundRecord> {
   constructor() {
@@ -129,6 +130,11 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
 
       await client.query('DELETE FROM inbound_records WHERE record_id = $1', [id]);
       await client.query('COMMIT');
+
+      // 감사 로그
+      audit('inbound', String(id), 'DELETE', userId,
+        { inbound_no: record.inbound_no, partner_code: record.partner_code, item_count: items.rows.length }, null);
+
       return true;
     } catch (e) {
       await client.query('ROLLBACK');

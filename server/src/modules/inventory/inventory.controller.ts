@@ -162,8 +162,9 @@ class InventoryController extends BaseController<Inventory> {
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
         AND iv.total_qty <= $${recIdx}
       ORDER BY iv.total_qty ASC, p.product_name
-      LIMIT ${alertLimit}
+      LIMIT $${paramIdx}
     `;
+    params.push(alertLimit);
 
     const result = await pool.query(sql, params);
     const rows = result.rows;
@@ -286,6 +287,20 @@ class InventoryController extends BaseController<Inventory> {
     }
     if (Number(qty_change) === 0) {
       res.status(400).json({ success: false, error: '조정 수량은 0이 아니어야 합니다.' });
+      return;
+    }
+    // 거래처 / 변형 존재 여부 확인
+    const pool = getPool();
+    const [partnerCheck, variantCheck] = await Promise.all([
+      pool.query('SELECT 1 FROM partners WHERE partner_code = $1', [partner_code]),
+      pool.query('SELECT 1 FROM product_variants WHERE variant_id = $1 AND is_active = TRUE', [Number(variant_id)]),
+    ]);
+    if (partnerCheck.rows.length === 0) {
+      res.status(400).json({ success: false, error: '존재하지 않는 거래처 코드입니다.' });
+      return;
+    }
+    if (variantCheck.rows.length === 0) {
+      res.status(400).json({ success: false, error: '존재하지 않거나 비활성인 상품 변형입니다.' });
       return;
     }
     const result = await inventoryService.adjust(partner_code, variant_id, qty_change, req.user!.userId, memo);

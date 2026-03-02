@@ -33,7 +33,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       await client.query('BEGIN');
 
       const currentResult = await client.query(
-        'SELECT * FROM shipment_requests WHERE request_id = $1', [id],
+        'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
       if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
       const current = currentResult.rows[0];
@@ -48,9 +48,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
-      const approvedBy = data.approved_by;
-
-      // 상태 및 기타 필드 업데이트
+      // 상태 및 기타 필드 업데이트 (approved_by는 현재 사용자로 강제)
       await client.query(
         `UPDATE shipment_requests
          SET status = COALESCE($1, status),
@@ -58,7 +56,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
              approved_by = COALESCE($3, approved_by),
              updated_at = NOW()
          WHERE request_id = $4`,
-        [data.status, data.memo, approvedBy, id],
+        [data.status, data.memo, userId, id],
       );
 
       const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER' };
@@ -157,9 +155,9 @@ class ShipmentService extends BaseService<ShipmentRequest> {
     try {
       await client.query('BEGIN');
 
-      // 현재 상태 조회
+      // 현재 상태 조회 (FOR UPDATE로 잠금)
       const currentResult = await client.query(
-        'SELECT * FROM shipment_requests WHERE request_id = $1', [id],
+        'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
       if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
       const current = currentResult.rows[0];
@@ -169,9 +167,19 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         throw new Error(`현재 상태(${current.status})에서는 출고확인할 수 없습니다. PENDING 상태만 가능합니다.`);
       }
 
+      // request_qty 조회하여 초과 검증
+      const reqItems = await client.query(
+        'SELECT variant_id, request_qty FROM shipment_request_items WHERE request_id = $1', [id],
+      );
+      const reqMap = new Map(reqItems.rows.map((r: any) => [r.variant_id, Number(r.request_qty)]));
+
       // shipped_qty 업데이트
       for (const item of items) {
         if (item.shipped_qty < 0) throw new Error('출고수량은 0 이상이어야 합니다.');
+        const reqQty = reqMap.get(item.variant_id);
+        if (reqQty !== undefined && item.shipped_qty > reqQty) {
+          throw new Error(`출고수량(${item.shipped_qty})이 의뢰수량(${reqQty})을 초과합니다.`);
+        }
         const result = await client.query(
           'UPDATE shipment_request_items SET shipped_qty = $1 WHERE request_id = $2 AND variant_id = $3',
           [item.shipped_qty, id, item.variant_id],
@@ -230,9 +238,9 @@ class ShipmentService extends BaseService<ShipmentRequest> {
     try {
       await client.query('BEGIN');
 
-      // 현재 상태 조회 (먼저 검증)
+      // 현재 상태 조회 (FOR UPDATE로 잠금)
       const currentResult = await client.query(
-        'SELECT * FROM shipment_requests WHERE request_id = $1', [id],
+        'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
       if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
       const current = currentResult.rows[0];
@@ -242,14 +250,14 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         throw new Error(`현재 상태(${current.status})에서는 수령확인할 수 없습니다. SHIPPED 상태만 가능합니다.`);
       }
 
-      // received_qty 검증 및 업데이트
+      // received_qty 검증 및 업데이트 (variant_id 타입 통일)
       const shippedItems = await client.query(
         'SELECT variant_id, shipped_qty FROM shipment_request_items WHERE request_id = $1', [id],
       );
-      const shippedMap = new Map(shippedItems.rows.map((r: any) => [r.variant_id, Number(r.shipped_qty)]));
+      const shippedMap = new Map(shippedItems.rows.map((r: any) => [Number(r.variant_id), Number(r.shipped_qty)]));
       for (const item of items) {
         if (item.received_qty < 0) throw new Error('수령수량은 0 이상이어야 합니다.');
-        const shipped = shippedMap.get(item.variant_id);
+        const shipped = shippedMap.get(Number(item.variant_id));
         if (shipped !== undefined && item.received_qty > shipped) {
           throw new Error(`수령수량(${item.received_qty})이 출고수량(${shipped})을 초과합니다.`);
         }
@@ -266,7 +274,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       );
 
       // to_partner 재고 증가
-      if (current.status !== 'RECEIVED' && current.to_partner) {
+      if (current.to_partner) {
         const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER' };
         const txType = txTypeMap[current.request_type] || 'SHIPMENT';
         for (const item of items) {

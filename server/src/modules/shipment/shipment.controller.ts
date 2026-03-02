@@ -38,6 +38,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
 
   getById = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const item = await shipmentService.getWithItems(id);
     if (!item) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
@@ -47,13 +48,25 @@ class ShipmentController extends BaseController<ShipmentRequest> {
   /** 의뢰 생성 (품목 포함) */
   create = asyncHandler(async (req: Request, res: Response) => {
     const { items, ...headerData } = req.body;
+    // request_type 검증
+    const validTypes = ['출고', '반품', '수평이동'];
+    if (!validTypes.includes(headerData.request_type)) {
+      res.status(400).json({ success: false, error: `의뢰유형은 ${validTypes.join('/')} 중 하나여야 합니다.` });
+      return;
+    }
+    // 수평이동은 to_partner 필수
+    if (headerData.request_type === '수평이동' && !headerData.to_partner) {
+      res.status(400).json({ success: false, error: '수평이동은 도착 거래처가 필수입니다.' });
+      return;
+    }
     if (!items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: '최소 1개 이상의 품목을 추가해주세요.' });
       return;
     }
     for (const item of items) {
-      if (!item.variant_id || !item.request_qty || item.request_qty <= 0) {
-        res.status(400).json({ success: false, error: '품목의 variant_id와 수량(1 이상)은 필수입니다.' });
+      const qty = Number(item.request_qty);
+      if (!item.variant_id || !qty || qty <= 0 || !Number.isInteger(qty)) {
+        res.status(400).json({ success: false, error: '품목의 variant_id와 수량(1 이상 정수)은 필수입니다.' });
         return;
       }
     }
@@ -67,15 +80,17 @@ class ShipmentController extends BaseController<ShipmentRequest> {
   /** 상태 변경 (재고 연동 포함) */
   update = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const result = await shipmentService.updateWithInventory(id, req.body, req.user!.userId);
     if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });
   });
 
-  /** 출고수량 일괄 업데이트 */
+  /** 출고수량 일괄 업데이트 (PENDING 상태에서만 가능) */
   updateShippedQty = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
+    if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, shipped_qty }]
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -83,8 +98,9 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       return;
     }
     for (const item of items) {
-      if (!Number.isFinite(Number(item.shipped_qty)) || Number(item.shipped_qty) < 0) {
-        res.status(400).json({ success: false, error: '출고수량은 0 이상의 숫자여야 합니다.' });
+      const qty = Number(item.shipped_qty);
+      if (!Number.isFinite(qty) || qty < 0 || !Number.isInteger(qty)) {
+        res.status(400).json({ success: false, error: '출고수량은 0 이상의 정수여야 합니다.' });
         return;
       }
     }
@@ -92,7 +108,22 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // 상태 검증: PENDING에서만 수량 변경 가능
+      const current = await client.query('SELECT status FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [requestId]);
+      if (current.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다.');
+      if (current.rows[0].status !== 'PENDING') {
+        throw new Error(`현재 상태(${current.rows[0].status})에서는 출고수량을 변경할 수 없습니다. PENDING 상태만 가능합니다.`);
+      }
+      // request_qty 조회하여 초과 검증
+      const reqItems = await client.query(
+        'SELECT variant_id, request_qty FROM shipment_request_items WHERE request_id = $1', [requestId],
+      );
+      const reqMap = new Map(reqItems.rows.map((r: any) => [r.variant_id, Number(r.request_qty)]));
       for (const item of items) {
+        const reqQty = reqMap.get(item.variant_id);
+        if (reqQty !== undefined && Number(item.shipped_qty) > reqQty) {
+          throw new Error(`출고수량(${item.shipped_qty})이 의뢰수량(${reqQty})을 초과합니다.`);
+        }
         const result = await client.query(
           'UPDATE shipment_request_items SET shipped_qty = $1 WHERE request_id = $2 AND variant_id = $3',
           [item.shipped_qty, requestId, item.variant_id],
@@ -115,6 +146,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
   /** 출고확인: shipped_qty 저장 + SHIPPED 상태 + 재고 차감 (단일 트랜잭션) */
   shipConfirm = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
+    if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, shipped_qty }]
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -122,8 +154,9 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       return;
     }
     for (const item of items) {
-      if (!Number.isFinite(Number(item.shipped_qty)) || Number(item.shipped_qty) < 0) {
-        res.status(400).json({ success: false, error: '출고수량은 0 이상의 숫자여야 합니다.' });
+      const qty = Number(item.shipped_qty);
+      if (!Number.isFinite(qty) || qty < 0 || !Number.isInteger(qty)) {
+        res.status(400).json({ success: false, error: '출고수량은 0 이상의 정수여야 합니다.' });
         return;
       }
     }
@@ -135,6 +168,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
   /** 수령확인: received_qty 저장 + 상태 RECEIVED + 재고 연동 (단일 트랜잭션) */
   receive = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
+    if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, received_qty }]
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -142,8 +176,9 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       return;
     }
     for (const item of items) {
-      if (!Number.isFinite(Number(item.received_qty)) || Number(item.received_qty) < 0) {
-        res.status(400).json({ success: false, error: '수령수량은 0 이상의 숫자여야 합니다.' });
+      const qty = Number(item.received_qty);
+      if (!Number.isFinite(qty) || qty < 0 || !Number.isInteger(qty)) {
+        res.status(400).json({ success: false, error: '수령수량은 0 이상의 정수여야 합니다.' });
         return;
       }
     }
@@ -152,9 +187,10 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     res.json({ success: true, data: result });
   });
 
-  /** 삭제: PENDING 상태만 삭제 가능 (hard delete) */
+  /** 삭제: PENDING 상태만 삭제 가능 (hard delete, CASCADE로 items 자동 삭제) */
   remove = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const pool = getPool();
     const current = await pool.query('SELECT status FROM shipment_requests WHERE request_id = $1', [id]);
@@ -166,7 +202,6 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       res.status(400).json({ success: false, error: '대기(PENDING) 상태의 의뢰만 삭제할 수 있습니다.' });
       return;
     }
-    await pool.query('DELETE FROM shipment_request_items WHERE request_id = $1', [id]);
     await pool.query('DELETE FROM shipment_requests WHERE request_id = $1', [id]);
     res.json({ success: true });
   });

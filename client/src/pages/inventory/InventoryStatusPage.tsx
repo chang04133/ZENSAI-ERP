@@ -467,8 +467,7 @@ function DashboardTab() {
           <Select value={srchSeasonFilter} onChange={(v) => { setSrchSeasonFilter(v); if (v) { openDrillDown(`시즌: ${v}`, { season: v, ...(srchCategoryFilter ? { category: srchCategoryFilter } : {}) }); } }} style={{ width: 120 }}
             options={[
               { label: '전체 보기', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
+              ...bySeason.filter(s => s.season).map(s => ({ label: s.season, value: s.season })),
             ]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={srchColorFilter} onChange={setSrchColorFilter} style={{ width: 120 }}
@@ -802,12 +801,18 @@ function AdjustTab() {
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+
   // 거래처 로드
   useEffect(() => {
     partnerApi.list({ limit: '1000' }).then(r => setPartners(r.data)).catch(() => {});
     productApi.variantOptions().then((d: any) => {
       setColorOptions((d.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((d.sizes || []).map((s: string) => ({ label: s, value: s })));
+    }).catch(() => {});
+    inventoryApi.summaryBySeason().then((d: any) => {
+      const seasons = (Array.isArray(d) ? d : d?.data || []).filter((s: any) => s.season);
+      setSeasonOptions(seasons.map((s: any) => ({ label: s.season, value: s.season })));
     }).catch(() => {});
   }, []);
 
@@ -1031,11 +1036,7 @@ function AdjustTab() {
             options={[{ label: '전체', value: '' }, { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' }, { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' }]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
           <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[
-              { label: '전체', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-            ]} /></div>
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}

@@ -92,8 +92,10 @@ export default function ProductFormPage() {
     }).catch(() => {});
   }, []);
 
+  // 상품 데이터 로드 (1회만)
+  const [productLoaded, setProductLoaded] = useState(false);
   useEffect(() => {
-    if (isEdit && code) {
+    if (isEdit && code && !productLoaded) {
       setFetching(true);
       Promise.all([
         productApi.get(code),
@@ -106,11 +108,20 @@ export default function ProductFormPage() {
             updateSubCategories(data.category, allCategoryCodes);
           }
           setProductMaterials(mats.map((m: any) => ({ material_id: m.material_id, usage_qty: Number(m.usage_qty) })));
+          setProductLoaded(true);
         })
         .catch((e) => message.error(e.message))
         .finally(() => setFetching(false));
     }
-  }, [code, isEdit, form, allCategoryCodes, updateSubCategories]);
+  }, [code, isEdit, productLoaded]);
+
+  // 카테고리 코드 로드 후 세부카테고리 업데이트
+  useEffect(() => {
+    if (productLoaded && allCategoryCodes.length > 0) {
+      const cat = form.getFieldValue('category');
+      if (cat) updateSubCategories(cat, allCategoryCodes);
+    }
+  }, [allCategoryCodes, productLoaded]);
 
   const handleImageUpload = async (file: File) => {
     if (!isEdit || !code) {
@@ -169,10 +180,6 @@ export default function ProductFormPage() {
   };
 
   const onFinish = async (values: any) => {
-    if (productMaterials.length === 0) {
-      message.warning('부자재를 1개 이상 등록해야 합니다.');
-      return;
-    }
     setLoading(true);
     try {
       const productCode = isEdit ? code! : values.product_code;
@@ -183,8 +190,14 @@ export default function ProductFormPage() {
       } else {
         await productApi.create(values);
       }
-      // 부자재 저장
-      await productApi.saveProductMaterials(productCode, productMaterials);
+      // 부자재 저장 (실패해도 상품 등록은 유지)
+      if (productMaterials.length > 0) {
+        try {
+          await productApi.saveProductMaterials(productCode, productMaterials);
+        } catch (e: any) {
+          message.warning('상품은 저장되었으나 부자재 저장 실패: ' + e.message);
+        }
+      }
       message.success(isEdit ? '상품이 수정되었습니다.' : '상품이 등록되었습니다.');
       navigate('/products');
     } catch (e: any) {

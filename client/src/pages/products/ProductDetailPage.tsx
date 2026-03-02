@@ -19,7 +19,7 @@ export default function ProductDetailPage() {
   const user = useAuthStore((s) => s.user);
   const [product, setProduct] = useState<any>(null);
   const [loading, setLoading] = useState(true);
-  const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   // 추가 모달
@@ -55,7 +55,9 @@ export default function ProductDetailPage() {
     } catch { /* ignore */ } finally { setSalesLoading(false); }
   };
 
-  useEffect(() => { load(); loadSales(); }, [code]);
+  const [salesLoaded, setSalesLoaded] = useState(false);
+
+  useEffect(() => { load(); }, [code]);
 
   // 변형 추가
   const handleAddVariant = async (values: any) => {
@@ -240,7 +242,7 @@ export default function ProductDetailPage() {
       {/* 변형 목록 (옵션/재고/위치) */}
       <Card
         title={`옵션별 재고/위치 관리 (${product.variants?.length || 0}개)`}
-        extra={canWrite && <Button type="primary" icon={<EditOutlined />} onClick={() => setAddModalOpen(true)}>수정</Button>}
+        extra={canWrite && <Button type="primary" icon={<PlusOutlined />} onClick={() => setAddModalOpen(true)}>추가</Button>}
       >
         <Table
           columns={variantColumns}
@@ -253,7 +255,7 @@ export default function ProductDetailPage() {
               <Table.Summary.Cell index={0} colSpan={7} align="right"><strong>총 합계</strong></Table.Summary.Cell>
               <Table.Summary.Cell index={7}><Tag color="blue" style={{ fontSize: 14 }}><strong>{totalStock}</strong></Tag></Table.Summary.Cell>
               <Table.Summary.Cell index={8}>{totalInProduction > 0 ? <Tag color="purple" style={{ fontSize: 14 }}><strong>{totalInProduction}</strong></Tag> : '-'}</Table.Summary.Cell>
-              <Table.Summary.Cell index={9} colSpan={2} />
+              <Table.Summary.Cell index={9} colSpan={canWrite ? 2 : 1} />
             </Table.Summary.Row>
           )}
         />
@@ -263,9 +265,10 @@ export default function ProductDetailPage() {
       <Card style={{ marginTop: 24 }}>
         <Collapse
           ghost
+          onChange={(keys) => { if (keys.includes('sales') && !salesLoaded) { setSalesLoaded(true); loadSales(); } }}
           items={[{
             key: 'sales',
-            label: <span><HistoryOutlined /> 최근 판매이력 ({salesHistory.length}건)</span>,
+            label: <span><HistoryOutlined /> 최근 판매이력 {salesLoaded ? `(${salesHistory.length}건)` : ''}</span>,
             children: (
               <Table
                 dataSource={salesHistory}

@@ -89,6 +89,8 @@ router.post('/excel/upload',
             sub_category: String(row['세부카테고리'] || '').trim() || null,
             brand: String(row['브랜드'] || '').trim() || null,
             season: String(row['시즌'] || '').trim() || null,
+            fit: String(row['핏'] || '').trim() || null,
+            length: String(row['기장'] || '').trim() || null,
             base_price: Number(row['기본가']) || 0,
             cost_price: Number(row['매입가']) || 0,
             discount_price: row['할인가'] ? Number(row['할인가']) : null,
@@ -125,11 +127,11 @@ router.post('/excel/upload',
           const existing = await client.query('SELECT product_code FROM products WHERE product_code = $1', [code]);
           if (existing.rows.length > 0) { skipped++; errors.push(`${code}: 이미 존재 (건너뜀)`); continue; }
           await client.query(
-            `INSERT INTO products (product_code, product_name, category, sub_category, brand, season, base_price, cost_price, discount_price, event_price, sale_status)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+            `INSERT INTO products (product_code, product_name, category, sub_category, brand, season, fit, length, base_price, cost_price, discount_price, event_price, sale_status)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
             [
               product.product_code, product.product_name, product.category, product.sub_category,
-              product.brand, product.season,
+              product.brand, product.season, product.fit, product.length,
               product.base_price, product.cost_price, product.discount_price, product.event_price, product.sale_status,
             ],
           );

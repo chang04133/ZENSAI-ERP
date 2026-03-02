@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Input, Select, Space, Modal, Form, Popconfirm,
-  InputNumber, DatePicker, Badge, Card, Tag, message,
+  InputNumber, DatePicker, Badge, Card, Tag, Switch, message,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined,
@@ -63,6 +63,7 @@ export default function ReturnManagePage() {
   const [form] = Form.useForm();
   const [items, setItems] = useState<ItemRow[]>([]);
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
+  const [isClaim, setIsClaim] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
   const [shippedModalOpen, setShippedModalOpen] = useState(false);
@@ -184,12 +185,18 @@ export default function ReturnManagePage() {
 
   const handleCreate = async (values: any) => {
     if (items.length === 0) { message.error('최소 1개 이상의 품목을 추가해주세요'); return; }
-    const body: any = { ...values, request_type: '반품', items: items.map(({ variant_id, request_qty }) => ({ variant_id, request_qty })) };
+    const body: any = {
+      ...values,
+      request_type: '반품',
+      is_customer_claim: isClaim,
+      items: items.map(({ variant_id, request_qty }) => ({ variant_id, request_qty })),
+    };
+    if (!isClaim) { delete body.claim_type; delete body.claim_reason; delete body.customer_name; delete body.customer_phone; }
     if (isStore && user?.partnerCode) body.from_partner = user.partnerCode;
     try {
       await shipmentApi.create(body);
       message.success('반품의뢰가 등록되었습니다.');
-      setModalOpen(false); form.resetFields(); setItems([]);
+      setModalOpen(false); form.resetFields(); setItems([]); setIsClaim(false);
       if (view === 'PENDING') loadList('PENDING', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
       loadCounts();
@@ -299,10 +306,16 @@ export default function ReturnManagePage() {
   };
 
   /* ══════════ 컬럼 정의 ══════════ */
+  const CLAIM_TYPE_LABEL: Record<string, string> = { DEFECT: '불량', EXCHANGE: '교환', AS: 'A/S', COMPLAINT: '컴플레인' };
+
   const baseColumns = [
     { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 130 },
     { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 95,
       render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+    { title: '유형', dataIndex: 'is_customer_claim', key: 'claim', width: 90,
+      render: (_: any, r: any) => r.is_customer_claim
+        ? <Tag color="red">{CLAIM_TYPE_LABEL[r.claim_type] || '클레임'}</Tag>
+        : <Tag>일반</Tag> },
     { title: '반품처', dataIndex: 'from_partner_name', key: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
     { title: '입고처', dataIndex: 'to_partner_name', key: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
     { title: '품목', dataIndex: 'item_summary', key: 'item_summary', ellipsis: true,
@@ -477,7 +490,7 @@ export default function ReturnManagePage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields();
               if (isStore && user?.partnerCode) form.setFieldsValue({ from_partner: user.partnerCode });
-              setItems([]); setModalOpen(true);
+              setItems([]); setIsClaim(false); setModalOpen(true);
             }}>반품의뢰 등록</Button>
           )}
         </div>
@@ -509,7 +522,7 @@ export default function ReturnManagePage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           form.resetFields();
           if (isStore && user?.partnerCode) form.setFieldsValue({ from_partner: user.partnerCode });
-          setItems([]); setModalOpen(true);
+          setItems([]); setIsClaim(false); setModalOpen(true);
         }}>반품의뢰 등록</Button>
       ) : undefined} />
 
@@ -525,7 +538,7 @@ export default function ReturnManagePage() {
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}
 
       {/* ══ 모달 ══ */}
-      <Modal title="반품의뢰 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>
+      <Modal title="반품의뢰 등록" open={modalOpen} onCancel={() => { setModalOpen(false); setIsClaim(false); }} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           {!isStore && (
             <Form.Item name="from_partner" label="반품처 (출발)" rules={[{ required: true, message: '반품처를 선택해주세요' }]}>
@@ -535,6 +548,38 @@ export default function ReturnManagePage() {
           <Form.Item name="to_partner" label={isStore ? '반품 보낼 곳' : '입고처 (도착)'}>
             <Select showSearch optionFilterProp="label" placeholder="거래처 선택" allowClear options={partnerOptions} />
           </Form.Item>
+
+          <div style={{ padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: isClaim ? 12 : 0 }}>
+              <Switch checked={isClaim} onChange={(v) => { setIsClaim(v); if (!v) { form.setFieldsValue({ is_customer_claim: false, claim_type: undefined, claim_reason: undefined, customer_name: undefined, customer_phone: undefined }); } else { form.setFieldsValue({ is_customer_claim: true }); } }} />
+              <span style={{ fontWeight: 600 }}>고객 클레임/AS</span>
+              <span style={{ fontSize: 12, color: '#999' }}>고객이 직접 반품 요청한 경우</span>
+            </div>
+            {isClaim && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <Form.Item name="claim_type" label="클레임 유형" rules={[{ required: isClaim, message: '유형을 선택해주세요' }]} style={{ marginBottom: 0 }}>
+                  <Select placeholder="유형 선택" options={[
+                    { label: '불량', value: 'DEFECT' },
+                    { label: '교환', value: 'EXCHANGE' },
+                    { label: 'A/S', value: 'AS' },
+                    { label: '컴플레인', value: 'COMPLAINT' },
+                  ]} />
+                </Form.Item>
+                <div />
+                <Form.Item name="customer_name" label="고객명" style={{ marginBottom: 0 }}>
+                  <Input placeholder="고객명 입력" />
+                </Form.Item>
+                <Form.Item name="customer_phone" label="연락처" style={{ marginBottom: 0 }}>
+                  <Input placeholder="010-0000-0000" />
+                </Form.Item>
+                <Form.Item name="claim_reason" label="사유" style={{ marginBottom: 0, gridColumn: '1 / -1' }}>
+                  <Input.TextArea rows={2} placeholder="클레임/AS 사유를 입력하세요" />
+                </Form.Item>
+              </div>
+            )}
+          </div>
+          <Form.Item name="is_customer_claim" hidden><Input /></Form.Item>
+
           <Form.Item label="품목 추가">
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
               onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}

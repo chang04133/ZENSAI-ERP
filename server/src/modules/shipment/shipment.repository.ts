@@ -72,11 +72,14 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
       const requestNo = await this.generateNo();
       const header = await client.query(
         `INSERT INTO shipment_requests
-         (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by)
-         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'PENDING', $5, $6)
+         (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
+          is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
+         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'PENDING', $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [requestNo, headerData.from_partner, headerData.to_partner || null,
-         headerData.request_type, headerData.memo || null, headerData.requested_by],
+         headerData.request_type, headerData.memo || null, headerData.requested_by,
+         headerData.is_customer_claim || false, headerData.claim_type || null,
+         headerData.claim_reason || null, headerData.customer_name || null, headerData.customer_phone || null],
       );
       const requestId = header.rows[0].request_id;
       for (const item of items) {

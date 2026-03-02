@@ -62,8 +62,6 @@ const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage
 const ActivityLogPage = lazy(() => import('../pages/system/ActivityLogPage'));
 
 // ── NEW: 신규 모듈 ──
-// Claim (클레임/AS)
-const ClaimManagePage = lazy(() => import('../pages/claim/ClaimManagePage'));
 
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
@@ -141,9 +139,6 @@ export const appRoutes: AppRoute[] = [
   { path: '/fund', element: <FundPlanPage />, roles: ADMIN_ONLY },
 
   // ── NEW: 신규 모듈 라우트 ──
-
-  // Claim (클레임/AS)
-  { path: '/claims', element: <ClaimManagePage />, roles: ADMIN_HQ_STORE },
 
   // Season (시즌/컬렉션)
   { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },

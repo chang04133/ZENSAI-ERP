@@ -43,7 +43,7 @@ export default function ProductListPage() {
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string | undefined>();
   const [issueFilter, setIssueFilter] = useState('');
-  const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   useEffect(() => {
@@ -449,7 +449,7 @@ export default function ProductListPage() {
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>하자</div>
-          <Select value={issueFilter} onChange={(v) => setIssueFilter(v)} style={{ width: 150 }}
+          <Select value={issueFilter} onChange={(v) => { setIssueFilter(v); setPage(1); }} style={{ width: 150 }}
             options={[
               { label: '전체 보기', value: '' },
               { label: '사이즈 1개 깨짐', value: 'broken1' },

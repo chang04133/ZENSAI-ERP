@@ -22,9 +22,9 @@ export const menuItems: MenuItem[] = [
   { key: '/barcode', label: '바코드 관리', icon: 'BarcodeOutlined', roles: STORE_ONLY },
   { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
   {
-    key: '/products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
+    key: 'sub-products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
     children: [
-      { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ },
+      { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
@@ -56,9 +56,8 @@ export const menuItems: MenuItem[] = [
       { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: STORE_ALL },
     ],
   },
-  { key: '/claims', label: '클레임/AS', icon: 'ToolOutlined', roles: ADMIN_HQ_STORE },
   {
-    key: '/production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
+    key: 'sub-production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
     children: [
       { key: '/production', label: '생산기획 대시보드', icon: 'DashboardOutlined', roles: ADMIN_HQ },
       { key: '/production/plans', label: '생산계획 관리', icon: 'ScheduleOutlined', roles: ADMIN_HQ },

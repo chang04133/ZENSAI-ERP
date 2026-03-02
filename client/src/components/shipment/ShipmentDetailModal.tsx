@@ -80,6 +80,17 @@ export default function ShipmentDetailModal({ open, detail, onClose }: Props) {
                 <div><strong>의뢰일:</strong> {detail.request_date ? new Date(detail.request_date).toLocaleDateString('ko-KR') : '-'}</div>
                 <div><strong>메모:</strong> {detail.memo || '-'}</div>
               </div>
+              {detail.is_customer_claim && (
+                <div style={{ marginTop: 12, padding: '8px 12px', background: '#fff1f0', borderRadius: 6, border: '1px solid #ffa39e' }}>
+                  <div style={{ fontWeight: 600, color: '#cf1322', marginBottom: 4 }}>고객 클레임/AS</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, fontSize: 13 }}>
+                    <div><strong>유형:</strong> {{ DEFECT: '불량', EXCHANGE: '교환', AS: 'A/S', COMPLAINT: '컴플레인' }[detail.claim_type as string] || detail.claim_type || '-'}</div>
+                    <div><strong>고객명:</strong> {detail.customer_name || '-'}</div>
+                    <div><strong>연락처:</strong> {detail.customer_phone || '-'}</div>
+                    <div><strong>사유:</strong> {detail.claim_reason || '-'}</div>
+                  </div>
+                </div>
+              )}
             </div>
             <div style={{ minWidth: 140 }}>
               <StatusTimeline status={detail.status} />

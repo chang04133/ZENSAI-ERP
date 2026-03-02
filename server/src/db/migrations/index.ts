@@ -46,5 +46,6 @@ import m048 from './048_broken_size_settings';
 import m049 from './049_restock_exclude_age';
 import m050 from './050_activity_logs';
 import m051 from './051_custom_barcode';
+import m052 from './052_claim_fields';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051, m052];

@@ -55,7 +55,12 @@ export default function MainLayout() {
   const selectedKey = pathParts.length >= 2
     ? '/' + pathParts.slice(0, 2).join('/')
     : '/' + (pathParts[0] || '');
-  const defaultOpen = findOpenKeys(menuItems, selectedKey) || (pathParts.length >= 2 ? ['/' + pathParts[0]] : []);
+  const defaultOpen = findOpenKeys(menuItems, selectedKey) || (() => {
+    if (pathParts.length < 2) return [];
+    const prefix = '/' + pathParts[0];
+    const parent = menuItems.find(m => m.children?.some(c => c.key.startsWith(prefix)));
+    return parent ? [parent.key] : [prefix];
+  })();
 
   const handleLogout = async () => {
     await logout();

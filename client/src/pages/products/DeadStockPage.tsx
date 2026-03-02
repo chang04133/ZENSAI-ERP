@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Button, Card, Col, Row, Table, Tag, Select, Segmented, InputNumber, message, Typography } from 'antd';
 import { WarningOutlined, DollarOutlined, InboxOutlined, PercentageOutlined, SearchOutlined } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { codeApi } from '../../modules/code/code.api';
 import { apiFetch } from '../../core/api.client';
@@ -15,6 +16,7 @@ const AGE_OPTIONS = [
 
 
 export default function DeadStockPage() {
+  const navigate = useNavigate();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [minAgeYears, setMinAgeYears] = useState('1');
@@ -62,7 +64,9 @@ export default function DeadStockPage() {
   const neverSold = filteredData.filter(r => r.days_without_sale >= 9999).length;
 
   const columns = [
-    { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 130, ellipsis: true },
+    { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 130, ellipsis: true,
+      render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
+    },
     { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85, render: (v: string) => <Tag>{v}</Tag> },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 80 },

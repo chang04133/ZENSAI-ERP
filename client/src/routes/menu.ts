@@ -43,7 +43,7 @@ export const menuItems: MenuItem[] = [
       { key: '/shipment/request', label: '출고의뢰', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: [ROLES.STORE_MANAGER] },
+      { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ_STORE },
     ],
   },

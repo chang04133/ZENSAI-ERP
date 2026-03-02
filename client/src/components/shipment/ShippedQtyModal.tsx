@@ -10,6 +10,7 @@ interface Props {
   title?: string;
   alertMessage?: string;
   okText?: string;
+  confirmLoading?: boolean;
 }
 
 export default function ShippedQtyModal({
@@ -17,9 +18,10 @@ export default function ShippedQtyModal({
   title = '출고수량 입력',
   alertMessage = '각 품목의 실제 출고수량을 입력하세요. 확인 시 출발지 재고가 차감됩니다.',
   okText = '출고확인',
+  confirmLoading = false,
 }: Props) {
   return (
-    <Modal title={title} open={open} onCancel={onCancel} onOk={onConfirm} okText={okText} cancelText="취소" width={650}>
+    <Modal title={title} open={open} onCancel={onCancel} onOk={onConfirm} okText={okText} cancelText="취소" width={650} confirmLoading={confirmLoading}>
       <Alert message={alertMessage} type="warning" showIcon style={{ marginBottom: 16 }} />
       {detail && (
         <>

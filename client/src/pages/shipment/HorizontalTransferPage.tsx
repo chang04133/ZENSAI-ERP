@@ -40,7 +40,7 @@ const STEPS = [
 
 export default function HorizontalTransferPage() {
   const user = useAuthStore((s) => s.user);
-  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  const isStore = user?.role === ROLES.STORE_MANAGER;
   const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   /* ── 뷰 모드: 'dashboard' | status key ── */
@@ -112,14 +112,6 @@ export default function HorizontalTransferPage() {
     } catch (e: any) { message.error(e.message); }
     finally { setListLoading(false); }
   }, [buildParams]);
-
-  /* 뷰 전환 */
-  const openStatus = (status: string) => {
-    setView(status);
-    setListPage(1);
-    setListData([]);
-    loadList(status, 1);
-  };
 
   const backToDashboard = () => {
     setView('dashboard');
@@ -200,10 +192,13 @@ export default function HorizontalTransferPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleCancel = async (id: number) => {
     try {
       await shipmentApi.update(id, { status: 'CANCELLED' });
       message.success('취소되었습니다.');
+      setExpandedDetails((prev) => { const next = { ...prev }; delete next[id]; return next; });
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
       else { loadList(view, listPage); loadCounts(); }
     } catch (e: any) { message.error(e.message); }
@@ -226,17 +221,20 @@ export default function HorizontalTransferPage() {
   };
 
   const handleConfirmShip = async () => {
-    if (!shipTarget) return;
+    if (!shipTarget || submitting) return;
+    setSubmitting(true);
     try {
       const sItems = (shipTarget as any).items.map((item: any) => ({
         variant_id: item.variant_id, shipped_qty: shippedQtys[item.variant_id] || 0,
       }));
       await shipmentApi.shipConfirm(shipTarget.request_id, sItems);
       message.success('출고 확인이 완료되었습니다.');
+      setExpandedDetails((prev) => { const next = { ...prev }; delete next[shipTarget.request_id]; return next; });
       setShipModalOpen(false); setShipTarget(null);
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
       else { loadList(view, listPage); loadCounts(); }
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const handleOpenReceiveModal = async (record: any) => {
@@ -251,17 +249,20 @@ export default function HorizontalTransferPage() {
   };
 
   const handleConfirmReceive = async () => {
-    if (!receiveTarget) return;
+    if (!receiveTarget || submitting) return;
+    setSubmitting(true);
     try {
       const rItems = (receiveTarget as any).items.map((item: any) => ({
         variant_id: item.variant_id, received_qty: receivedQtys[item.variant_id] || 0,
       }));
       await shipmentApi.receive(receiveTarget.request_id, rItems);
       message.success('수령 확인이 완료되었습니다.');
+      setExpandedDetails((prev) => { const next = { ...prev }; delete next[receiveTarget.request_id]; return next; });
       setReceiveModalOpen(false); setReceiveTarget(null);
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
       else { loadList(view, listPage); loadCounts(); }
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const partnerOptions = partners
@@ -451,7 +452,7 @@ export default function HorizontalTransferPage() {
           rowKey="request_id"
           loading={allLoading}
           size="small"
-          scroll={{ x: 1200, y: 'calc(100vh - 420px)' }}
+          scroll={{ x: 1100, y: 'calc(100vh - 420px)' }}
           pagination={{
             current: allPage, total: allTotal, pageSize: 50,
             onChange: (p) => { setAllPage(p); loadAll(p, statusFilter || undefined); },
@@ -504,7 +505,7 @@ export default function HorizontalTransferPage() {
           rowKey="request_id"
           loading={listLoading}
           size="small"
-          scroll={{ x: 1200, y: 'calc(100vh - 310px)' }}
+          scroll={{ x: 1100, y: 'calc(100vh - 310px)' }}
           pagination={{
             current: listPage, total: listTotal, pageSize: 50,
             onChange: handlePageChange, showTotal: (t) => `총 ${t}건`,
@@ -584,11 +585,11 @@ export default function HorizontalTransferPage() {
       <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
       <ShippedQtyModal open={shipModalOpen} detail={shipTarget} qtys={shippedQtys}
         onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
-        onConfirm={handleConfirmShip} onCancel={() => setShipModalOpen(false)}
+        onConfirm={handleConfirmShip} onCancel={() => setShipModalOpen(false)} confirmLoading={submitting}
         alertMessage="출고할 실제 수량을 입력하세요. 확인 시 출발매장 재고가 차감됩니다." />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
-        onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)}
+        onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting}
         alertMessage="수령한 실제 수량을 입력하세요. 확인 시 도착매장 재고가 증가합니다." />
     </div>
   );

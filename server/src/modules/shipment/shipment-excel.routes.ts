@@ -11,7 +11,7 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // GET /excel/template — 출고의뢰 엑셀 템플릿 다운로드
-router.get('/excel/template', authMiddleware, (_req, res) => {
+router.get('/excel/template', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), (_req, res) => {
   const wb = XLSX.utils.book_new();
 
   const templateData = [
@@ -60,7 +60,7 @@ router.post('/excel/upload',
     if (rows.length === 0) { res.status(400).json({ success: false, error: '데이터가 없습니다.' }); return; }
 
     const role = req.user?.role;
-    const isStore = role === 'STORE_MANAGER' || role === 'STORE_STAFF';
+    const isStore = role === 'STORE_MANAGER';
     const userPartnerCode = req.user?.partnerCode;
     const userId = req.user!.userId;
     const validTypes = ['출고', '반품', '수평이동'];
@@ -171,7 +171,7 @@ router.post('/excel/upload',
         total: rows.length,
         createdRequests,
         createdItems,
-        skipped: rows.length - createdItems,
+        skipped: parsedRows.length - createdItems,
         errors: errors.length > 0 ? errors : undefined,
       },
     });

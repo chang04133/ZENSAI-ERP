@@ -111,7 +111,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/view', element: <ShipmentViewPage />, roles: [ROLES.STORE_MANAGER] },
+  { path: '/shipment/view', element: <ShipmentViewPage />, roles: ADMIN_HQ_STORE },
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },

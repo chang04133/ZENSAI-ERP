@@ -59,8 +59,9 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async generateNo(): Promise<string> {
-    const result = await this.pool.query('SELECT generate_shipment_no() as no');
+  async generateNo(client?: any): Promise<string> {
+    const conn = client || this.pool;
+    const result = await conn.query('SELECT generate_shipment_no() as no');
     return result.rows[0].no;
   }
 
@@ -69,7 +70,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const requestNo = await this.generateNo();
+      const requestNo = await this.generateNo(client);
       const header = await client.query(
         `INSERT INTO shipment_requests
          (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,

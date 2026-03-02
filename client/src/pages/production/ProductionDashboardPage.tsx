@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Modal } from 'antd';
+import { Button, Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Modal } from 'antd';
 import {
   ExperimentOutlined, BarChartOutlined, RightOutlined,
 } from '@ant-design/icons';
@@ -198,7 +198,7 @@ export default function ProductionDashboardPage() {
               rowKey="sub_category"
               pagination={false}
               size="small"
-              scroll={{ x: 800 }}
+              scroll={{ x: 900 }}
             />
           </>
         ) : (
@@ -212,7 +212,7 @@ export default function ProductionDashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24}>
           <Card title="생산 미완료 품목 (생산중)" size="small" style={{ borderRadius: 10 }}
-            extra={<a onClick={() => navigate('/production/plans')}>전체보기</a>}>
+            extra={<Button type="link" style={{ padding: 0 }} onClick={() => navigate('/production/plans')}>전체보기</Button>}>
             {(data?.progressItems || []).length > 0 ? (
               <Table
                 columns={[
@@ -230,9 +230,9 @@ export default function ProductionDashboardPage() {
                 ]}
                 dataSource={data?.progressItems || []}
                 rowKey="item_id"
-                pagination={{ pageSize: 20, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
+                pagination={{ pageSize: 50, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
                 size="small"
-                scroll={{ x: 800 }}
+                scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
               />
             ) : <div style={{ textAlign: 'center', padding: 30, color: '#aaa' }}>생산중 품목이 없습니다</div>}
           </Card>

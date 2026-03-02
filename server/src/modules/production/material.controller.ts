@@ -16,8 +16,9 @@ class MaterialController extends BaseController<Material> {
 
   adjustStock = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     const { qty_change } = req.body;
-    if (qty_change === undefined) {
+    if (qty_change === undefined || typeof qty_change !== 'number') {
       res.status(400).json({ success: false, error: '수량 변동값이 필요합니다.' }); return;
     }
     const result = await materialService.adjustStock(id, qty_change);

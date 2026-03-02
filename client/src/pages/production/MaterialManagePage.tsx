@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, InputNumber, Space, Popconfirm, Tabs, message, Typography } from 'antd';
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, InputNumber, Space, Popconfirm, Tabs, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined, SearchOutlined } from '@ant-design/icons';
 import { materialApi } from '../../modules/production/material.api';
 import type { Material } from '../../../../shared/types/production';
@@ -22,6 +22,7 @@ export default function MaterialManagePage() {
   const [adjustQty, setAdjustQty] = useState<number>(0);
   const [lowStock, setLowStock] = useState<Material[]>([]);
   const [summary, setSummary] = useState<any[]>([]);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const load = useCallback(async () => {
@@ -43,7 +44,8 @@ export default function MaterialManagePage() {
     } catch (e: any) { console.error('부자재 부가정보 로드 실패:', e); }
   };
 
-  useEffect(() => { load(); loadExtra(); }, [load]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadExtra(); }, []);
 
   const openCreate = () => {
     setEditItem(null); form.resetFields(); setFormOpen(true);
@@ -60,6 +62,8 @@ export default function MaterialManagePage() {
   };
 
   const handleSave = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       if (editItem) {
@@ -72,6 +76,7 @@ export default function MaterialManagePage() {
       }
       setFormOpen(false); load(); loadExtra();
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const handleDelete = async (id: number) => {
@@ -82,12 +87,14 @@ export default function MaterialManagePage() {
   };
 
   const handleAdjust = async () => {
-    if (!adjustItem || adjustQty === 0) return;
+    if (!adjustItem || adjustQty === 0 || submitting) return;
+    setSubmitting(true);
     try {
       await materialApi.adjustStock(adjustItem.material_id, adjustQty);
       message.success('재고가 조정되었습니다.');
       setAdjustOpen(false); load(); loadExtra();
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const columns = [
@@ -127,11 +134,11 @@ export default function MaterialManagePage() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
             <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
               <Input placeholder="자재명/코드 검색" prefix={<SearchOutlined />} value={search}
-                onChange={(e) => setSearch(e.target.value)} style={{ width: '100%' }} /></div>
+                onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); }} style={{ width: '100%' }} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>자재유형</div>
-              <Select value={typeFilter} onChange={setTypeFilter} style={{ width: 120 }}
+              <Select value={typeFilter} onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 120 }}
                 options={[{ label: '전체 보기', value: '' }, ...MATERIAL_TYPES.map(t => ({ label: TYPE_LABELS[t], value: t }))]} /></div>
-            <Button onClick={() => {}}>조회</Button>
+            <Button onClick={() => { setPage(1); }}>조회</Button>
           </div>
           <Card extra={
             <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>자재 등록</Button>
@@ -181,7 +188,7 @@ export default function MaterialManagePage() {
 
       {/* 등록/수정 모달 */}
       <Modal title={editItem ? '자재 수정' : '자재 등록'} open={formOpen} onCancel={() => setFormOpen(false)}
-        onOk={handleSave} okText={editItem ? '수정' : '등록'}>
+        onOk={handleSave} okText={editItem ? '수정' : '등록'} confirmLoading={submitting}>
         <Form form={form} layout="vertical">
           <Form.Item name="material_name" label="자재명" rules={[{ required: true }]}>
             <Input />
@@ -211,7 +218,7 @@ export default function MaterialManagePage() {
 
       {/* 입출고 모달 */}
       <Modal title={`재고 조정 - ${adjustItem?.material_name || ''}`} open={adjustOpen}
-        onCancel={() => setAdjustOpen(false)} onOk={handleAdjust} okText="적용">
+        onCancel={() => setAdjustOpen(false)} onOk={handleAdjust} okText="적용" confirmLoading={submitting}>
         {adjustItem && (
           <div>
             <p>현재 재고: <strong>{adjustItem.stock_qty} {adjustItem.unit}</strong></p>

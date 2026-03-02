@@ -37,6 +37,7 @@ export default function CodeManagePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editItem, setEditItem] = useState<CodeItem | null>(null);
   const [activeTab, setActiveTab] = useState('CATEGORY');
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const load = async () => {
@@ -67,6 +68,8 @@ export default function CodeManagePage() {
   };
 
   const handleSave = async (values: any) => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       if (editItem) {
         await codeApi.update(editItem.code_id, values);
@@ -79,16 +82,22 @@ export default function CodeManagePage() {
       load();
     } catch (e: any) {
       message.error(e.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const handleDelete = async (id: number) => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await codeApi.remove(id);
       message.success('코드가 삭제되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -136,7 +145,7 @@ export default function CodeManagePage() {
       render: (_: any, record: CodeItem) => (
         <Space>
           <Button size="small" onClick={() => openEdit(record)}>수정</Button>
-          {user?.role === ROLES.ADMIN && (
+          {(user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN) && (
             <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleDelete(record.code_id)}>
               <Button size="small" danger>삭제</Button>
             </Popconfirm>
@@ -185,6 +194,7 @@ export default function CodeManagePage() {
         onOk={() => form.submit()}
         okText={editItem ? '수정' : '추가'}
         cancelText="취소"
+        confirmLoading={submitting}
       >
         <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ is_active: true }}>
           <Form.Item name="code_type" label="코드타입">

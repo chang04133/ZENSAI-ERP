@@ -15,7 +15,9 @@ class ProductionController extends BaseController<ProductionPlan> {
   });
 
   getById = asyncHandler(async (req: Request, res: Response) => {
-    const item = await productionService.getWithItems(parseInt(req.params.id as string, 10));
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
+    const item = await productionService.getWithItems(id);
     if (!item) { res.status(404).json({ success: false, error: '생산계획을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: item });
   });
@@ -94,15 +96,23 @@ class ProductionController extends BaseController<ProductionPlan> {
 
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     const { status } = req.body;
-    if (!status) { res.status(400).json({ success: false, error: '상태값이 필요합니다.' }); return; }
+    const validStatuses = ['DRAFT', 'CONFIRMED', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED'];
+    if (!status || !validStatuses.includes(status)) {
+      res.status(400).json({ success: false, error: '유효하지 않은 상태값입니다.' }); return;
+    }
     const result = await productionService.updateStatus(id, status, req.user!.userId);
     res.json({ success: true, data: result });
   });
 
   updateProducedQty = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: '품목 데이터가 필요합니다.' }); return;
+    }
     await productionService.updateProducedQty(id, items);
     const result = await productionService.getWithItems(id);
     res.json({ success: true, data: result });
@@ -110,7 +120,11 @@ class ProductionController extends BaseController<ProductionPlan> {
 
   saveMaterials = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     const { materials } = req.body;
+    if (!Array.isArray(materials)) {
+      res.status(400).json({ success: false, error: '자재 데이터가 필요합니다.' }); return;
+    }
     await productionService.saveMaterials(id, materials);
     const result = await productionService.getWithItems(id);
     res.json({ success: true, data: result });

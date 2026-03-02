@@ -248,7 +248,11 @@ export default function ProductionPlanPage() {
     setCreateOpen(true);
   };
 
+  const [submitting, setSubmitting] = useState(false);
+
   const handleCreate = async () => {
+    if (submitting) return;
+    setSubmitting(true);
     try {
       const values = await form.validateFields();
       const flatItems: Array<{ category: string; sub_category: string | null; fit: string | null; length: string | null; plan_qty: number; unit_cost: number | null; memo: string | null }> = [];
@@ -274,6 +278,7 @@ export default function ProductionPlanPage() {
       setCreateOpen(false);
       load(); loadCounts();
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const handleStatusChange = async (id: number, status: string) => {
@@ -390,8 +395,8 @@ export default function ProductionPlanPage() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <Input placeholder="계획명/상품명 검색" prefix={<SearchOutlined />} value={search}
-            onChange={(e) => setSearch(e.target.value)} onPressEnter={() => {}} style={{ width: '100%' }} /></div>
-        <Button onClick={() => {}}>조회</Button>
+            onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); }} style={{ width: '100%' }} /></div>
+        <Button onClick={() => { setPage(1); }}>조회</Button>
       </div>
       <Card title={`생산계획 관리${statusFilter ? ` - ${STATUS_LABELS[statusFilter]}` : ''}`} extra={
         <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
@@ -403,7 +408,7 @@ export default function ProductionPlanPage() {
 
       {/* 등록 모달 */}
       <Modal title="생산계획 등록" open={createOpen} onCancel={() => setCreateOpen(false)}
-        onOk={handleCreate} width={960} okText="등록">
+        onOk={handleCreate} width={960} okText="등록" confirmLoading={submitting}>
         <Form form={form} layout="vertical">
           <Form.Item name="plan_name" label="계획명" rules={[{ required: true }]}>
             <Input placeholder="예: 26SA 상의 1차 생산" />
@@ -411,14 +416,17 @@ export default function ProductionPlanPage() {
           <Space style={{ width: '100%' }} size="middle">
             <Form.Item name="season" label="시즌" style={{ width: 150 }}>
               <Select allowClear placeholder="시즌">
-                {[
-                  { value: '2026SA', label: '26 봄/가을' },
-                  { value: '2026SM', label: '26 여름' },
-                  { value: '2026WN', label: '26 겨울' },
-                  { value: '2025SA', label: '25 봄/가을' },
-                  { value: '2025SM', label: '25 여름' },
-                  { value: '2025WN', label: '25 겨울' },
-                ].map(s => <Select.Option key={s.value} value={s.value}>{s.label}</Select.Option>)}
+                {(() => {
+                  const y = new Date().getFullYear();
+                  return [y + 1, y, y - 1].flatMap(yr => {
+                    const yy = String(yr).slice(-2);
+                    return [
+                      { value: `${yr}SA`, label: `${yy} 봄/가을` },
+                      { value: `${yr}SM`, label: `${yy} 여름` },
+                      { value: `${yr}WN`, label: `${yy} 겨울` },
+                    ];
+                  });
+                })().map(s => <Select.Option key={s.value} value={s.value}>{s.label}</Select.Option>)}
               </Select>
             </Form.Item>
             <Form.Item name="target_date" label="목표일">

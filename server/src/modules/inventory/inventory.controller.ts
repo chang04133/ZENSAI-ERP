@@ -66,8 +66,9 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    // scope=all이면 매장유저도 전체 데이터 조회 가능
-    const partnerCode = scope === 'all' ? undefined
+    // S-1: scope=all은 ADMIN/SYS_ADMIN/HQ_MANAGER만 허용
+    const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
+    const partnerCode = canSeeAll ? undefined
       : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
     const [overall, byCategory, bySeason, byFit, byLength] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),
@@ -85,13 +86,18 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    const partnerCode = scope === 'all' ? undefined
+    // S-1: scope=all은 ADMIN/SYS_ADMIN/HQ_MANAGER만 허용
+    const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
+    const partnerCode = canSeeAll ? undefined
       : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
 
     const defaultUrgent = partnerCode ? 1 : 5;
     const defaultRecommend = partnerCode ? 3 : 10;
-    const urgentThreshold = parseInt(req.query.urgent as string) || defaultUrgent;
-    const recommendThreshold = parseInt(req.query.recommend as string) || defaultRecommend;
+    // S-18: NaN-safe parseInt (0은 유효한 값이므로 || 대신 명시적 NaN 체크)
+    const parsedUrgent = parseInt(req.query.urgent as string);
+    const urgentThreshold = Number.isNaN(parsedUrgent) ? defaultUrgent : parsedUrgent;
+    const parsedRecommend = parseInt(req.query.recommend as string);
+    const recommendThreshold = Number.isNaN(parsedRecommend) ? defaultRecommend : parsedRecommend;
     const alertLimit = Math.min(parseInt(req.query.limit as string) || 500, 1000);
 
     const params: any[] = [];
@@ -277,6 +283,12 @@ class InventoryController extends BaseController<Inventory> {
       res.status(400).json({ success: false, error: '거래처코드는 필수입니다.' });
       return;
     }
+    // S-2: 매장매니저는 자기 매장만 조정 가능
+    const role = req.user?.role;
+    if (role === 'STORE_MANAGER' && req.user?.partnerCode && partner_code !== req.user.partnerCode) {
+      res.status(403).json({ success: false, error: '자신의 매장 재고만 조정할 수 있습니다.' });
+      return;
+    }
     if (!variant_id || !Number.isInteger(Number(variant_id)) || Number(variant_id) <= 0) {
       res.status(400).json({ success: false, error: '변형ID는 양의 정수여야 합니다.' });
       return;
@@ -321,8 +333,10 @@ class InventoryController extends BaseController<Inventory> {
     const { inventoryRepository } = await import('./inventory.repository');
     const { min_age_years, category } = req.query;
     const partnerCode = getStorePartnerCode(req) || undefined;
+    // S-5: isNaN 체크
+    const parsedAge = min_age_years ? parseInt(min_age_years as string, 10) : undefined;
     const data = await inventoryRepository.deadStockAnalysis({
-      minAgeYears: min_age_years ? parseInt(min_age_years as string, 10) : undefined,
+      minAgeYears: parsedAge !== undefined && !Number.isNaN(parsedAge) ? parsedAge : undefined,
       category: category as string | undefined,
       partnerCode,
     });

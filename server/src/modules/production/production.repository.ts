@@ -16,7 +16,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
   async list(options: any = {}) {
     const pool = getPool();
-    const { page = 1, limit = 20, status, season, partner_code, search } = options;
+    const { status, season, partner_code, search } = options;
+    const page = Math.max(Number(options.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
     const offset = (page - 1) * limit;
     const conditions: string[] = [];
     const params: any[] = [];
@@ -54,9 +56,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
   }
 
-  async generateNo(): Promise<string> {
-    const pool = getPool();
-    const result = await pool.query('SELECT generate_plan_no() as no');
+  async generateNo(client?: any): Promise<string> {
+    const conn = client || getPool();
+    const result = await conn.query('SELECT generate_plan_no() as no');
     return result.rows[0].no;
   }
 
@@ -65,7 +67,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const planNo = await this.generateNo();
+      const planNo = await this.generateNo(client);
       const insertSql = `
         INSERT INTO production_plans (plan_no, plan_name, season, target_date, start_date, end_date, partner_code, memo, created_by)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`;
@@ -306,9 +308,10 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
             THEN sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100
           ELSE 0
-        END >= ${sellThroughThreshold}
+        END >= $${idx}
       ORDER BY days_of_stock ASC, shortage_qty DESC
-      LIMIT $${idx}`;
+      LIMIT $${idx + 1}`;
+    params.push(sellThroughThreshold);
 
     const result = await pool.query(sql, [...params, limit]);
 
@@ -619,7 +622,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
       // 4) 현재 시즌 결정
       const m = new Date().getMonth() + 1;
-      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? '2026SA' : [6, 7, 8].includes(m) ? '2026SM' : '2025WN');
+      const y = new Date().getFullYear();
+      const yy = String(y).slice(-2);
+      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? `${yy}SA` : [6, 7, 8].includes(m) ? `${yy}SM` : `${yy}WN`);
 
       // 5) 카테고리별 생산계획 자동 생성
       await client.query('BEGIN');
@@ -633,7 +638,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         }, {} as Record<string, number>);
         const gradeSummary = Object.entries(gradeBreakdown).map(([g, c]) => `${g}급 ${c}건`).join(', ');
 
-        const planNo = (await pool.query('SELECT generate_plan_no() as no')).rows[0].no;
+        const planNo = await this.generateNo(client);
         const planName = `[자동] ${cat} 생산기획 (${gradeSummary})`;
 
         // target_date: 현재 월 1일 (자금계획 연동을 위해 필수)
@@ -728,11 +733,18 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // 계획 상태 확인
+      const planCheck = await client.query('SELECT status FROM production_plans WHERE plan_id = $1 FOR UPDATE', [planId]);
+      if (planCheck.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다.');
+      if (planCheck.rows[0].status !== 'IN_PRODUCTION') throw new Error('생산중 상태에서만 수량을 변경할 수 있습니다.');
+
       for (const item of items) {
-        await client.query(
+        if (!Number.isInteger(item.produced_qty) || item.produced_qty < 0) throw new Error('생산수량은 0 이상의 정수여야 합니다.');
+        const result = await client.query(
           'UPDATE production_plan_items SET produced_qty = $1 WHERE item_id = $2 AND plan_id = $3',
           [item.produced_qty, item.item_id, planId],
         );
+        if (result.rowCount === 0) throw new Error(`품목(item_id: ${item.item_id})을 찾을 수 없습니다.`);
       }
       await client.query('COMMIT');
     } catch (e) {
@@ -748,6 +760,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      // 계획 상태 확인 — 완료/취소 상태에서는 자재 변경 불가
+      const planCheck = await client.query('SELECT status FROM production_plans WHERE plan_id = $1 FOR UPDATE', [planId]);
+      if (planCheck.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다.');
+      if (['COMPLETED', 'CANCELLED'].includes(planCheck.rows[0].status)) throw new Error('완료 또는 취소된 계획의 자재는 수정할 수 없습니다.');
+
       await client.query('DELETE FROM production_material_usage WHERE plan_id = $1', [planId]);
       for (const m of materials) {
         await client.query(

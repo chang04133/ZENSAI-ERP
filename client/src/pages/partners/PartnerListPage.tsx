@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Table, Button, Input, Space, Select, Popconfirm, message } from 'antd';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Table, Button, Input, Space, Select, Tag, Popconfirm, message } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -15,25 +15,45 @@ export default function PartnerListPage() {
   const [search, setSearch] = useState('');
   const [partnerType, setPartnerType] = useState('');
   const [page, setPage] = useState(1);
-  const canWrite = user && [ROLES.ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
-  const canDelete = user && user.role === ROLES.ADMIN;
+  const [deleting, setDeleting] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const load = () => {
+  const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
+  const canDelete = user && [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user.role as any);
+
+  const load = useCallback(() => {
     const params: Record<string, string> = { page: String(page), limit: '50' };
     if (search) params.search = search;
     if (partnerType) params.partner_type = partnerType;
     fetchPartners(params);
+  }, [page, search, partnerType, fetchPartners]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // 검색어 변경 시 디바운스 자동 조회
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => { setPage(1); }, 500);
   };
 
-  useEffect(() => { load(); }, [page]);
+  // Enter 즉시 조회
+  const handleSearchEnter = () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    setPage(1);
+  };
 
   const handleDelete = async (code: string) => {
+    if (deleting) return;
+    setDeleting(true);
     try {
       await partnerApi.remove(code);
       message.success('거래처가 비활성화되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -44,14 +64,19 @@ export default function PartnerListPage() {
     { title: '대표자', dataIndex: 'representative', key: 'representative', render: (v: string) => v || '-' },
     { title: '연락처', dataIndex: 'contact', key: 'contact', render: (v: string) => v || '-' },
     { title: '거래유형', dataIndex: 'partner_type', key: 'partner_type' },
+    { title: '상태', dataIndex: 'is_active', key: 'is_active',
+      render: (v: boolean) => v === false
+        ? <Tag color="red">비활성</Tag>
+        : <Tag color="green">활성</Tag>,
+    },
     ...(canWrite ? [{
       title: '관리', key: 'actions',
       render: (_: any, record: any) => (
         <Space>
           <Button size="small" onClick={() => navigate(`/partners/${record.partner_code}/edit`)}>수정</Button>
-          {canDelete && (
+          {canDelete && record.is_active !== false && (
             <Popconfirm title="비활성화하시겠습니까?" onConfirm={() => handleDelete(record.partner_code)}>
-              <Button size="small" danger>삭제</Button>
+              <Button size="small" danger loading={deleting}>비활성화</Button>
             </Popconfirm>
           )}
         </Space>
@@ -75,14 +100,15 @@ export default function PartnerListPage() {
             placeholder="코드 또는 이름 검색"
             prefix={<SearchOutlined />}
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={load}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            onPressEnter={handleSearchEnter}
+            allowClear
             style={{ width: '100%' }}
           /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
           <Select
             value={partnerType}
-            onChange={setPartnerType}
+            onChange={(v) => { setPartnerType(v); setPage(1); }}
             style={{ width: 130 }}
             options={[
               { label: '전체 보기', value: '' },
@@ -92,9 +118,11 @@ export default function PartnerListPage() {
               { label: '백화점', value: '백화점' },
               { label: '아울렛', value: '아울렛' },
               { label: '온라인', value: '온라인' },
+              { label: '직영', value: '직영' },
+              { label: '가맹', value: '가맹' },
             ]}
           /></div>
-        <Button onClick={load}>조회</Button>
+        <Button onClick={handleSearchEnter}>조회</Button>
       </div>
       <Table
         columns={columns}

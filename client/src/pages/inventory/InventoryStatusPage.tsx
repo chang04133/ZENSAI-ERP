@@ -250,7 +250,7 @@ function DashboardTab() {
 
   const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
-      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a>,
+      render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(r.product_code)}>{v}</Button>,
     },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140 },
     { title: 'Color', dataIndex: 'color', key: 'color', width: 55 },
@@ -306,7 +306,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a>,
+      render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(r.product_code)}>{v}</Button>,
     },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
@@ -354,7 +354,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a> },
+      render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(r.product_code)}>{v}</Button> },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
@@ -369,7 +369,7 @@ function DashboardTab() {
     { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true,
-      render: (v: string, r: any) => <a onClick={() => analyzeProduct(r.product_code)}>{v}</a> },
+      render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(r.product_code)}>{v}</Button> },
     { title: '색상', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
@@ -656,7 +656,7 @@ function DashboardTab() {
                   },
                 },
                 { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 130, ellipsis: true,
-                  render: (v: string) => <a onClick={() => analyzeProduct(v)}>{v}</a>,
+                  render: (v: string) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(v)}>{v}</Button>,
                 },
                 { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 140, ellipsis: true },
@@ -793,6 +793,7 @@ function AdjustTab() {
 
   const [modalOpen, setModalOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<any>(null);
+  const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
   const [expandedKeys, setExpandedKeys] = useState<number[]>([]);
@@ -878,7 +879,9 @@ function AdjustTab() {
   };
 
   const handleAdjust = async (values: any) => {
+    if (submitting) return;
     if (values.qty_change === 0) { message.warning('조정 수량은 0이 아니어야 합니다.'); return; }
+    setSubmitting(true);
     try {
       const result = await inventoryApi.adjust({
         partner_code: adjustTarget.partner_code,
@@ -894,6 +897,7 @@ function AdjustTab() {
       if (expandedKeys.includes(adjustTarget.inventory_id)) loadItemTx(adjustTarget);
       load();
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const handleBackToPartners = () => {
@@ -1049,7 +1053,7 @@ function AdjustTab() {
       </div>
 
       <Table columns={invColumns} dataSource={data} rowKey="inventory_id" loading={loading} size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ current: page, total, pageSize: 50, onChange: (p) => setPage(p), showTotal: (t) => `총 ${t}건`, size: 'small' }}
         expandable={{
           expandedRowKeys: expandedKeys,
@@ -1061,7 +1065,7 @@ function AdjustTab() {
         }} />
 
       {/* 조정 모달 */}
-      <Modal title="재고 조정" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="조정" cancelText="취소">
+      <Modal title="재고 조정" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="조정" cancelText="취소" confirmLoading={submitting}>
         {adjustTarget && (
           <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
             <div style={{ marginBottom: 4 }}><strong>거래처:</strong> {adjustTarget.partner_name}</div>

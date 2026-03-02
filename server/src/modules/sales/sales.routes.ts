@@ -386,6 +386,14 @@ router.post('/',
   validateRequired(['sale_date', 'partner_code', 'variant_id', 'qty', 'unit_price']),
   asyncHandler(async (req: Request, res: Response) => {
     const { sale_date, partner_code, variant_id, qty, unit_price, sale_type, tax_free, memo } = req.body;
+    if (!Number.isFinite(Number(qty)) || Number(qty) <= 0) {
+      res.status(400).json({ success: false, error: '수량은 양수여야 합니다.' });
+      return;
+    }
+    if (!Number.isFinite(Number(unit_price)) || Number(unit_price) < 0) {
+      res.status(400).json({ success: false, error: '단가는 0 이상이어야 합니다.' });
+      return;
+    }
     const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user.partnerCode : partner_code;
     const total_price = Math.round(qty * unit_price);
     const pool = getPool();

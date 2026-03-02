@@ -289,7 +289,7 @@ export default function WarehouseInventoryPage() {
         rowKey={viewMode === 'product' ? 'product_code' : '_rowKey'}
         loading={loading}
         size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 380px)' }}
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         onChange={handleTableChange}
         pagination={{
           pageSize: 50,

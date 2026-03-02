@@ -1,9 +1,22 @@
 import { useEffect, useState } from 'react';
-import { Form, Input, Select, Button, Card, message } from 'antd';
+import { Form, Input, Select, Button, Card, Switch, Popconfirm, message } from 'antd';
 import { useNavigate, useParams } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { partnerApi } from '../../modules/partner/partner.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import LoadingSpinner from '../../components/LoadingSpinner';
+
+const PARTNER_TYPE_OPTIONS = [
+  { label: '본사', value: '본사' },
+  { label: '대리점', value: '대리점' },
+  { label: '직영점', value: '직영점' },
+  { label: '백화점', value: '백화점' },
+  { label: '아울렛', value: '아울렛' },
+  { label: '온라인', value: '온라인' },
+  { label: '직영', value: '직영' },
+  { label: '가맹', value: '가맹' },
+];
 
 export default function PartnerFormPage() {
   const { code } = useParams();
@@ -12,6 +25,8 @@ export default function PartnerFormPage() {
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEdit);
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = user && [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user.role as any);
 
   useEffect(() => {
     if (isEdit && code) {
@@ -47,7 +62,7 @@ export default function PartnerFormPage() {
     <div>
       <PageHeader title={isEdit ? '거래처 수정' : '거래처 등록'} />
       <Card style={{ maxWidth: 600 }}>
-        <Form form={form} layout="vertical" onFinish={onFinish}>
+        <Form form={form} layout="vertical" onFinish={onFinish} initialValues={{ is_active: true }}>
           <Form.Item name="partner_code" label="거래처코드" rules={[{ required: true, message: '거래처코드를 입력해주세요' }]}>
             <Input disabled={isEdit} placeholder="예: P001" />
           </Form.Item>
@@ -55,19 +70,16 @@ export default function PartnerFormPage() {
             <Input />
           </Form.Item>
           <Form.Item name="partner_type" label="거래유형" rules={[{ required: true, message: '거래유형을 선택해주세요' }]}>
-            <Select
-              placeholder="거래유형 선택"
-              options={[
-                { label: '본사', value: '본사' },
-                { label: '대리점', value: '대리점' },
-                { label: '직영점', value: '직영점' },
-                { label: '백화점', value: '백화점' },
-                { label: '아울렛', value: '아울렛' },
-                { label: '온라인', value: '온라인' },
-              ]}
-            />
+            <Select placeholder="거래유형 선택" options={PARTNER_TYPE_OPTIONS} />
           </Form.Item>
-          <Form.Item name="business_number" label="사업자번호">
+          <Form.Item
+            name="business_number"
+            label="사업자번호"
+            rules={[{
+              pattern: /^\d{3}-\d{2}-\d{5}$/,
+              message: '000-00-00000 형식으로 입력해주세요',
+            }]}
+          >
             <Input placeholder="000-00-00000" />
           </Form.Item>
           <Form.Item name="representative" label="대표자">
@@ -79,6 +91,11 @@ export default function PartnerFormPage() {
           <Form.Item name="contact" label="연락처">
             <Input placeholder="02-0000-0000" />
           </Form.Item>
+          {isEdit && isAdmin && (
+            <Form.Item name="is_active" label="활성 상태" valuePropName="checked">
+              <Switch checkedChildren="활성" unCheckedChildren="비활성" />
+            </Form.Item>
+          )}
           <Form.Item style={{ marginTop: 24 }}>
             <Button type="primary" htmlType="submit" loading={loading} style={{ marginRight: 8 }}>
               {isEdit ? '수정' : '등록'}

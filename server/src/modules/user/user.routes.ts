@@ -12,7 +12,7 @@ router.get('/roles', authMiddleware, userController.getRoles);
 router.get('/',      ...adminOrStore, userController.list);
 router.get('/:id',   ...adminOrStore, userController.getById);
 router.post('/',     ...adminOrStore, validateRequired(['user_id', 'user_name', 'password', 'role_group']), userController.create);
-router.put('/:id',   ...adminOrStore, userController.update);
+router.put('/:id',   ...adminOrStore, validateRequired(['user_name', 'role_group']), userController.update);
 router.delete('/:id', ...adminOrStore, userController.remove);
 
 export default router;

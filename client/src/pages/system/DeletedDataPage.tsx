@@ -43,6 +43,7 @@ export default function DeletedDataPage() {
   const [activeTab, setActiveTab] = useState('partners');
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [restoring, setRestoring] = useState(false);
 
   const load = async (tableName?: string) => {
     const table = tableName || activeTab;
@@ -57,12 +58,15 @@ export default function DeletedDataPage() {
   useEffect(() => { load(); }, [activeTab]);
 
   const handleRestore = async (id: string) => {
+    if (restoring) return;
+    setRestoring(true);
     try {
       const config = TAB_CONFIG[activeTab];
       await systemApi.restore(activeTab, id, config.pkColumn);
       message.success('복원되었습니다.');
       load();
     } catch (e: any) { message.error(e.message); }
+    finally { setRestoring(false); }
   };
 
   const config = TAB_CONFIG[activeTab];

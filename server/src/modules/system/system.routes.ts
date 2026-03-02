@@ -61,15 +61,28 @@ router.post('/restore', ...admin, asyncHandler(async (req, res) => {
   const pkColumn = tablePkMap[table_name];
   if (!pkColumn) { res.status(400).json({ success: false, error: '유효하지 않은 테이블입니다.' }); return; }
 
-  await pool.query(`UPDATE ${table_name} SET is_active = TRUE, updated_at = NOW() WHERE ${pkColumn} = $1`, [id]);
+  // M-5: 화이트리스트에서 검증된 키를 사용하여 SQL 구성
+  const validatedTable = Object.keys(tablePkMap).find(k => k === table_name);
+  if (!validatedTable) { res.status(400).json({ success: false, error: '유효하지 않은 테이블입니다.' }); return; }
 
-  // 감사 로그 기록
-  const userId = req.user?.userId || 'unknown';
-  await pool.query(
-    `INSERT INTO audit_logs (table_name, record_id, action, changed_by, old_data, new_data)
-     VALUES ($1, $2, 'RESTORE', $3, '{"is_active": false}'::jsonb, '{"is_active": true}'::jsonb)`,
-    [table_name, String(id), userId],
-  ).catch((e) => console.error('감사 로그 기록 실패:', e.message));
+  // M-15: 복원 + 감사로그를 트랜잭션으로 묶음
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(`UPDATE ${validatedTable} SET is_active = TRUE, updated_at = NOW() WHERE ${pkColumn} = $1`, [id]);
+    const userId = req.user?.userId || 'unknown';
+    await client.query(
+      `INSERT INTO audit_logs (table_name, record_id, action, changed_by, old_data, new_data)
+       VALUES ($1, $2, 'RESTORE', $3, '{"is_active": false}'::jsonb, '{"is_active": true}'::jsonb)`,
+      [validatedTable, String(id), userId],
+    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
 
   res.json({ success: true });
 }));
@@ -121,7 +134,7 @@ router.get('/settings', ...admin, asyncHandler(async (_req, res) => {
   res.json({ success: true, data: settings });
 }));
 
-// PUT /api/system/settings - 시스템 설정 변경
+// PUT /api/system/settings - 시스템 설정 변경 (M-16: 트랜잭션)
 router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   const pool = getPool();
   const updates = req.body as Record<string, string>;
@@ -136,26 +149,37 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS',
     'RESTOCK_EXCLUDE_AGE_DAYS',
   ];
-  for (const [key, value] of Object.entries(updates)) {
-    if (!allowed.includes(key)) continue;
 
-    let saveVal: string;
-    if (key.startsWith('SEASON_WEIGHT_')) {
-      const fv = parseFloat(value);
-      if (isNaN(fv) || fv < 0 || fv > 1) continue;
-      saveVal = fv.toFixed(2);
-    } else {
-      const numVal = parseInt(value, 10);
-      if (isNaN(numVal) || numVal < 0) continue;
-      saveVal = String(numVal);
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [key, value] of Object.entries(updates)) {
+      if (!allowed.includes(key)) continue;
+
+      let saveVal: string;
+      if (key.startsWith('SEASON_WEIGHT_')) {
+        const fv = parseFloat(value);
+        if (isNaN(fv) || fv < 0 || fv > 1) continue;
+        saveVal = fv.toFixed(2);
+      } else {
+        const numVal = parseInt(value, 10);
+        if (isNaN(numVal) || numVal < 0) continue;
+        saveVal = String(numVal);
+      }
+
+      await client.query(
+        `INSERT INTO master_codes (code_type, code_value, code_label, sort_order)
+         VALUES ('SETTING', $1, $2, 0)
+         ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = $2`,
+        [key, saveVal],
+      );
     }
-
-    await pool.query(
-      `INSERT INTO master_codes (code_type, code_value, code_label, sort_order)
-       VALUES ('SETTING', $1, $2, 0)
-       ON CONFLICT (code_type, code_value) DO UPDATE SET code_label = $2`,
-      [key, saveVal],
-    );
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
   }
   res.json({ success: true });
 }));

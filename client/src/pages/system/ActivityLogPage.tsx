@@ -133,7 +133,7 @@ export default function ActivityLogPage() {
       </Space>
       <Table<ActivityLog>
         columns={columns} dataSource={data} rowKey="log_id" loading={loading}
-        size="small" scroll={{ x: 1200, y: 'calc(100vh - 280px)' }}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{
           current: page, pageSize: 50, total,
           showTotal: (t) => `총 ${t}건`,

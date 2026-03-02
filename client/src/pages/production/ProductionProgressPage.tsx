@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Button, Modal, InputNumber, Progress, Space, Select, message, Typography } from 'antd';
+import { Card, Table, Tag, Button, Modal, InputNumber, Progress, Space, Select, message } from 'antd';
 import { SyncOutlined, SaveOutlined } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import type { ProductionPlan, ProductionPlanItem } from '../../../../shared/types/production';
@@ -21,6 +21,7 @@ export default function ProductionProgressPage() {
   const [updateOpen, setUpdateOpen] = useState(false);
   const [activePlan, setActivePlan] = useState<ProductionPlan | null>(null);
   const [editItems, setEditItems] = useState<Array<{ item_id: number; produced_qty: number }>>([]);
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -47,7 +48,8 @@ export default function ProductionProgressPage() {
   };
 
   const handleSaveQty = async () => {
-    if (!activePlan) return;
+    if (!activePlan || submitting) return;
+    setSubmitting(true);
     try {
       const updated = await productionApi.updateProducedQty(activePlan.plan_id, editItems);
       message.success('생산수량이 업데이트되었습니다.');
@@ -57,6 +59,7 @@ export default function ProductionProgressPage() {
       })));
       load();
     } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
   };
 
   const columns = [
@@ -98,7 +101,7 @@ export default function ProductionProgressPage() {
     <div>
       <Card title="생산진행 현황" extra={
         <Space>
-          <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 140 }} allowClear placeholder="상태">
+          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 140 }} allowClear placeholder="상태">
             {Object.entries(STATUS_LABELS).map(([k, v]) => <Select.Option key={k} value={k}>{v}</Select.Option>)}
           </Select>
         </Space>
@@ -113,7 +116,7 @@ export default function ProductionProgressPage() {
         open={updateOpen} onCancel={() => setUpdateOpen(false)}
         footer={activePlan?.status === 'IN_PRODUCTION' ? [
           <Button key="cancel" onClick={() => setUpdateOpen(false)}>닫기</Button>,
-          <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveQty}>저장</Button>,
+          <Button key="save" type="primary" icon={<SaveOutlined />} onClick={handleSaveQty} loading={submitting}>저장</Button>,
         ] : [<Button key="close" onClick={() => setUpdateOpen(false)}>닫기</Button>]}
         width={750}>
         {activePlan && (

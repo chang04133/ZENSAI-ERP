@@ -8,6 +8,7 @@ export interface RepositoryConfig {
   searchFields: string[];       // ILIKE 대상 컬럼
   filterFields: string[];       // exact match 대상 컬럼
   allowedOrderFields?: string[]; // 정렬 허용 컬럼 (화이트리스트)
+  allowedColumns?: string[];    // INSERT/UPDATE 허용 컬럼 (화이트리스트)
   defaultOrder?: string;        // default: created_at DESC
   softDelete?: boolean;         // default: true (is_active 방식)
   tableAlias?: string;
@@ -20,6 +21,7 @@ export class BaseRepository<T = any> {
   constructor(config: RepositoryConfig) {
     this.config = {
       allowedOrderFields: [],
+      allowedColumns: [],
       defaultOrder: 'created_at DESC',
       softDelete: true,
       tableAlias: '',
@@ -116,8 +118,24 @@ export class BaseRepository<T = any> {
     return result.rows[0] || null;
   }
 
+  /** 컬럼명이 안전한 식별자인지 검증 (영문, 숫자, 밑줄만 허용) */
+  private isSafeColumn(col: string): boolean {
+    return /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(col);
+  }
+
+  /** allowedColumns가 설정된 경우 화이트리스트 기반 필터링, 아니면 식별자 검증 */
+  private filterColumns(keys: string[]): string[] {
+    const whitelist = this.config.allowedColumns;
+    if (whitelist.length > 0) {
+      return keys.filter((k) => whitelist.includes(k));
+    }
+    return keys.filter((k) => this.isSafeColumn(k));
+  }
+
   async create(data: Record<string, any>): Promise<T> {
-    const keys = Object.keys(data).filter((k) => data[k] !== undefined);
+    const rawKeys = Object.keys(data).filter((k) => data[k] !== undefined);
+    const keys = this.filterColumns(rawKeys);
+    if (keys.length === 0) throw new Error('유효한 컬럼이 없습니다.');
     const values = keys.map((k) => data[k]);
     const placeholders = keys.map((_, i) => `$${i + 1}`);
 
@@ -127,7 +145,8 @@ export class BaseRepository<T = any> {
   }
 
   async update(id: string | number, data: Record<string, any>): Promise<T | null> {
-    const keys = Object.keys(data).filter((k) => data[k] !== undefined && k !== this.pk);
+    const rawKeys = Object.keys(data).filter((k) => data[k] !== undefined && k !== this.pk);
+    const keys = this.filterColumns(rawKeys);
     if (keys.length === 0) return this.getById(id);
 
     // always update updated_at if column exists

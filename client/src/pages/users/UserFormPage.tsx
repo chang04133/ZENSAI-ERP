@@ -34,6 +34,7 @@ export default function UserFormPage() {
         }
 
         if (isEdit && id) {
+          form.resetFields();
           const user = await userApi.get(id);
           form.setFieldsValue(user);
         } else if (rolesData.length === 1) {

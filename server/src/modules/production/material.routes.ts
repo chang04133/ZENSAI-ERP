@@ -8,13 +8,13 @@ import { productRepository } from '../product/product.repository';
 
 const router = Router();
 
-router.get('/generate-code', authMiddleware, requireRole('ADMIN'), materialController.generateCode);
-router.get('/low-stock', authMiddleware, requireRole('ADMIN'), materialController.lowStock);
-router.get('/summary', authMiddleware, requireRole('ADMIN'), materialController.summary);
-router.put('/:id/adjust-stock', authMiddleware, requireRole('ADMIN'), materialController.adjustStock);
+router.get('/generate-code', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), materialController.generateCode);
+router.get('/low-stock', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), materialController.lowStock);
+router.get('/summary', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), materialController.summary);
+router.put('/:id/adjust-stock', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), materialController.adjustStock);
 
 // 자재 수정 시 unit_price 변경되면 연관 상품 cost_price 재계산
-router.put('/:id', authMiddleware, requireRole('ADMIN'), asyncHandler(async (req, res) => {
+router.put('/:id', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id as string, 10);
   const item = await materialService.update(id, req.body);
   if (!item) {
@@ -29,8 +29,8 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), asyncHandler(async (req
 }));
 
 materialController.registerCrudRoutes(router, {
-  readRoles: ['ADMIN'],
-  writeRoles: ['ADMIN'],
+  readRoles: ['SYS_ADMIN', 'ADMIN'],
+  writeRoles: ['SYS_ADMIN', 'ADMIN'],
   requiredFields: ['material_name', 'material_type'],
   entityName: '자재',
 });

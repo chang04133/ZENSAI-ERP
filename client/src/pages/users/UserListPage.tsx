@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Table, Button, Input, Space, Tag, Popconfirm, message } from 'antd';
 import { PlusOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -15,22 +15,31 @@ export default function UserListPage() {
   const isStoreManager = user?.role === ROLES.STORE_MANAGER;
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [deleting, setDeleting] = useState(false);
 
-  const load = () => {
+  const load = useCallback(() => {
     const params: Record<string, string> = { page: String(page), limit: '50' };
     if (search) params.search = search;
     fetchUsers(params);
-  };
+  }, [page, search, fetchUsers]);
 
-  useEffect(() => { load(); }, [page]);
+  useEffect(() => { load(); }, [load]);
 
+  // C-1: 검색 시 페이지 1로 리셋
+  const handleSearch = () => { setPage(1); };
+
+  // C-3: 삭제 loading 가드
   const handleDelete = async (id: string) => {
+    if (deleting) return;
+    setDeleting(true);
     try {
       await userApi.remove(id);
       message.success('사용자가 삭제되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -56,7 +65,7 @@ export default function UserListPage() {
           <Button size="small" onClick={() => navigate(`/users/${record.user_id}/edit`)}>수정</Button>
           {record.user_id !== user?.userId && (ROLE_LEVEL[record.role_name] || 99) > (ROLE_LEVEL[user?.role || ''] || 99) && (
             <Popconfirm title="정말 삭제하시겠습니까?" onConfirm={() => handleDelete(record.user_id)}>
-              <Button size="small" danger>삭제</Button>
+              <Button size="small" danger loading={deleting}>삭제</Button>
             </Popconfirm>
           )}
         </Space>
@@ -77,10 +86,10 @@ export default function UserListPage() {
             prefix={<SearchOutlined />}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={load}
+            onPressEnter={handleSearch}
             style={{ width: '100%' }}
           /></div>
-        <Button onClick={load}>조회</Button>
+        <Button onClick={handleSearch}>조회</Button>
       </div>
       <Table
         columns={columns}

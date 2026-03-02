@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, Spin, message } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, message } from 'antd';
 import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
@@ -354,7 +354,7 @@ export default function MyStoreInventoryPage() {
         rowKey={viewMode === 'product' ? 'product_code' : viewMode === 'color' ? '_rowKey' : '_rowKey'}
         loading={loading}
         size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 380px)' }}
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         onChange={handleTableChange}
         pagination={{
           pageSize: 50,

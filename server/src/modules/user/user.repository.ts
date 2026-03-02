@@ -71,16 +71,45 @@ export class UserRepository extends BaseRepository<User> {
   }
 
   async updateUser(userId: string, data: any): Promise<User | null> {
-    if (data.password) {
-      const hash = await bcrypt.hash(data.password, 12);
-      await this.pool.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, userId]);
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // S-5: 비밀번호 + 프로필 업데이트를 트랜잭션으로 묶음
+      if (data.password) {
+        const hash = await bcrypt.hash(data.password, 12);
+        await client.query('UPDATE users SET password_hash = $1 WHERE user_id = $2', [hash, userId]);
+      }
+
+      // S-4: 제공된 필드만 동적으로 업데이트
+      const allowedFields = ['user_name', 'partner_code', 'role_group', 'is_active'];
+      const setClauses: string[] = [];
+      const values: any[] = [];
+      let idx = 1;
+      for (const field of allowedFields) {
+        if (data[field] !== undefined) {
+          setClauses.push(`${field} = $${idx}`);
+          values.push(field === 'partner_code' ? (data[field] || null) : data[field]);
+          idx++;
+        }
+      }
+      setClauses.push(`updated_at = NOW()`);
+      values.push(userId);
+
+      const result = await client.query(
+        `UPDATE users SET ${setClauses.join(', ')} WHERE user_id = $${idx}
+         RETURNING user_id, user_name, partner_code, role_group, is_active, created_at`,
+        values,
+      );
+
+      await client.query('COMMIT');
+      return result.rows[0] || null;
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
     }
-    const result = await this.pool.query(
-      `UPDATE users SET user_name=$1, partner_code=$2, role_group=$3, is_active=$4, updated_at=NOW()
-       WHERE user_id=$5 RETURNING user_id, user_name, partner_code, role_group, is_active, created_at`,
-      [data.user_name, data.partner_code || null, data.role_group, data.is_active ?? true, userId],
-    );
-    return result.rows[0] || null;
   }
 
   async getRoleGroups(): Promise<RoleGroup[]> {

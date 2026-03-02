@@ -37,7 +37,7 @@ class ProductionService extends BaseService<ProductionPlan> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1', [id]);
+      const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1 FOR UPDATE', [id]);
       if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다');
       const plan = current.rows[0];
 
@@ -75,6 +75,10 @@ class ProductionService extends BaseService<ProductionPlan> {
           [id],
         );
         for (const mat of materials.rows) {
+          const stockCheck = await client.query('SELECT stock_qty FROM materials WHERE material_id = $1', [mat.material_id]);
+          if (stockCheck.rows.length > 0 && Number(stockCheck.rows[0].stock_qty) < Number(mat.used_qty)) {
+            console.warn(`[Production] 자재(${mat.material_id}) 재고 부족: 현재=${stockCheck.rows[0].stock_qty}, 차감=${mat.used_qty}`);
+          }
           await client.query(
             'UPDATE materials SET stock_qty = GREATEST(0, stock_qty - $1), updated_at = NOW() WHERE material_id = $2',
             [mat.used_qty, mat.material_id],

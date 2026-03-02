@@ -19,7 +19,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   async listWithDetails(options: any = {}) {
-    const { page = 1, limit = 20, partner_code, search, category, season, size, color, fit, length, stock_level, sort_field, sort_dir } = options;
+    const { page = 1, limit: rawLimit = 20, partner_code, search, category, season, size, color, fit, length, stock_level, sort_field, sort_dir } = options;
+    const limit = Math.min(Number(rawLimit) || 20, 200); // S-7: limit 상한 200
     const offset = (page - 1) * limit;
 
     // stock_level 필터에 시스템 설정 임계값 사용
@@ -98,6 +99,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
       [partnerCode, variantId],
     );
+    // S-10: rows[0] 존재 확인
+    if (!inv.rows[0]) {
+      throw new Error(`재고 레코드를 찾을 수 없습니다: ${partnerCode}/${variantId}`);
+    }
     const qtyAfter = inv.rows[0].qty;
 
     // 음수 재고 경고 로깅
@@ -442,8 +447,9 @@ export class InventoryRepository extends BaseRepository<Inventory> {
 
   /** 재고 거래이력 조회 */
   async listTransactions(options: any = {}) {
-    const { page = 1, limit = 20, partner_code, variant_id, tx_type, search } = options;
-    const offset = (Number(page) - 1) * Number(limit);
+    const { page = 1, limit: rawLimit = 20, partner_code, variant_id, tx_type, search } = options;
+    const limit = Math.min(Number(rawLimit) || 20, 200); // S-8: limit 상한 200
+    const offset = (Number(page) - 1) * limit;
     const qb = new QueryBuilder('t');
     if (partner_code) qb.eq('partner_code', partner_code);
     if (variant_id) qb.eq('variant_id', variant_id);

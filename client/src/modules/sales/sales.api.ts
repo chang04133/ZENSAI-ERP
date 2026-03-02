@@ -83,6 +83,12 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/comprehensive${q}`));
   },
 
+  // 종합 매출조회 → 판매 상세
+  comprehensiveDetail: async (dateFrom: string, dateTo: string, partnerCode?: string, saleType?: string) => {
+    const q = `?date_from=${dateFrom}&date_to=${dateTo}${partnerCode ? `&partner_code=${partnerCode}` : ''}${saleType ? `&sale_type=${saleType}` : ''}`;
+    return parse(await apiFetch(`/api/sales/comprehensive/detail${q}`));
+  },
+
   // 매출 수정
   update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string }) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(body) }));

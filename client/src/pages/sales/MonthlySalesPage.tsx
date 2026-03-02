@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Button, DatePicker, Space, message } from 'antd';
+import { Button, DatePicker, Space, Modal, Table, Tag, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { useSearchParams } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
@@ -45,9 +46,17 @@ const ZERO_ROW = {
 };
 
 export default function MonthlySalesPage() {
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<PartnerRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+  const [range, setRange] = useState<[Dayjs, Dayjs]>(() => {
+    const from = searchParams.get('from');
+    const to = searchParams.get('to');
+    return [
+      from && dayjs(from).isValid() ? dayjs(from) : dayjs().startOf('month'),
+      to && dayjs(to).isValid() ? dayjs(to) : dayjs(),
+    ];
+  });
 
   const load = async (from: Dayjs, to: Dayjs) => {
     setLoading(true);
@@ -70,6 +79,47 @@ export default function MonthlySalesPage() {
   useEffect(() => { load(range[0], range[1]); }, []);
 
   const handleSearch = () => load(range[0], range[1]);
+
+  /* ── 판매 상세 모달 ── */
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailData, setDetailData] = useState<any[]>([]);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailTitle, setDetailTitle] = useState('');
+
+  const showDetail = async (partnerCode: string | undefined, partnerName: string, saleType?: string) => {
+    const typeLabel = saleType === '정상' ? '정상' : saleType === '할인' ? '할인' : saleType === '행사' ? '행사' : '전체';
+    const who = partnerCode ? partnerName : '전체 매장';
+    setDetailTitle(`${who} — ${typeLabel} 매출 상세`);
+    setDetailOpen(true);
+    setDetailLoading(true);
+    try {
+      const result = await salesApi.comprehensiveDetail(
+        range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'),
+        partnerCode, saleType,
+      );
+      setDetailData(result || []);
+    } catch (e: any) { message.error(e.message); }
+    finally { setDetailLoading(false); }
+  };
+
+  const detailColumns = [
+    { title: '판매일', dataIndex: 'sale_date', width: 100,
+      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+    { title: '품번', dataIndex: 'product_code', width: 110 },
+    { title: '상품명', dataIndex: 'product_name', width: 160, ellipsis: true },
+    { title: 'SKU', dataIndex: 'sku', width: 140 },
+    { title: '컬러', dataIndex: 'color', width: 60 },
+    { title: '사이즈', dataIndex: 'size', width: 60 },
+    { title: '유형', dataIndex: 'sale_type', width: 60,
+      render: (v: string) => {
+        const c = v === '할인' ? 'red' : v === '행사' ? 'orange' : 'blue';
+        return <Tag color={c}>{v}</Tag>;
+      } },
+    { title: '수량', dataIndex: 'qty', width: 60, render: (v: number) => fmt(v) },
+    { title: '단가', dataIndex: 'unit_price', width: 90, render: (v: number) => fmt(v) },
+    { title: '금액', dataIndex: 'total_price', width: 100,
+      render: (v: number) => <b>{fmt(v)}</b> },
+  ];
 
   const quickRange = (from: Dayjs, to: Dayjs) => {
     setRange([from, to]);
@@ -110,6 +160,18 @@ export default function MonthlySalesPage() {
     ...tdLabel, fontWeight: 700, borderBottom: '2px solid #ccc',
   };
 
+  /* 클릭 가능한 금액 셀 */
+  const clickable: React.CSSProperties = { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 };
+  const amtCell = (value: number, style: React.CSSProperties, partnerCode: string | undefined | null, partnerName: string, saleType?: string) => {
+    if (value === 0) return <td style={style}>{fmt(value)}</td>;
+    return (
+      <td style={{ ...style, ...clickable }}
+        onClick={() => showDetail(partnerCode || undefined, partnerName, saleType)}>
+        {fmt(value)}
+      </td>
+    );
+  };
+
   /* 행 렌더 (2줄: 금액 + 증감) */
   const renderRow = (r: PartnerRow | typeof totals & { partner_code?: string; partner_name?: string }, idx: number, isTotal = false) => {
     const bg1 = isTotal ? '#f0f4ff' : idx % 2 === 0 ? '#fff' : '#fafbfe';
@@ -119,6 +181,8 @@ export default function MonthlySalesPage() {
     const label = isTotal ? '합계' : `${(r as PartnerRow).partner_name}`;
     const code = isTotal ? '' : `(${(r as PartnerRow).partner_code})`;
     const pctOfTotal = totals.cur_amount > 0 ? ((r.cur_amount / totals.cur_amount) * 100).toFixed(0) : '0';
+    const pc = !isTotal ? (r as PartnerRow).partner_code : null;
+    const pn = !isTotal ? ((r as PartnerRow).partner_name || '') : '전체 매장';
 
     return (
       <>
@@ -127,18 +191,19 @@ export default function MonthlySalesPage() {
           <td rowSpan={2} style={{ ...sLbl, textAlign: 'center', verticalAlign: 'middle', width: 32 }}>
             {isTotal ? '' : idx}
           </td>
-          <td rowSpan={2} style={{ ...sLbl, verticalAlign: 'middle', minWidth: 120 }}>
-            <div style={{ fontWeight: isTotal ? 700 : 600, fontSize: 12 }}>{label}</div>
+          <td rowSpan={2} style={{ ...sLbl, verticalAlign: 'middle', minWidth: 120, cursor: 'pointer' }}
+            onClick={() => showDetail(pc || undefined, pn, 'all')}>
+            <div style={{ fontWeight: isTotal ? 700 : 600, fontSize: 12, color: '#1677ff' }}>{label}</div>
             {code && <div style={{ fontSize: 10, color: '#888' }}>{code}</div>}
           </td>
           <td style={sAmt}>{fmt(r.prev_year_amount)}</td>
           <td style={sAmt}>{fmt(r.prev_month_amount)}</td>
-          <td style={sAmt}>{fmt(r.normal_amount)}</td>
-          <td style={{ ...sAmt, color: r.discount_amount > 0 ? '#f5222d' : undefined }}>{fmt(r.discount_amount)}</td>
-          <td style={{ ...sAmt, color: r.event_amount > 0 ? '#fa8c16' : undefined }}>{fmt(r.event_amount)}</td>
-          <td style={{ ...sAmt, fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</td>
-          <td style={{ ...sAmt, color: '#1677ff' }}>{fmt(r.mtd_amount)}</td>
-          <td style={sAmt}>{fmt(r.cur_qty)}</td>
+          {amtCell(r.normal_amount, sAmt, pc, pn, '정상')}
+          {amtCell(r.discount_amount, { ...sAmt, color: r.discount_amount > 0 ? '#f5222d' : undefined }, pc, pn, '할인')}
+          {amtCell(r.event_amount, { ...sAmt, color: r.event_amount > 0 ? '#fa8c16' : undefined }, pc, pn, '행사')}
+          {amtCell(r.cur_amount, { ...sAmt, fontWeight: 700, color: '#1a3a6a' }, pc, pn, 'all')}
+          {amtCell(r.mtd_amount, { ...sAmt, color: '#1677ff' }, pc, pn, 'all')}
+          {amtCell(r.cur_qty, sAmt, pc, pn, 'all')}
           <td rowSpan={2} style={{ ...sAmt, textAlign: 'center', verticalAlign: 'middle', color: '#666' }}>
             {pctOfTotal}%
           </td>
@@ -232,6 +297,33 @@ export default function MonthlySalesPage() {
           </tbody>
         </table>
       </div>
+
+      {/* ── 판매 상세 모달 ── */}
+      <Modal title={detailTitle} open={detailOpen} onCancel={() => setDetailOpen(false)}
+        width={1000} footer={null}>
+        <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
+          {range[0].format('YYYY-MM-DD')} ~ {range[1].format('YYYY-MM-DD')}
+          {' | '}총 <b>{detailData.length}</b>건
+          {' | '}합계 <b>{fmt(detailData.reduce((s, r) => s + Number(r.total_price || 0), 0))}원</b>
+        </div>
+        <Table dataSource={detailData} columns={detailColumns} rowKey="sale_id"
+          loading={detailLoading} size="small"
+          scroll={{ x: 950, y: 'calc(100vh - 340px)' }}
+          pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+          summary={(d) => {
+            const totalQty = d.reduce((s, r) => s + Number(r.qty || 0), 0);
+            const totalAmt = d.reduce((s, r) => s + Number(r.total_price || 0), 0);
+            return (
+              <Table.Summary.Row>
+                <Table.Summary.Cell index={0} colSpan={7}><b>합계</b></Table.Summary.Cell>
+                <Table.Summary.Cell index={7} align="right"><b>{fmt(totalQty)}</b></Table.Summary.Cell>
+                <Table.Summary.Cell index={8} align="right" />
+                <Table.Summary.Cell index={9} align="right"><b>{fmt(totalAmt)}</b></Table.Summary.Cell>
+              </Table.Summary.Row>
+            );
+          }}
+        />
+      </Modal>
     </div>
   );
 }

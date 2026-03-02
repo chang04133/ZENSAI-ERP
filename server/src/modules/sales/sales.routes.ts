@@ -183,6 +183,48 @@ router.get('/comprehensive', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// 종합 매출조회 → 거래처별 판매 상세
+router.get('/comprehensive/detail', authMiddleware, asyncHandler(async (req, res) => {
+  const { date_from, date_to, partner_code, sale_type } = req.query as Record<string, string>;
+  if (!date_from || !date_to) {
+    res.status(400).json({ success: false, error: 'date_from, date_to 필수' });
+    return;
+  }
+  const params: any[] = [date_from, date_to];
+  let pcFilter = '';
+  if (partner_code) {
+    params.push(partner_code);
+    pcFilter = `AND s.partner_code = $${params.length}`;
+  }
+  let typeFilter = '';
+  if (sale_type && sale_type !== 'all') {
+    if (sale_type === '정상') {
+      typeFilter = `AND COALESCE(s.sale_type, '정상') = '정상'`;
+    } else {
+      params.push(sale_type);
+      typeFilter = `AND s.sale_type = $${params.length}`;
+    }
+  }
+  const sql = `
+    SELECT s.sale_id, s.sale_date, s.partner_code, pt.partner_name,
+           pv.sku, p.product_code, p.product_name, pv.color, pv.size,
+           p.category, p.sub_category,
+           s.qty, s.unit_price, s.total_price,
+           COALESCE(s.sale_type, '정상') AS sale_type
+    FROM sales s
+    JOIN product_variants pv ON s.variant_id = pv.variant_id
+    JOIN products p ON pv.product_code = p.product_code
+    JOIN partners pt ON s.partner_code = pt.partner_code
+    WHERE s.sale_date BETWEEN $1 AND $2
+      ${pcFilter}
+      ${typeFilter}
+    ORDER BY s.sale_date DESC, s.sale_id DESC
+    LIMIT 500`;
+  const pool = getPool();
+  const rows = (await pool.query(sql, params)).rows;
+  res.json({ success: true, data: rows });
+}));
+
 // 매장별 성과 비교
 router.get('/store-comparison', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const { date_from, date_to } = req.query as { date_from?: string; date_to?: string };

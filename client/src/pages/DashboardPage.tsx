@@ -59,7 +59,7 @@ export default function DashboardPage() {
   const [restockSuggestions, setRestockSuggestions] = useState<RestockSuggestion[]>([]);
 
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.HQ_MANAGER;
+  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   const loadSellThrough = async () => {
     try {
@@ -152,7 +152,7 @@ export default function DashboardPage() {
     } catch { /* ignore */ }
   };
 
-  useEffect(() => { loadStats(); loadNotifications(); loadSellThrough(); if (isStore) loadMyPendingRequests(); if (isAdmin) { loadProduction(); loadRestockSuggestions(); } }, []);
+  useEffect(() => { loadStats(); loadNotifications(); if (isStore) loadMyPendingRequests(); if (isAdmin) { loadSellThrough(); loadProduction(); loadRestockSuggestions(); } }, []);
 
   // 재고 요청 (매장 매니저용)
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
@@ -503,13 +503,13 @@ export default function DashboardPage() {
           <StatCard title={isStore ? '내 매장 오늘 매출' : '오늘 매출'} value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
             sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`}
-            onClick={() => { const t = dayjs().format('YYYY-MM-DD'); navigate(`/sales/partner-sales?from=${t}&to=${t}`); }} />
+            onClick={() => { if (isStore) { navigate('/sales/product-sales'); } else { const t = dayjs().format('YYYY-MM-DD'); navigate(`/sales/partner-sales?from=${t}&to=${t}`); } }} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
             sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`}
-            onClick={() => { const t = dayjs(); navigate(`/sales/partner-sales?from=${t.subtract(29, 'day').format('YYYY-MM-DD')}&to=${t.format('YYYY-MM-DD')}`); }} />
+            onClick={() => { if (isStore) { navigate('/sales/product-sales'); } else { const t = dayjs(); navigate(`/sales/partner-sales?from=${t.subtract(29, 'day').format('YYYY-MM-DD')}&to=${t.format('YYYY-MM-DD')}`); } }} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 재고' : '총 재고'} value={stats?.inventory?.totalQty || 0}
@@ -619,12 +619,12 @@ export default function DashboardPage() {
             <Card
               title={<span><PercentageOutlined style={{ marginRight: 8 }} />판매율 분석 (올해)</span>}
               size="small" style={{ borderRadius: 10 }}
-              extra={<a onClick={() => navigate('/sales/product-sales')}>상세보기</a>}
+              extra={<a onClick={() => navigate('/sales/sell-through')}>상세보기</a>}
             >
               <Row gutter={[10, 10]}>
                 {/* 전체 판매율 */}
                 <Col xs={12} sm={8} md={4}>
-                  <div onClick={() => navigate('/sales/product-sales')} style={{
+                  <div onClick={() => navigate('/sales/sell-through')} style={{
                     background: Number(sellThrough.totals?.overall_rate) >= 50 ? '#e6f7ff' : Number(sellThrough.totals?.overall_rate) >= 30 ? '#fff7e6' : '#fff1f0',
                     borderRadius: 10, padding: '12px 14px', textAlign: 'center', cursor: 'pointer', transition: 'transform 0.15s',
                     border: `1px solid ${Number(sellThrough.totals?.overall_rate) >= 50 ? '#1890ff' : Number(sellThrough.totals?.overall_rate) >= 30 ? '#fa8c16' : '#ff4d4f'}33`,
@@ -649,7 +649,7 @@ export default function DashboardPage() {
                   const color = CAT_C[c.category] || '#888';
                   return (
                     <Col xs={12} sm={8} md={4} key={c.category}>
-                      <div onClick={() => navigate('/sales/product-sales')} style={{
+                      <div onClick={() => navigate('/sales/sell-through')} style={{
                         borderRadius: 10, padding: '12px 14px', textAlign: 'center', cursor: 'pointer', transition: 'transform 0.15s',
                         border: `1px solid ${color}33`, background: `${color}08`,
                       }}

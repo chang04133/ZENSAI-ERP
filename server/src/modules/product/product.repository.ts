@@ -224,7 +224,7 @@ export class ProductRepository extends BaseRepository<Product> {
 
   async removeVariant(id: number) {
     const pool = getPool();
-    await pool.query('DELETE FROM product_variants WHERE variant_id = $1', [id]);
+    await pool.query('UPDATE product_variants SET is_active = FALSE, updated_at = NOW() WHERE variant_id = $1', [id]);
   }
 
   async listEventProducts(options: any = {}) {

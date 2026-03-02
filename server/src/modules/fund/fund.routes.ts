@@ -31,7 +31,7 @@ router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, 
      FROM production_plan_items pi
      JOIN production_plans pp ON pi.plan_id = pp.plan_id
      WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
-       AND pp.status NOT IN ('CANCELLED')
+       AND pp.status IN ('CONFIRMED', 'IN_PRODUCTION', 'COMPLETED')
      GROUP BY plan_month`,
     [year],
   );
@@ -44,7 +44,7 @@ router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, 
      JOIN production_plans pp ON pmu.plan_id = pp.plan_id
      JOIN materials m ON pmu.material_id = m.material_id
      WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
-       AND pp.status NOT IN ('CANCELLED')
+       AND pp.status IN ('CONFIRMED', 'IN_PRODUCTION', 'COMPLETED')
      GROUP BY plan_month`,
     [year],
   );
@@ -86,6 +86,11 @@ router.put('/categories/:id', ...adminOnly, asyncHandler(async (req: Request, re
     res.status(400).json({ success: false, error: '항목 이름을 입력해주세요.' }); return;
   }
   const pool = getPool();
+  // auto_source가 설정된 카테고리는 이름 변경 불가
+  const cat = await pool.query('SELECT auto_source FROM fund_categories WHERE category_id = $1', [req.params.id]);
+  if (cat.rows.length > 0 && cat.rows[0].auto_source) {
+    res.status(400).json({ success: false, error: '자동 연동 항목은 이름을 변경할 수 없습니다.' }); return;
+  }
   const result = await pool.query(
     'UPDATE fund_categories SET category_name = $1 WHERE category_id = $2 RETURNING *',
     [category_name, req.params.id],

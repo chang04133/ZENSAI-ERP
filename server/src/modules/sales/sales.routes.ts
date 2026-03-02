@@ -525,7 +525,7 @@ router.delete('/:id',
       if (old.sale_type !== '반품') {
         const linkedReturns = await client.query(
           `SELECT COUNT(*)::int AS cnt FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-          [`%원본#${saleId}%`],
+          [`%원본#${saleId})%`],
         );
         if (linkedReturns.rows[0].cnt > 0) {
           await client.query('ROLLBACK');
@@ -656,7 +656,7 @@ router.post('/:id/return',
       const prevReturns = await client.query(
         `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
          FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-        [`반품(원본#${saleId})`],
+        [`반품(원본#${saleId})%`],
       );
       const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
       const remainingQty = old.qty - alreadyReturned;

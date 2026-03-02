@@ -20,7 +20,7 @@ export const menuItems: MenuItem[] = [
   { key: '/', label: '대시보드', icon: 'DashboardOutlined', roles: ALL },
   { key: '/notices', label: '공지사항', icon: 'NotificationOutlined', roles: ALL },
   { key: '/barcode', label: '바코드 관리', icon: 'BarcodeOutlined', roles: STORE_ONLY },
-  { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
+  { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
   {
     key: 'sub-products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
     children: [
@@ -52,6 +52,8 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/sales/partner-sales', label: '종합매출조회', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ },
+      { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ },
+      { key: '/sales/sell-through', label: '판매율분석', icon: 'FundOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: STORE_ALL },
       { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: STORE_ALL },
     ],

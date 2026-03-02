@@ -179,7 +179,12 @@ router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {
     WHERE pv.variant_id IN (${placeholders})
     ORDER BY p.category, p.product_code, pv.color, pv.size`;
   const result = await pool.query(sql, ids);
-  res.json({ success: true, data: result.rows });
+  const role = req.user?.role;
+  const isStore = role === 'STORE_MANAGER' || role === 'STORE_STAFF';
+  const data = isStore
+    ? result.rows.map(({ cost_price, ...rest }: any) => rest)
+    : result.rows;
+  res.json({ success: true, data });
 }));
 
 router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) => {

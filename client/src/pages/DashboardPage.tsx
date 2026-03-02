@@ -503,7 +503,7 @@ export default function DashboardPage() {
           <StatCard title={isStore ? '내 매장 오늘 매출' : '오늘 매출'} value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
             sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`}
-            onClick={() => navigate('/sales/entry')} />
+            onClick={() => navigate(isAdmin ? '/sales/dashboard' : '/sales/product-sales')} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
@@ -519,7 +519,7 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
             icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
-            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')} />
+            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')} />
         </Col>
       </Row>
 
@@ -579,7 +579,7 @@ export default function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={12}>
           <Card title={isStore ? '내 매장 출고 현황' : '출고 현황'} size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')}>전체보기</a>}>
+            extra={<a onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')}>전체보기</a>}>
             <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: 16 }}>
               {[
                 { label: '대기', count: pendingCount, color: '#6366f1' },
@@ -903,9 +903,9 @@ export default function DashboardPage() {
         </Col>
         <Col xs={24} md={9}>
           <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/request')}>전체보기</a>}>
+            extra={<a onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')}>전체보기</a>}>
             <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" scroll={{ x: 500 }}
-              onRow={() => ({ onClick: () => navigate(isStore ? '/shipment/store' : '/shipment/request'), style: { cursor: 'pointer' } })} />
+              onRow={() => ({ onClick: () => navigate(isStore ? '/shipment/view' : '/shipment/request'), style: { cursor: 'pointer' } })} />
           </Card>
         </Col>
         <Col xs={24} md={7}>

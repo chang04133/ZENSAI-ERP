@@ -12,6 +12,7 @@ import { inboundApi } from '../../modules/inbound/inbound.api';
 import { useInboundStore } from '../../modules/inbound/inbound.store';
 import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import { fmt } from '../../utils/format';
 import type { InboundRecord, InboundItem } from '../../../../shared/types/inbound';
 import dayjs from 'dayjs';
@@ -31,7 +32,7 @@ interface VariantRow {
 /* ── 입고 등록 탭 ── */
 function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () => void }) {
   const user = useAuthStore((s) => s.user);
-  const isHQ = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(user?.role || '');
+  const isHQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user?.role as any);
   const [form] = Form.useForm();
   const [items, setItems] = useState<VariantRow[]>([]);
   const [creating, setCreating] = useState(false);
@@ -322,7 +323,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
 /* ── 입고 내역 탭 ── */
 function HistoryTab({ partners }: { partners: any[] }) {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = ['ADMIN', 'SYS_ADMIN'].includes(user?.role || '');
+  const isAdmin = [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user?.role as any);
   const { data, total, loading, fetchList } = useInboundStore();
   const [page, setPage] = useState(1);
   const [partnerFilter, setPartnerFilter] = useState('');
@@ -351,7 +352,8 @@ function HistoryTab({ partners }: { partners: any[] }) {
       const res = await apiFetch(`/api/inbounds/${id}`);
       const d = await res.json();
       if (d.success) setDetailData(d.data);
-    } catch { /* ignore */ }
+      else message.error(d.error || '상세 조회 실패');
+    } catch (e: any) { message.error(e.message || '상세 조회 실패'); }
     finally { setDetailLoading(false); }
   };
 
@@ -459,7 +461,7 @@ export default function InboundPage() {
   useEffect(() => {
     apiFetch('/api/partners?limit=1000').then((r) => r.json()).then((d) => {
       if (d.success) setPartners(d.data?.data || d.data || []);
-    }).catch(() => {});
+    }).catch((e) => { message.error('거래처 목록 로드 실패: ' + (e.message || '')); });
   }, []);
 
   const handleCreated = () => {

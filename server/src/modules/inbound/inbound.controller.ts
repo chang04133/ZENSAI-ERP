@@ -4,6 +4,7 @@ import { InboundRecord } from '../../../../shared/types/inbound';
 import { inboundService } from './inbound.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getStorePartnerCode } from '../../core/store-filter';
+import { getPool } from '../../db/connection';
 
 class InboundController extends BaseController<InboundRecord> {
   constructor() {
@@ -29,10 +30,40 @@ class InboundController extends BaseController<InboundRecord> {
 
   create = asyncHandler(async (req: Request, res: Response) => {
     const { items, ...headerData } = req.body;
-    if (!items || items.length === 0) {
+
+    // partner_code 필수 검증
+    if (!headerData.partner_code) {
+      res.status(400).json({ success: false, error: '거래처를 선택해주세요.' });
+      return;
+    }
+
+    // partner_code 존재 여부 확인
+    const pool = getPool();
+    const partnerCheck = await pool.query('SELECT 1 FROM partners WHERE partner_code = $1', [headerData.partner_code]);
+    if (partnerCheck.rows.length === 0) {
+      res.status(400).json({ success: false, error: `거래처 '${headerData.partner_code}'이(가) 존재하지 않습니다.` });
+      return;
+    }
+
+    // items 배열 검증
+    if (!items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: '품목을 1개 이상 추가해주세요.' });
       return;
     }
+
+    // 개별 item 검증
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.variant_id || typeof item.variant_id !== 'number') {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: variant_id가 유효하지 않습니다.` });
+        return;
+      }
+      if (!item.qty || typeof item.qty !== 'number' || item.qty <= 0) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 수량은 1 이상이어야 합니다.` });
+        return;
+      }
+    }
+
     const result = await inboundService.createWithItems(
       { ...headerData, created_by: req.user!.userId },
       items,

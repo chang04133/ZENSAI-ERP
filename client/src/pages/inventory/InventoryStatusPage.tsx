@@ -46,8 +46,7 @@ const renderQty = (qty: number) => {
 function DashboardTab() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const effectiveStore = isStore;
+  const effectiveStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -65,7 +64,6 @@ function DashboardTab() {
   const [srchColorOpts, setSrchColorOpts] = useState<{ label: string; value: string }[]>([]);
   const [srchSizeOpts, setSrchSizeOpts] = useState<{ label: string; value: string }[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>();
-  const abortRef = useRef<AbortController | null>(null);
 
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
   const [sentIds, setSentIds] = useState<Set<string>>(new Set());
@@ -137,12 +135,11 @@ function DashboardTab() {
 
   useEffect(() => {
     if (drillDown) loadDrill(drillDown.params, drillPage);
-  }, [drillPage, drillSort]);
+  }, [drillPage, drillSort, loadDrill]);
 
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
-      if (abortRef.current) abortRef.current.abort();
     };
   }, []);
 
@@ -515,11 +512,11 @@ function DashboardTab() {
                 { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
                 { title: 'Color', dataIndex: 'color', key: 'color', width: 70 },
                 { title: 'Size', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
-                ...(isStore ? [{
+                ...(effectiveStore ? [{
                   title: '내 매장', dataIndex: 'my_store_qty', key: 'my_store_qty', width: 80,
                   render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#10b981', fontSize: 14 }}>{v}개</span>,
                 }] : []),
-                ...(!isStore ? [
+                ...(!effectiveStore ? [
                   { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 80,
                     render: (v: number) => <span style={{ fontWeight: 700, color: v === 0 ? '#ef4444' : '#111' }}>{v}개</span>,
                   },

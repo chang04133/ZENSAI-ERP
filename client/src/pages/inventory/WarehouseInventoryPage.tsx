@@ -292,7 +292,8 @@ export default function WarehouseInventoryPage() {
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         onChange={handleTableChange}
         pagination={{
-          pageSize: 50,
+          current: page, total, pageSize: 50,
+          onChange: (p) => setPage(p),
           showTotal: (t) => `총 ${t}건`,
         }}
         expandable={tableExpandable}

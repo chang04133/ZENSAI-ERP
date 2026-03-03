@@ -3,7 +3,6 @@ import { getPool, initDB } from './db/connection';
 import { runMigrations } from './db/migrations/runner';
 import { allMigrations } from './db/migrations/index';
 import { seedDefaults } from './db/seed';
-import { seedDummyData } from './db/seed-dummy';
 import app from './app';
 
 async function start() {
@@ -16,15 +15,6 @@ async function start() {
 
     // Seed default data
     await seedDefaults(getPool());
-
-    // Seed dummy data for development
-    if (config.nodeEnv === 'development') {
-      try {
-        await seedDummyData(getPool());
-      } catch (e) {
-        console.warn('더미 데이터 삽입 중 오류 (무시):', (e as any).message || e);
-      }
-    }
 
     // Start server
     app.listen(config.port, () => {

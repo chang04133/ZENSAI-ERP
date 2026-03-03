@@ -306,6 +306,149 @@ npm run build:server    # 서버만
 
 ---
 
+## 데이터 보관 및 백업
+
+### 현재 배포 환경 (Render Free Plan)
+
+> **주의**: Render 무료 PostgreSQL은 생성 후 **30일**에 만료됩니다. 만료 후 14일 유예기간이 지나면 데이터가 **영구 삭제**됩니다. 무료 플랜에는 자동 백업이 없습니다.
+
+| 항목 | Free Plan | Basic ($6/월) | Pro ($55/월) |
+|------|-----------|---------------|--------------|
+| 저장소 | 1 GB 고정 | 확장 가능 | 확장 가능 |
+| 만료 | 30일 | 없음 | 없음 |
+| 자동 백업 | 없음 | 논리 백업 (7일 보관) | 논리 백업 + PITR |
+| 연결 수 | 100 | 100 | 100+ |
+
+### 앱 내 데이터 보호 기능 (이미 구현됨)
+
+| 기능 | 설명 | 위치 |
+|------|------|------|
+| **Soft Delete** | `is_active` 플래그로 논리 삭제, 관리자 복구 가능 | `system.routes.ts` |
+| **감사 로그** | 모든 변경의 old/new 데이터를 JSONB로 기록 | `audit_logs` 테이블 |
+| **활동 로그** | API 요청/응답 기록 (사용자, 경로, 상태코드) | `activity_logs` 테이블 |
+| **마이그레이션** | 51개 마이그레이션으로 스키마 재생성 가능 | `server/src/db/migrations/` |
+| **시드 데이터** | 기본 역할, 관리자 계정, 마스터코드(200+) 자동 생성 | `server/src/db/seed.ts` |
+| **Excel 내보내기** | 상품/판매/출고/입고 데이터 Excel 다운로드 | `*-excel.routes.ts` |
+
+### 수동 백업 (pg_dump)
+
+```bash
+# SQL 형식 백업 (소규모 DB)
+pg_dump "$DATABASE_URL" --no-owner --no-privileges \
+  > zensai_erp_backup_$(date +%Y%m%d).sql
+
+# 커스텀 형식 백업 (권장, 병렬 복원 지원)
+pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges \
+  --file=zensai_erp_backup_$(date +%Y%m%d).dump
+
+# 압축 백업
+pg_dump "$DATABASE_URL" --no-owner --no-privileges \
+  | gzip > zensai_erp_backup_$(date +%Y%m%d).sql.gz
+```
+
+> `$DATABASE_URL`은 Render 대시보드 > DB > External Database URL에서 확인. PGBouncer URL은 사용하지 마세요.
+
+### 복원 방법
+
+```bash
+# SQL 형식에서 복원
+psql "$NEW_DATABASE_URL" < zensai_erp_backup.sql
+
+# 커스텀 형식에서 복원
+pg_restore --dbname="$NEW_DATABASE_URL" --verbose --clean --if-exists \
+  --no-owner --no-privileges zensai_erp_backup.dump
+
+# 압축 SQL에서 복원
+gunzip -c zensai_erp_backup.sql.gz | psql "$NEW_DATABASE_URL"
+```
+
+### 자동 백업 방안
+
+#### 방법 1: GitHub Actions (무료, 권장)
+
+`.github/workflows/backup.yml` 생성:
+
+```yaml
+name: Database Backup
+on:
+  schedule:
+    - cron: '0 18 * * *'  # 매일 오전 3시 (KST, UTC+9)
+  workflow_dispatch:       # 수동 트리거
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Create backup
+        env:
+          DATABASE_URL: ${{ secrets.RENDER_DATABASE_URL }}
+        run: |
+          pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges \
+            --file=zensai_erp_$(date +%Y%m%d_%H%M%S).dump
+
+      - name: Upload as artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+          path: "*.dump"
+          retention-days: 30
+```
+
+GitHub 레포 Settings > Secrets에 `RENDER_DATABASE_URL` 등록 필요.
+
+#### 방법 2: 로컬 스케줄 백업
+
+```bash
+#!/bin/bash
+# backup_zensai.sh
+BACKUP_DIR="$HOME/backups/zensai-erp"
+DB_URL="postgresql://user:pass@host:5432/zensai_erp"
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+mkdir -p "$BACKUP_DIR"
+pg_dump "$DB_URL" --format=custom --no-owner --no-privileges \
+  --file="$BACKUP_DIR/zensai_erp_$TIMESTAMP.dump"
+
+# 30일 이상 된 백업 삭제
+find "$BACKUP_DIR" -name "*.dump" -mtime +30 -delete
+```
+
+크론 등록: `crontab -e` → `0 2 * * * /path/to/backup_zensai.sh`
+
+#### 방법 3: Render Cron + S3 (유료)
+
+Render에서 `render-examples/postgres-s3-backups` Docker 이미지로 크론 잡 생성, AWS S3에 자동 백업.
+
+### 무료 플랜에서 DB 만료 대응
+
+```
+Day 0   → 무료 DB 생성
+Day 30  → DB 만료 (접근 불가)
+Day 30~44 → 유예기간 (유료 전환하면 복구 가능)
+Day 44  → 영구 삭제
+```
+
+**대응 방법**:
+1. 만료 전에 `pg_dump`로 백업
+2. 새 무료 DB 생성 → `pg_restore`로 복원
+3. 또는 Basic 플랜($6/월)으로 업그레이드 → 만료 없음 + 자동 백업
+
+### 데이터 보관 정책 (권장)
+
+| 데이터 종류 | 보관 기간 | 근거 |
+|------------|----------|------|
+| 판매 데이터 | 5년 | 세법상 장부 보관 의무 |
+| 감사 로그 (audit_logs) | 3년 | 내부 감사 추적 |
+| 활동 로그 (activity_logs) | 1년 | 운영 모니터링 |
+| 재고 트랜잭션 | 3년 | 재고 이력 추적 |
+| 삭제 데이터 (soft delete) | 6개월 | 복구 가능 기간 |
+| DB 전체 백업 | 30일분 보관 | 재해 복구 |
+
+---
+
 ## 프로젝트 현황
 
 | 항목 | 수량 |

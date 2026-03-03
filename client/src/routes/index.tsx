@@ -96,9 +96,9 @@ export const appRoutes: AppRoute[] = [
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
   { path: '/products/dead-stock', element: <DeadStockPage />, roles: ADMIN_HQ_STORE },
-  { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
+  { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_SYS },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
-  { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
+  { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_SYS },
   // Codes
   { path: '/codes', element: <CodeManagePage />, roles: ADMIN_SYS },
 

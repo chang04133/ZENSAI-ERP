@@ -60,7 +60,7 @@ router.get('/excel/template', authMiddleware, (_req, res) => {
 // POST /excel/upload
 router.post('/excel/upload',
   authMiddleware,
-  requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'),
+  requireRole('ADMIN', 'SYS_ADMIN'),
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) { res.status(400).json({ success: false, error: '파일이 없습니다.' }); return; }

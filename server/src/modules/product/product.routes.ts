@@ -11,7 +11,7 @@ import { getPool } from '../../db/connection';
 
 const router = Router();
 
-const write = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
+const write = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN')];
 
 // 이미지 업로드용 multer 설정
 const uploadsDir = path.join(__dirname, '../../../../uploads/products');

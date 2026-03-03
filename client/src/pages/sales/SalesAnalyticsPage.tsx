@@ -4,7 +4,8 @@ import {
   RiseOutlined, FallOutlined, LineChartOutlined, FireOutlined,
   SkinOutlined, ColumnHeightOutlined, TagOutlined, BgColorsOutlined,
   LeftOutlined, RightOutlined, CalendarOutlined, FilterOutlined,
-  DollarOutlined, ShoppingCartOutlined,
+  DollarOutlined, ShoppingCartOutlined, PercentageOutlined,
+  ArrowUpOutlined, ArrowDownOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
@@ -12,7 +13,10 @@ import dayjs, { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 import { fmt, fmtW } from '../../utils/format';
 import { CAT_COLORS, COLORS } from '../../utils/constants';
+import { datePresets } from '../../utils/date-presets';
 dayjs.extend(isoWeek);
+
+const { RangePicker } = DatePicker;
 
 const ML = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
@@ -811,6 +815,296 @@ function YoYTab() {
 }
 
 /* ═══════════════════════════════════════════
+   Tab 3: 연차별 판매율
+   ═══════════════════════════════════════════ */
+const AGE_COLORS: Record<string, { color: string; bg: string }> = {
+  '신상': { color: '#1890ff', bg: '#e6f7ff' },
+  '1년차': { color: '#52c41a', bg: '#f6ffed' },
+  '2년차': { color: '#fa8c16', bg: '#fff7e6' },
+  '3년차': { color: '#fa541c', bg: '#fff2e8' },
+  '4년차': { color: '#cf1322', bg: '#fff1f0' },
+  '5년차': { color: '#8c8c8c', bg: '#fafafa' },
+  '미지정': { color: '#999', bg: '#fafafa' },
+};
+const getAgeColor = (ag: string) => AGE_COLORS[ag] || { color: '#8c8c8c', bg: '#fafafa' };
+
+const SEASON_SUFFIX: Record<string, string> = {
+  SA: '봄/가을', SM: '여름', WN: '겨울', FW: '가을/겨울', SS: '봄/여름',
+};
+
+const rateColor = (rate: number) => {
+  if (rate >= 80) return '#52c41a';
+  if (rate >= 50) return '#1890ff';
+  if (rate >= 30) return '#fa8c16';
+  return '#ff4d4f';
+};
+const rateBg = (rate: number) => {
+  if (rate >= 80) return '#f6ffed';
+  if (rate >= 50) return '#e6f7ff';
+  if (rate >= 30) return '#fff7e6';
+  return '#fff1f0';
+};
+
+const rateCell = (v: number, width = 50) => {
+  const n = Number(v);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
+      <div style={{
+        background: rateBg(n), border: `1px solid ${rateColor(n)}44`,
+        borderRadius: 6, padding: '2px 8px', fontWeight: 800, fontSize: 13,
+        color: rateColor(n), minWidth: 48, textAlign: 'center',
+      }}>{n}%</div>
+      <Progress percent={n} showInfo={false} size="small"
+        strokeColor={rateColor(n)} style={{ width, margin: 0 }} />
+    </div>
+  );
+};
+
+const seasonLabel = (s: string) => {
+  if (!s || s === '미지정') return '미지정';
+  const year = s.substring(0, 4);
+  const suffix = s.substring(4);
+  return `${year} ${SEASON_SUFFIX[suffix] || suffix}`;
+};
+
+const ST_QUICK_RANGES: { label: string; from: Dayjs; to: Dayjs }[] = [
+  { label: '이번달', from: dayjs().startOf('month'), to: dayjs() },
+  { label: '최근 3개월', from: dayjs().subtract(3, 'month').add(1, 'day'), to: dayjs() },
+  { label: '최근 6개월', from: dayjs().subtract(6, 'month').add(1, 'day'), to: dayjs() },
+  { label: '올해', from: dayjs().startOf('year'), to: dayjs() },
+  { label: '작년', from: dayjs().subtract(1, 'year').startOf('year'), to: dayjs().subtract(1, 'year').endOf('year') },
+];
+
+function SellThroughTab() {
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('year'), dayjs()]);
+  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [showCustomRange, setShowCustomRange] = useState(false);
+
+  const load = async (from: Dayjs, to: Dayjs, cat?: string | '') => {
+    setLoading(true);
+    try { setData(await salesApi.sellThrough(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'), cat || undefined)); }
+    catch (e: any) { message.error(e.message); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { load(dateRange[0], dateRange[1], categoryFilter); }, []);
+
+  const handleRangeChange = (dates: any) => {
+    if (dates && dates[0] && dates[1]) {
+      setDateRange([dates[0], dates[1]]);
+      load(dates[0], dates[1], categoryFilter);
+    }
+  };
+  const handleQuickRange = (from: Dayjs, to: Dayjs) => {
+    setDateRange([from, to]);
+    setShowCustomRange(false);
+    load(from, to, categoryFilter);
+  };
+  const handleCategoryChange = (v: string) => {
+    setCategoryFilter(v);
+    load(dateRange[0], dateRange[1], v);
+  };
+
+  const totals = data?.totals || {};
+  const byCategory = data?.byCategory || [];
+  const bySeason = data?.bySeason || [];
+  const byAge = data?.byAge || [];
+
+  const newRate = byAge.find((a: any) => a.age_group === '신상')?.sell_through_rate || 0;
+  const oneYearRate = byAge.find((a: any) => a.age_group === '1년차')?.sell_through_rate || 0;
+  const yoyDelta = newRate - oneYearRate;
+
+  const rangeLabel = `${dateRange[0].format('YYYY.MM.DD')} ~ ${dateRange[1].format('YYYY.MM.DD')}`;
+
+  return (
+    <div>
+      {/* 카테고리 필터 */}
+      <Space wrap style={{ marginBottom: 12 }}>
+        <Select value={categoryFilter} onChange={handleCategoryChange} style={{ width: 110 }} size="small"
+          options={[
+            { label: '전체', value: '' },
+            { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' },
+            { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' },
+          ]}
+        />
+      </Space>
+
+      {loading && !data ? <Spin style={{ display: 'block', margin: '60px auto' }} /> : (
+        <>
+          {/* 기간 선택 */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
+            {ST_QUICK_RANGES.map((q) => {
+              const isActive = dateRange[0].format('YYYY-MM-DD') === q.from.format('YYYY-MM-DD') &&
+                dateRange[1].format('YYYY-MM-DD') === q.to.format('YYYY-MM-DD') && !showCustomRange;
+              return (
+                <Button key={q.label} size="small" type={isActive ? 'primary' : 'default'}
+                  onClick={() => handleQuickRange(q.from, q.to)}>
+                  {q.label}
+                </Button>
+              );
+            })}
+            <Button size="small" icon={<CalendarOutlined />}
+              type={showCustomRange ? 'primary' : 'default'}
+              onClick={() => setShowCustomRange(!showCustomRange)}>
+              직접입력
+            </Button>
+            {showCustomRange && (
+              <RangePicker
+                value={dateRange}
+                onChange={handleRangeChange}
+                presets={datePresets}
+                size="small"
+                style={{ width: 240 }}
+                allowClear={false}
+              />
+            )}
+            <span style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>{rangeLabel}</span>
+          </div>
+
+          {/* 연차별 판매율 카드 */}
+          <Row gutter={[10, 10]} style={{ marginBottom: 16 }}>
+            <Col xs={12} sm={8} md={4}>
+              <div style={{
+                background: rateBg(totals.overall_rate || 0), borderRadius: 10,
+                padding: '12px 14px', border: `1px solid ${rateColor(totals.overall_rate || 0)}33`,
+                height: '100%',
+              }}>
+                <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>전체 판매율</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: rateColor(totals.overall_rate || 0), lineHeight: 1.2 }}>
+                  {totals.overall_rate || 0}%
+                </div>
+                <Progress percent={totals.overall_rate || 0} showInfo={false} size="small"
+                  strokeColor={rateColor(totals.overall_rate || 0)} style={{ marginTop: 4 }} />
+                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                  {fmt(totals.total_sold || 0)}판매 / {fmt(totals.total_stock || 0)}재고
+                </div>
+              </div>
+            </Col>
+            {byAge.filter((a: any) => a.age_group !== '미지정').map((a: any) => {
+              const ac = getAgeColor(a.age_group);
+              const rate = Number(a.sell_through_rate);
+              return (
+                <Col xs={12} sm={8} md={4} key={a.age_group}>
+                  <div style={{
+                    background: ac.bg, borderRadius: 10, padding: '12px 14px',
+                    border: `1px solid ${ac.color}33`, height: '100%',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ fontSize: 11, color: '#888' }}>{a.age_group} 판매율</div>
+                      {a.age_group === '신상' && oneYearRate > 0 && (
+                        <Tag color={yoyDelta >= 0 ? 'green' : 'red'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                          {yoyDelta >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                          {Math.abs(yoyDelta).toFixed(1)}%p
+                        </Tag>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 26, fontWeight: 800, color: ac.color, lineHeight: 1.2 }}>{rate}%</div>
+                    <Progress percent={rate} showInfo={false} size="small"
+                      strokeColor={ac.color} style={{ marginTop: 4 }} />
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
+                      {a.product_count}종 · {fmt(a.sold_qty)}판매 / {fmt(a.current_stock)}재고
+                    </div>
+                  </div>
+                </Col>
+              );
+            })}
+          </Row>
+
+          <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
+            {rangeLabel} 기준 | 판매율 = 판매수량 / (판매수량 + 현재재고) x 100
+          </div>
+
+          {/* 연차별 테이블 */}
+          <Table
+            columns={[
+              { title: '연차', dataIndex: 'age_group', key: 'age', width: 100,
+                render: (v: string) => <Tag color={getAgeColor(v).color} style={{ fontWeight: 700 }}>{v}</Tag> },
+              { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
+                render: (v: number) => `${v}종` },
+              { title: '판매수량', dataIndex: 'sold_qty', key: 'sold', width: 100, align: 'right' as const,
+                render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(v)}</strong> },
+              { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 100, align: 'right' as const,
+                render: (v: number) => fmt(v) },
+              { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 180, align: 'center' as const,
+                render: (v: number) => rateCell(v, 70),
+                sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate) },
+            ]}
+            dataSource={byAge}
+            rowKey="age_group"
+            size="small"
+            pagination={false}
+            style={{ marginBottom: 20 }}
+          />
+
+          {/* 카테고리별 판매율 */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>카테고리별 판매율</div>
+          <Row gutter={[8, 8]} style={{ marginBottom: 20 }}>
+            {byCategory.map((c: any) => {
+              const rate = Number(c.sell_through_rate);
+              return (
+                <Col xs={12} sm={8} md={4} key={c.category}>
+                  <div style={{
+                    background: rateBg(rate), borderRadius: 8, padding: '10px 12px',
+                    border: `1px solid ${rateColor(rate)}33`, textAlign: 'center',
+                  }}>
+                    <Tag style={CAT_COLORS[c.category] ? {
+                      color: CAT_COLORS[c.category], borderColor: CAT_COLORS[c.category],
+                      fontWeight: 600, marginBottom: 4,
+                    } : { marginBottom: 4 }}>{c.category}</Tag>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: rateColor(rate), lineHeight: 1.2 }}>
+                      {rate}%
+                    </div>
+                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
+                      {c.product_count}종 · {fmt(Number(c.sold_qty))}판매 / {fmt(Number(c.current_stock))}재고
+                    </div>
+                  </div>
+                </Col>
+              );
+            })}
+          </Row>
+
+          {/* 시즌별 판매율 */}
+          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>시즌별 판매율</div>
+          <Table
+            columns={[
+              { title: '시즌', dataIndex: 'season', key: 'season', width: 140,
+                render: (v: string) => <strong>{seasonLabel(v)}</strong> },
+              { title: '연차', key: 'age', width: 80,
+                render: (_: any, r: any) => {
+                  const year = parseInt((r.season || '').substring(0, 4));
+                  const diff = new Date().getFullYear() - year;
+                  const ag = isNaN(diff) ? '미지정' : diff <= 0 ? '신상' : `${diff}년차`;
+                  const ac = getAgeColor(ag);
+                  return <Tag style={{ color: ac.color, borderColor: ac.color, fontSize: 11 }}>{ag}</Tag>;
+                } },
+              { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
+                render: (v: number) => `${v}종` },
+              { title: '판매수량', dataIndex: 'sold_qty', key: 'sold', width: 100, align: 'right' as const,
+                render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(v)}</strong>,
+                sorter: (a: any, b: any) => a.sold_qty - b.sold_qty },
+              { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 100, align: 'right' as const,
+                render: (v: number) => fmt(v),
+                sorter: (a: any, b: any) => a.current_stock - b.current_stock },
+              { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 180, align: 'center' as const,
+                render: (v: number) => rateCell(v, 70),
+                sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate),
+                defaultSortOrder: 'descend' as const },
+            ]}
+            dataSource={bySeason}
+            rowKey="season"
+            size="small"
+            pagination={false}
+            scroll={{ x: 700 }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════
    메인 컴포넌트: 판매분석
    ═══════════════════════════════════════════ */
 export default function SalesAnalyticsPage() {
@@ -830,6 +1124,11 @@ export default function SalesAnalyticsPage() {
             key: 'yoy',
             label: <><LineChartOutlined /> 전년대비 분석</>,
             children: <YoYTab />,
+          },
+          {
+            key: 'sell-through',
+            label: <><PercentageOutlined /> 연차별 판매율</>,
+            children: <SellThroughTab />,
           },
         ]}
       />

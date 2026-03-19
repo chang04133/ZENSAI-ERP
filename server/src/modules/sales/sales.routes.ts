@@ -256,6 +256,93 @@ router.get('/store-comparison', authMiddleware, asyncHandler(async (req: Request
   res.json({ success: true, data: result.rows });
 }));
 
+// 신상 판매분 출고 분석 (HQ 이상만)
+router.get('/new-product-sales',
+  authMiddleware,
+  requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'),
+  asyncHandler(async (req: Request, res: Response) => {
+    const {
+      date_from, date_to,
+      filter_type = 'season',
+      season,
+      recent_days,
+      category,
+    } = req.query as Record<string, string | undefined>;
+
+    if (!date_from || !date_to) {
+      res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
+      return;
+    }
+
+    const pool = getPool();
+    const params: any[] = [date_from, date_to];
+    let nextIdx = 3;
+
+    // 신상 기준 필터
+    let newProductFilter = '';
+    if (filter_type === 'recent_days' && recent_days) {
+      params.push(parseInt(recent_days, 10));
+      newProductFilter = `AND p.created_at >= (CURRENT_DATE - $${nextIdx++} * INTERVAL '1 day')`;
+    } else {
+      // 기본: 시즌 필터
+      const now = new Date();
+      const month = now.getMonth() + 1;
+      let defaultSeason: string;
+      if (month >= 6 && month <= 8) defaultSeason = `${now.getFullYear()}SM`;
+      else if (month >= 12 || month <= 2) defaultSeason = `${now.getFullYear()}WN`;
+      else defaultSeason = `${now.getFullYear()}SA`;
+      params.push(season || defaultSeason);
+      newProductFilter = `AND p.season = $${nextIdx++}`;
+    }
+
+    let categoryFilter = '';
+    if (category) {
+      params.push(category);
+      categoryFilter = `AND p.category = $${nextIdx++}`;
+    }
+
+    // 본사 파트너 코드 (창고 재고 조회용)
+    const hqResult = await pool.query(
+      "SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE LIMIT 1",
+    );
+    const hqPartnerCode = hqResult.rows[0]?.partner_code;
+    params.push(hqPartnerCode || '__NONE__');
+    const hqIdx = nextIdx++;
+
+    const sql = `
+      SELECT
+        p.product_code, p.product_name, p.category, p.sub_category, p.season,
+        pv.variant_id, pv.sku, pv.color, pv.size,
+        s.partner_code, pt.partner_name,
+        SUM(CASE WHEN COALESCE(s.sale_type, '정상') != '반품' THEN s.qty ELSE 0 END)::int AS sold_qty,
+        SUM(s.total_price)::bigint AS revenue,
+        COALESCE(i.qty, 0)::int AS store_stock,
+        COALESCE(wh.qty, 0)::int AS warehouse_stock
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      JOIN partners pt ON s.partner_code = pt.partner_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code = s.partner_code
+      LEFT JOIN inventory wh ON pv.variant_id = wh.variant_id AND wh.partner_code = $${hqIdx}
+      WHERE s.sale_date BETWEEN $1 AND $2
+        AND p.is_active = TRUE
+        AND pv.is_active = TRUE
+        AND pt.partner_type != '본사'
+        ${newProductFilter}
+        ${categoryFilter}
+      GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.season,
+               pv.variant_id, pv.sku, pv.color, pv.size,
+               s.partner_code, pt.partner_name,
+               i.qty, wh.qty
+      HAVING SUM(CASE WHEN COALESCE(s.sale_type, '정상') != '반품' THEN s.qty ELSE 0 END) > 0
+      ORDER BY p.product_code, pv.sku, sold_qty DESC
+    `;
+
+    const result = await pool.query(sql, params);
+    res.json({ success: true, data: result.rows });
+  }),
+);
+
 // 상품별 판매이력
 router.get('/by-product/:code', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const productCode = req.params.code;
@@ -436,7 +523,7 @@ router.put('/:id',
   ...managerRoles,
   asyncHandler(async (req: Request, res: Response) => {
     const saleId = Number(req.params.id);
-    const { qty, unit_price, sale_type, memo } = req.body;
+    const { qty, unit_price, sale_type, memo, tax_free } = req.body;
     if (qty === undefined || qty === null || unit_price === undefined || unit_price === null) {
       res.status(400).json({ success: false, error: 'qty, unit_price 필수' });
       return;
@@ -462,7 +549,7 @@ router.put('/:id',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 당일 매출만 수정 가능
+      // 매장 매니저: 당일 매출만 수정 가능 + 금액(단가) 변경 불가
       if (req.user?.role === 'STORE_MANAGER') {
         const dayCheck = await client.query(
           `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
@@ -473,14 +560,18 @@ router.put('/:id',
           return;
         }
       }
+      // 매장 매니저: 단가/면세 변경 불가 — 원래 값 강제 유지
+      const isStoreManager = req.user?.role === 'STORE_MANAGER';
+      const effectiveUnitPrice = isStoreManager ? Number(old.unit_price) : unit_price;
+      const effectiveTaxFree = isStoreManager ? old.tax_free : (tax_free !== undefined ? !!tax_free : old.tax_free);
       const qtyDiff = old.qty - qty; // 양수면 줄어듬→재고 복원, 음수면 늘어남→재고 차감
-      const total_price = Math.round(qty * unit_price);
+      const total_price = Math.round(qty * effectiveUnitPrice);
 
       // 매출 업데이트
       const updated = await client.query(
-        `UPDATE sales SET qty = $1, unit_price = $2, total_price = $3, sale_type = $4, memo = $5, updated_at = NOW()
-         WHERE sale_id = $6 RETURNING *`,
-        [qty, unit_price, total_price, sale_type || old.sale_type, memo !== undefined ? (memo || null) : old.memo, saleId],
+        `UPDATE sales SET qty = $1, unit_price = $2, total_price = $3, sale_type = $4, memo = $5, tax_free = $6, updated_at = NOW()
+         WHERE sale_id = $7 RETURNING *`,
+        [qty, effectiveUnitPrice, total_price, sale_type || old.sale_type, memo !== undefined ? (memo || null) : old.memo, effectiveTaxFree, saleId],
       );
 
       // 수량 차이만큼 재고 조정
@@ -517,16 +608,11 @@ router.delete('/:id',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 당일 매출만 삭제 가능
+      // 매장 매니저: 매출 삭제 불가 (일마감 후 데이터 보호)
       if (req.user?.role === 'STORE_MANAGER') {
-        const dayCheck = await client.query(
-          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
-        );
-        if (!dayCheck.rows[0]?.is_today) {
-          await client.query('ROLLBACK');
-          res.status(403).json({ success: false, error: '당일 매출만 삭제할 수 있습니다.' });
-          return;
-        }
+        await client.query('ROLLBACK');
+        res.status(403).json({ success: false, error: '매장매니저는 매출을 삭제할 수 없습니다. 본사에 문의해주세요.' });
+        return;
       }
 
       // 연결된 반품이 있는지 확인 (memo에 '원본#' 패턴으로 연결)

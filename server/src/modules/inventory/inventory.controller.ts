@@ -68,7 +68,11 @@ class InventoryController extends BaseController<Inventory> {
     const scope = req.query.scope as string;
     // S-1: scope=all은 ADMIN/SYS_ADMIN/HQ_MANAGER만 허용
     const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
-    const partnerCode = canSeeAll ? undefined
+    // HQ 이상: partner_code 쿼리 파라미터로 특정 매장 조회 가능
+    const explicitPartner = req.query.partner_code as string | undefined;
+    const isHqOrAbove = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
+    const partnerCode = (isHqOrAbove && explicitPartner) ? explicitPartner
+      : canSeeAll ? undefined
       : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
     const [overall, byCategory, bySeason, byFit, byLength] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),

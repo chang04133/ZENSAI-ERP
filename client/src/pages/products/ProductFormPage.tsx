@@ -31,6 +31,7 @@ export default function ProductFormPage() {
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [brandOptions, setBrandOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
@@ -76,16 +77,14 @@ export default function ProductFormPage() {
       setCategoryOptions(allCats.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
       setBrandOptions(toOpts(data.BRAND));
 
-      // 연도 × 시즌 조합 옵션 생성 (예: 2026SA, 2026SM, ...)
-      const years = (data.YEAR || []).filter((c: any) => c.is_active).map((c: any) => c.code_value);
-      const seasons = (data.SEASON || []).filter((c: any) => c.is_active);
-      const combined: { label: string; value: string }[] = [];
-      for (const yr of years.sort().reverse()) {
-        for (const sz of seasons) {
-          combined.push({ label: `${yr} ${sz.code_label}`, value: `${yr}${sz.code_value}` });
-        }
-      }
-      setSeasonOptions(combined);
+      // 연도 옵션
+      setYearOptions(
+        (data.YEAR || []).filter((c: any) => c.is_active)
+          .sort((a: any, b: any) => b.code_value.localeCompare(a.code_value))
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+      // 시즌 옵션 (순수 시즌만)
+      setSeasonOptions(toOpts(data.SEASON));
 
       setFitOptions(toOpts(data.FIT));
       setLengthOptions(toOpts(data.LENGTH));
@@ -256,8 +255,11 @@ export default function ProductFormPage() {
             <Form.Item name="brand" label="브랜드">
               <Select showSearch allowClear placeholder="브랜드 선택" options={brandOptions} optionFilterProp="label" style={{ width: 160 }} />
             </Form.Item>
+            <Form.Item name="year" label="연도">
+              <Select showSearch allowClear placeholder="연도 선택" options={yearOptions} optionFilterProp="label" style={{ width: 120 }} />
+            </Form.Item>
             <Form.Item name="season" label="시즌">
-              <Select showSearch allowClear placeholder="시즌 선택" options={seasonOptions} optionFilterProp="label" style={{ width: 160 }} />
+              <Select showSearch allowClear placeholder="시즌 선택" options={seasonOptions} optionFilterProp="label" style={{ width: 120 }} />
             </Form.Item>
             <Form.Item name="fit" label="핏">
               <Select showSearch allowClear placeholder="핏 선택" options={fitOptions} optionFilterProp="label" style={{ width: 160 }} />

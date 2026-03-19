@@ -14,7 +14,72 @@ class ShipmentService extends BaseService<ShipmentRequest> {
   async getWithItems(id: number) { return shipmentRepository.getWithItems(id); }
 
   async createWithItems(headerData: Record<string, any>, items: Array<{ variant_id: number; request_qty: number }>) {
-    return shipmentRepository.createWithItems(headerData, items);
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // 1) 출고번호 생성
+      const requestNo = await shipmentRepository.generateNo(client);
+
+      // 2) 헤더 INSERT (즉시 SHIPPED + approved_by 설정)
+      const header = await client.query(
+        `INSERT INTO shipment_requests
+         (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by, approved_by,
+          is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
+         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'SHIPPED', $5, $6, $6, $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [requestNo, headerData.from_partner, headerData.to_partner || null,
+         headerData.request_type, headerData.memo || null, headerData.requested_by,
+         headerData.is_customer_claim || false, headerData.claim_type || null,
+         headerData.claim_reason || null, headerData.customer_name || null, headerData.customer_phone || null],
+      );
+      const requestId = header.rows[0].request_id;
+
+      // 3) 아이템 INSERT (shipped_qty = request_qty)
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
+           VALUES ($1, $2, $3, $3, 0)`,
+          [requestId, item.variant_id, item.request_qty],
+        );
+      }
+
+      // 4) from_partner 재고 즉시 차감
+      if (headerData.from_partner) {
+        const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER' };
+        const txType = txTypeMap[headerData.request_type] || 'SHIPMENT';
+        for (const item of items) {
+          if (item.request_qty > 0) {
+            await inventoryRepository.applyChange(
+              headerData.from_partner, item.variant_id, -item.request_qty,
+              txType, requestId, headerData.requested_by, client,
+            );
+          }
+        }
+      }
+
+      await client.query('COMMIT');
+
+      // 알림 생성 (비동기)
+      createNotification(
+        'SHIPMENT', '출고등록',
+        `${headerData.request_type} #${requestNo}이(가) 출고 등록되었습니다.`,
+        requestId, headerData.to_partner || null, headerData.requested_by,
+      );
+
+      return shipmentRepository.getWithItems(requestId);
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      if (e.code === '23503') {
+        if (e.constraint?.includes('variant')) throw new Error('존재하지 않는 상품(variant_id)이 포함되어 있습니다.');
+        if (e.constraint?.includes('partner')) throw new Error('존재하지 않는 거래처 코드입니다.');
+        throw new Error('참조 데이터가 존재하지 않습니다.');
+      }
+      throw e;
+    } finally {
+      client.release();
+    }
   }
 
   /** 허용되는 상태 전환 정의 */
@@ -35,7 +100,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       const currentResult = await client.query(
         'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
-      if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
+      if (currentResult.rows.length === 0) throw new Error('출고건을 찾을 수 없습니다');
       const current = currentResult.rows[0];
       const oldStatus = current.status;
       const newStatus = data.status || oldStatus;
@@ -129,7 +194,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         const label = statusLabels[newStatus] || newStatus;
         const targetPartner = newStatus === 'SHIPPED' ? current.to_partner : current.from_partner;
         createNotification(
-          'SHIPMENT', `출고의뢰 ${label}`,
+          'SHIPMENT', `출고 ${label}`,
           `${current.request_type} #${current.request_no}이(가) ${label} 처리되었습니다.`,
           id, targetPartner, userId,
         );
@@ -159,7 +224,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       const currentResult = await client.query(
         'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
-      if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
+      if (currentResult.rows.length === 0) throw new Error('출고건을 찾을 수 없습니다');
       const current = currentResult.rows[0];
 
       // 상태 전환 검증: PENDING → SHIPPED만 허용
@@ -242,7 +307,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       const currentResult = await client.query(
         'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id],
       );
-      if (currentResult.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다');
+      if (currentResult.rows.length === 0) throw new Error('출고건을 찾을 수 없습니다');
       const current = currentResult.rows[0];
 
       // 상태 검증: SHIPPED에서만 수령 가능

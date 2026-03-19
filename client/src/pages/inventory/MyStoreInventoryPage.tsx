@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, message } from 'antd';
-import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined } from '@ant-design/icons';
+import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined, ShopOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
+import { partnerApi } from '../../modules/partner/partner.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 import { sizeSort } from '../../utils/size-order';
 import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
 
@@ -16,6 +19,13 @@ const STOCK_LEVELS = [
 type ViewMode = 'product' | 'color' | 'size';
 
 export default function MyStoreInventoryPage() {
+  const user = useAuthStore((s) => s.user);
+  const isHqOrAbove = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
+
+  // 매장 선택 (HQ 이상)
+  const [partners, setPartners] = useState<any[]>([]);
+  const [selectedPartner, setSelectedPartner] = useState<string>('');
+
   const [rawData, setRawData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [sumQty, setSumQty] = useState(0);
@@ -37,10 +47,12 @@ export default function MyStoreInventoryPage() {
   const [stats, setStats] = useState<any>(null);
 
   const load = useCallback(async (p?: number) => {
+    if (isHqOrAbove && !selectedPartner) return;
     const currentPage = p ?? page;
     setLoading(true);
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50', sort_field: sortField, sort_dir: sortDir };
+      if (isHqOrAbove && selectedPartner) params.partner_code = selectedPartner;
       if (search) params.search = search;
       if (category) params.category = category;
       if (season) params.season = season;
@@ -53,17 +65,28 @@ export default function MyStoreInventoryPage() {
       setSumQty(result.sumQty ?? 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, category, season, size, color, stockLevel, sortField, sortDir]);
+  }, [page, search, category, season, size, color, stockLevel, sortField, sortDir, isHqOrAbove, selectedPartner]);
 
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
+    if (isHqOrAbove && !selectedPartner) return;
     try {
-      const s = await inventoryApi.dashboardStats();
+      const s = await inventoryApi.dashboardStats(undefined, isHqOrAbove ? selectedPartner : undefined);
       setStats(s);
     } catch (e: any) { console.error(e); }
-  };
+  }, [isHqOrAbove, selectedPartner]);
 
-  useEffect(() => { loadStats(); }, []);
-  useEffect(() => { load(); }, [page, sortField, sortDir, category, season, size, color, stockLevel]);
+  // HQ: 매장 목록 로드
+  useEffect(() => {
+    if (isHqOrAbove) {
+      partnerApi.list({ limit: '1000' }).then(r => {
+        const stores = r.data.filter((p: any) => p.partner_type !== '본사');
+        setPartners(stores);
+      }).catch(() => {});
+    }
+  }, [isHqOrAbove]);
+
+  useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { load(); }, [page, sortField, sortDir, category, season, size, color, stockLevel, selectedPartner]);
 
   const doSearch = () => { setPage(1); load(1); };
 
@@ -263,12 +286,39 @@ export default function MyStoreInventoryPage() {
   const overall = stats?.overall;
   const byCategory = stats?.byCategory || [];
 
+  const selectedPartnerName = partners.find(p => p.partner_code === selectedPartner)?.partner_name;
+
   return (
     <div>
-      <PageHeader title="내 매장 재고" />
+      <PageHeader title={isHqOrAbove ? '매장재고' : '내 매장 재고'} />
+
+      {/* HQ: 매장 선택 */}
+      {isHqOrAbove && (
+        <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 12 }}>
+          <ShopOutlined style={{ fontSize: 18, color: '#1677ff' }} />
+          <span style={{ fontWeight: 600 }}>매장 선택:</span>
+          <Select
+            showSearch
+            optionFilterProp="label"
+            placeholder="매장을 선택해주세요"
+            value={selectedPartner || undefined}
+            onChange={(v) => { setSelectedPartner(v); setPage(1); setRawData([]); setStats(null); }}
+            style={{ width: 280 }}
+            options={partners.map(p => ({ label: `${p.partner_name} (${p.partner_code})`, value: p.partner_code }))}
+          />
+          {selectedPartnerName && <Tag color="blue" style={{ fontSize: 14, padding: '4px 12px' }}>{selectedPartnerName}</Tag>}
+        </div>
+      )}
+
+      {isHqOrAbove && !selectedPartner && (
+        <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>
+          <ShopOutlined style={{ fontSize: 48, marginBottom: 16, display: 'block' }} />
+          <div style={{ fontSize: 16 }}>매장을 선택하면 해당 매장의 재고를 확인할 수 있습니다.</div>
+        </div>
+      )}
 
       {/* Summary Cards */}
-      {overall && (
+      {(!isHqOrAbove || selectedPartner) && overall && (
         <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
           <Col xs={12} sm={6}>
             <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
@@ -305,7 +355,8 @@ export default function MyStoreInventoryPage() {
         </Row>
       )}
 
-      {/* Filters */}
+      {/* Filters + Table (매장 선택 필요) */}
+      {(!isHqOrAbove || selectedPartner) && (<>
       <Space wrap style={{ marginBottom: 16 }}>
         <Input
           size="small" placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
@@ -331,7 +382,6 @@ export default function MyStoreInventoryPage() {
         <Button size="small" icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
       </Space>
 
-      {/* View Mode Segmented */}
       <div style={{ marginBottom: 12 }}>
         <Segmented
           value={viewMode}
@@ -347,7 +397,6 @@ export default function MyStoreInventoryPage() {
         </span>
       </div>
 
-      {/* Table */}
       <Table
         columns={displayColumns}
         dataSource={displayData}
@@ -369,6 +418,7 @@ export default function MyStoreInventoryPage() {
           return '';
         }}
       />
+      </>)}
 
       <style>{`
         .row-stock-zero td { background: #fff2f0 !important; }

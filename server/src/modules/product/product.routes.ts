@@ -12,6 +12,7 @@ import { getPool } from '../../db/connection';
 const router = Router();
 
 const write = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN')];
+const eventWrite = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
 
 // 이미지 업로드용 multer 설정
 const uploadsDir = path.join(__dirname, '../../../../uploads/products');
@@ -146,7 +147,7 @@ router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(
 
 // 행사 상품
 router.get('/events', authMiddleware, productController.listEventProducts);
-router.put('/events/bulk', ...write, productController.bulkUpdateEventPrices);
+router.put('/events/bulk', ...eventWrite, productController.bulkUpdateEventPrices);
 
 // Variant 일괄 조회 (variant_id 배열 → 상품+variant 상세)
 router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {
@@ -217,7 +218,7 @@ router.put('/:code/materials', ...write, asyncHandler(async (req, res) => {
 
 router.get('/:code', authMiddleware, productController.getById);
 router.post('/',     ...write, validateRequired(['product_code', 'product_name']), productController.create);
-router.put('/:code/event-price', ...write, productController.updateEventPrice);
+router.put('/:code/event-price', ...eventWrite, productController.updateEventPrice);
 router.put('/:code', ...write, productController.update);
 router.delete('/:code', ...write, productController.remove);
 

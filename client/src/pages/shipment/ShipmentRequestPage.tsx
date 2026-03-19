@@ -6,12 +6,11 @@ import {
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined,
   DeleteOutlined, SendOutlined, CheckCircleOutlined,
-  ClockCircleOutlined, StopOutlined, ArrowLeftOutlined,
+  StopOutlined, ArrowLeftOutlined,
   UnorderedListOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
-import ShippedQtyModal from '../../components/shipment/ShippedQtyModal';
 import ReceivedQtyModal from '../../components/shipment/ReceivedQtyModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { productApi } from '../../modules/product/product.api';
@@ -32,10 +31,9 @@ interface ItemRow {
 }
 
 const STEPS = [
-  { key: 'PENDING', label: '대기', desc: '출고 대기 중인 의뢰', icon: <ClockCircleOutlined />, color: '#8c8c8c', bg: '#fafafa' },
   { key: 'SHIPPED', label: '출고완료', desc: '출고 완료, 수령 대기 중', icon: <SendOutlined />, color: '#52c41a', bg: '#f6ffed' },
-  { key: 'RECEIVED', label: '입고완료', desc: '수령까지 완료된 의뢰', icon: <CheckCircleOutlined />, color: '#13c2c2', bg: '#e6fffb' },
-  { key: 'CANCELLED', label: '취소', desc: '취소된 의뢰', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
+  { key: 'RECEIVED', label: '입고완료', desc: '수령까지 완료된 건', icon: <CheckCircleOutlined />, color: '#13c2c2', bg: '#e6fffb' },
+  { key: 'CANCELLED', label: '취소', desc: '취소된 출고건', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
 ] as const;
 
 export default function ShipmentRequestPage() {
@@ -49,7 +47,7 @@ export default function ShipmentRequestPage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   /* ── 대시보드 카운트 ── */
-  const [counts, setCounts] = useState<Record<string, number>>({ PENDING: 0, SHIPPED: 0, RECEIVED: 0, CANCELLED: 0 });
+  const [counts, setCounts] = useState<Record<string, number>>({ SHIPPED: 0, RECEIVED: 0, CANCELLED: 0 });
   const [countsLoading, setCountsLoading] = useState(false);
 
   /* ── 상세 뷰 데이터 ── */
@@ -66,9 +64,6 @@ export default function ShipmentRequestPage() {
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
-  const [shippedModalOpen, setShippedModalOpen] = useState(false);
-  const [shippedTarget, setShippedTarget] = useState<any>(null);
-  const [shippedQtys, setShippedQtys] = useState<Record<number, number>>({});
   const [receiveModalOpen, setReceiveModalOpen] = useState(false);
   const [receiveTarget, setReceiveTarget] = useState<any>(null);
   const [receivedQtys, setReceivedQtys] = useState<Record<number, number>>({});
@@ -183,9 +178,9 @@ export default function ShipmentRequestPage() {
       const body: any = { ...values, request_type: '출고', items: items.map(({ variant_id, request_qty }) => ({ variant_id, request_qty })) };
       if (isStore && user?.partnerCode) body.to_partner = user.partnerCode;
       await shipmentApi.create(body);
-      message.success('출고의뢰가 등록되었습니다.');
+      message.success('출고가 등록되었습니다. (재고가 차감되었습니다)');
       setModalOpen(false); form.resetFields(); setItems([]);
-      if (view === 'PENDING') loadList('PENDING', 1);
+      if (view === 'SHIPPED') loadList('SHIPPED', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
       loadCounts();
       if (view === 'dashboard') { setAllPage(1); loadAll(1, statusFilter); }
@@ -209,32 +204,14 @@ export default function ShipmentRequestPage() {
     catch (e: any) { message.error(e.message); }
   };
 
-  const handleOpenShippedModal = async (record: any) => {
+  const handleDelete = async (id: number) => {
     try {
-      const d = await shipmentApi.get(record.request_id);
-      setShippedTarget(d);
-      const qtys: Record<number, number> = {};
-      (d as any).items?.forEach((item: any) => { qtys[item.variant_id] = item.shipped_qty || item.request_qty; });
-      setShippedQtys(qtys);
-      setShippedModalOpen(true);
-    } catch (e: any) { message.error(e.message); }
-  };
-
-  const handleConfirmShipped = async () => {
-    if (!shippedTarget || submitting) return;
-    setSubmitting(true);
-    try {
-      const sItems = (shippedTarget as any).items.map((item: any) => ({
-        variant_id: item.variant_id, shipped_qty: shippedQtys[item.variant_id] || 0,
-      }));
-      await shipmentApi.shipConfirm(shippedTarget.request_id, sItems);
-      message.success('출고 처리가 완료되었습니다.');
-      setExpandedDetails((prev) => { const next = { ...prev }; delete next[shippedTarget.request_id]; return next; });
-      setShippedModalOpen(false); setShippedTarget(null);
+      await shipmentApi.remove(id);
+      message.success('출고건이 삭제되었습니다. (재고가 복구되었습니다)');
+      setExpandedDetails((prev) => { const next = { ...prev }; delete next[id]; return next; });
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
       else { loadList(view, listPage); loadCounts(); }
     } catch (e: any) { message.error(e.message); }
-    finally { setSubmitting(false); }
   };
 
   const handleOpenReceiveModal = async (record: any) => {
@@ -292,7 +269,7 @@ export default function ShipmentRequestPage() {
           { title: '상품명', dataIndex: 'product_name' },
           { title: '색상', dataIndex: 'color', width: 80 },
           { title: '사이즈', dataIndex: 'size', width: 70 },
-          { title: '의뢰', dataIndex: 'request_qty', width: 70, align: 'right' as const },
+          { title: '수량', dataIndex: 'request_qty', width: 70, align: 'right' as const },
           { title: '출고', dataIndex: 'shipped_qty', width: 70, align: 'right' as const,
             render: (v: number, r: any) => <span style={{ color: v > 0 ? '#52c41a' : '#ccc' }}>{v ?? 0}</span> },
           { title: '수령', dataIndex: 'received_qty', width: 70, align: 'right' as const,
@@ -304,14 +281,14 @@ export default function ShipmentRequestPage() {
 
   /* ══════════ 컬럼 정의 ══════════ */
   const baseColumns = [
-    { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 130 },
-    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 95,
+    { title: '출고번호', dataIndex: 'request_no', key: 'request_no', width: 130 },
+    { title: '출고일', dataIndex: 'request_date', key: 'request_date', width: 95,
       render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
     { title: '출고처', dataIndex: 'from_partner_name', key: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
     ...(!isStore ? [{ title: '입고처', dataIndex: 'to_partner_name', key: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' }] : []),
     { title: '품목', dataIndex: 'item_summary', key: 'item_summary', ellipsis: true,
       render: (v: string, r: any) => v ? <span>{v} <span style={{ color: '#999' }}>({r.item_count}종)</span></span> : '-' },
-    { title: '의뢰수량', dataIndex: 'total_request_qty', key: 'req_qty', width: 80, align: 'right' as const,
+    { title: '출고수량', dataIndex: 'total_request_qty', key: 'req_qty', width: 80, align: 'right' as const,
       render: (v: number) => <strong>{v || 0}</strong> },
     { title: '출고수량', dataIndex: 'total_shipped_qty', key: 'ship_qty', width: 80, align: 'right' as const,
       render: (v: number) => <span style={{ color: v > 0 ? '#52c41a' : '#ccc' }}>{v || 0}</span> },
@@ -321,28 +298,21 @@ export default function ShipmentRequestPage() {
   ];
 
   const STATUS_TAG: Record<string, { color: string; label: string }> = {
-    PENDING: { color: 'default', label: '대기' },
     SHIPPED: { color: 'green', label: '출고완료' },
     RECEIVED: { color: 'cyan', label: '입고완료' },
     CANCELLED: { color: 'red', label: '취소' },
   };
 
   const allActionColumn = {
-    title: '', key: 'action', width: 200, render: (_: any, record: any) => {
+    title: '', key: 'action', width: 240, render: (_: any, record: any) => {
       const st = record.status;
-      if (st === 'PENDING') return (
-        <Space>
-          <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-          {isAdmin && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShippedModal(record)}>출고확인</Button>}
-          {isAdmin && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
-        </Space>
-      );
       if (st === 'SHIPPED') {
         const canReceive = isAdmin || record.to_partner === user?.partnerCode;
         return (
           <Space>
             <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
             {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
+            {isAdmin && <Popconfirm title="삭제하면 재고가 복구됩니다. 삭제하시겠습니까?" onConfirm={() => handleDelete(record.request_id)}><Button size="small" danger icon={<DeleteOutlined />}>삭제</Button></Popconfirm>}
           </Space>
         );
       }
@@ -357,19 +327,13 @@ export default function ShipmentRequestPage() {
 
   const columnsByStatus: Record<string, any[]> = {
     ALL: [...baseColumns.slice(0, 2), statusColumn, ...baseColumns.slice(2), allActionColumn],
-    PENDING: [...baseColumns, { title: '', key: 'action', width: 200, render: (_: any, record: any) => (
-      <Space>
-        <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-        {isAdmin && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShippedModal(record)}>출고확인</Button>}
-        {isAdmin && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
-      </Space>
-    )}],
-    SHIPPED: [...baseColumns, { title: '', key: 'action', width: 160, render: (_: any, record: any) => {
+    SHIPPED: [...baseColumns, { title: '', key: 'action', width: 240, render: (_: any, record: any) => {
       const canReceive = isAdmin || record.to_partner === user?.partnerCode;
       return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
+          {isAdmin && <Popconfirm title="삭제하면 재고가 복구됩니다. 삭제하시겠습니까?" onConfirm={() => handleDelete(record.request_id)}><Button size="small" danger icon={<DeleteOutlined />}>삭제</Button></Popconfirm>}
         </Space>
       );
     }}],
@@ -381,10 +345,10 @@ export default function ShipmentRequestPage() {
   const renderDashboard = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 상태별 카드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16 }}>
       {STEPS.map((step) => {
         const count = counts[step.key] || 0;
-        const needsAction = (step.key === 'PENDING' || step.key === 'SHIPPED') && count > 0;
+        const needsAction = step.key === 'SHIPPED' && count > 0;
         return (
           <Card
             key={step.key}
@@ -453,7 +417,7 @@ export default function ShipmentRequestPage() {
   const renderStatusView = () => {
     const isAll = view === 'ALL';
     const step = isAll
-      ? { key: 'ALL', label: '전체 의뢰', desc: '모든 출고의뢰 목록', icon: <UnorderedListOutlined />, color: '#6366f1', bg: '#eef2ff' }
+      ? { key: 'ALL', label: '전체 출고', desc: '모든 출고 목록', icon: <UnorderedListOutlined />, color: '#6366f1', bg: '#eef2ff' }
       : STEPS.find((s) => s.key === view)!;
     return (
       <div>
@@ -472,12 +436,12 @@ export default function ShipmentRequestPage() {
             </div>
             <Badge count={listTotal} style={{ backgroundColor: step.color, marginLeft: 4 }} showZero />
           </div>
-          {(view === 'PENDING' || isAll) && (
+          {(view === 'SHIPPED' || isAll) && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields();
               if (isStore && user?.partnerCode) form.setFieldsValue({ to_partner: user.partnerCode });
               setItems([]); setModalOpen(true);
-            }}>의뢰 등록</Button>
+            }}>출고 등록</Button>
           )}
         </div>
 
@@ -505,18 +469,18 @@ export default function ShipmentRequestPage() {
 
   return (
     <div>
-      <PageHeader title="출고의뢰 관리" extra={view === 'dashboard' ? (
+      <PageHeader title="오픈출고 관리" extra={view === 'dashboard' ? (
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           form.resetFields();
           if (isStore && user?.partnerCode) form.setFieldsValue({ to_partner: user.partnerCode });
           setItems([]); setModalOpen(true);
-        }}>의뢰 등록</Button>
+        }}>출고 등록</Button>
       ) : undefined} />
 
       {/* ── 검색 ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+          <Input placeholder="출고번호 검색" prefix={<SearchOutlined />} value={search}
             onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
@@ -527,7 +491,7 @@ export default function ShipmentRequestPage() {
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}
 
       {/* ══ 모달 ══ */}
-      <Modal title="출고의뢰 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>
+      <Modal title="출고 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="등록" cancelText="취소" width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="from_partner" label="출고처 (출발)" rules={[{ required: true, message: '출고처를 선택해주세요' }]}>
             <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
@@ -568,9 +532,6 @@ export default function ShipmentRequestPage() {
       </Modal>
 
       <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
-      <ShippedQtyModal open={shippedModalOpen} detail={shippedTarget} qtys={shippedQtys}
-        onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
-        onConfirm={handleConfirmShipped} onCancel={() => setShippedModalOpen(false)} confirmLoading={submitting} />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
         onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting} />

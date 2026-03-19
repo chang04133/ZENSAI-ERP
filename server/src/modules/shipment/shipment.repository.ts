@@ -75,7 +75,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
         `INSERT INTO shipment_requests
          (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
           is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
-         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'PENDING', $5, $6, $7, $8, $9, $10, $11)
+         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'SHIPPED', $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [requestNo, headerData.from_partner, headerData.to_partner || null,
          headerData.request_type, headerData.memo || null, headerData.requested_by,
@@ -86,7 +86,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
       for (const item of items) {
         await client.query(
           `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-           VALUES ($1, $2, $3, 0, 0)`,
+           VALUES ($1, $2, $3, $3, 0)`,
           [requestId, item.variant_id, item.request_qty],
         );
       }

@@ -8,14 +8,14 @@ export class ProductRepository extends BaseRepository<Product> {
       tableName: 'products',
       primaryKey: 'product_code',
       searchFields: ['product_code', 'product_name'],
-      filterFields: ['category', 'sub_category', 'brand', 'season', 'fit', 'length', 'is_active', 'sale_status'],
+      filterFields: ['category', 'sub_category', 'brand', 'season', 'year', 'fit', 'length', 'is_active', 'sale_status'],
       defaultOrder: 'created_at DESC',
     });
   }
 
   /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20, color, size } = options;
+    const { page = 1, limit = 20, color, size, year_from, year_to } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
     const { whereClause, params, nextIdx: baseNextIdx } = qb.build();
@@ -33,6 +33,19 @@ export class ProductRepository extends BaseRepository<Product> {
     let variantJoin = '';
     let variantFilter = '';
     let nextIdx = baseNextIdx;
+
+    // 연도 범위 필터
+    if (year_from) {
+      variantFilter += ` AND p.year >= $${nextIdx}`;
+      params.push(year_from);
+      nextIdx++;
+    }
+    if (year_to) {
+      variantFilter += ` AND p.year <= $${nextIdx}`;
+      params.push(year_to);
+      nextIdx++;
+    }
+
     if (color || size) {
       variantJoin = 'JOIN product_variants pv_filter ON p.product_code = pv_filter.product_code AND pv_filter.is_active = TRUE';
       if (color) {
@@ -154,11 +167,11 @@ export class ProductRepository extends BaseRepository<Product> {
     try {
       await client.query('BEGIN');
       const result = await client.query(
-        `INSERT INTO products (product_code, product_name, category, sub_category, brand, season, fit, length, base_price, cost_price, discount_price, event_price, sale_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        `INSERT INTO products (product_code, product_name, category, sub_category, brand, season, year, fit, length, base_price, cost_price, discount_price, event_price, sale_status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
         [
           data.product_code, data.product_name, data.category, data.sub_category || null,
-          data.brand, data.season,
+          data.brand, data.season, data.year || null,
           data.fit || null, data.length || null,
           data.base_price || 0, data.cost_price || 0,
           data.discount_price || null, data.event_price || null,

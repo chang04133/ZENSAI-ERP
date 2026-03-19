@@ -50,6 +50,7 @@ export default function SalesEntryPage() {
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const isManager = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER || user?.role === ROLES.STORE_MANAGER;
   const isStoreManager = user?.role === ROLES.STORE_MANAGER;
+  const isHqOrAbove = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -101,6 +102,7 @@ export default function SalesEntryPage() {
   const [editUnitPrice, setEditUnitPrice] = useState(0);
   const [editSaleType, setEditSaleType] = useState('정상');
   const [editMemo, setEditMemo] = useState('');
+  const [editTaxFree, setEditTaxFree] = useState(false);
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   // 반품 모달 상태 (원본 매출 기반)
@@ -301,6 +303,7 @@ export default function SalesEntryPage() {
     setEditUnitPrice(Number(record.unit_price));
     setEditSaleType(record.sale_type || '정상');
     setEditMemo(record.memo || '');
+    setEditTaxFree(record.tax_free || false);
     setEditModalOpen(true);
   };
 
@@ -309,7 +312,7 @@ export default function SalesEntryPage() {
     if (!editRecord) return;
     setEditSubmitting(true);
     try {
-      await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType, memo: editMemo.trim() || undefined });
+      await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType, memo: editMemo.trim() || undefined, tax_free: editTaxFree });
       message.success('매출이 수정되었습니다.');
       setEditModalOpen(false);
       load();
@@ -527,18 +530,22 @@ export default function SalesEntryPage() {
     ...(isManager ? [{
       title: '관리', key: 'actions', width: 130, fixed: 'right' as const,
       render: (_: any, record: any) => {
-        // 매장 매니저: 하루 지난 매출은 수정/삭제/반품 불가
+        // 매장 매니저: 하루 지난 매출은 수정/반품 불가, 삭제는 항상 불가
         const isExpired = isStoreManager && record.sale_date &&
           dayjs(record.sale_date).startOf('day').isBefore(dayjs().startOf('day'));
         if (record.sale_type === '반품') {
-          return <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} disabled={isExpired}>{isExpired ? '기간만료' : '삭제'}</Button>;
+          // 매장매니저: 삭제 불가 (반품 건도 삭제 불가)
+          if (isStoreManager) return <span style={{ color: '#999', fontSize: 12 }}>-</span>;
+          return <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>삭제</Button>;
         }
         return (
           <Space size={4}>
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={isExpired} />
             <Button size="small" icon={<SwapOutlined />} onClick={() => openExchangeModal(record)} style={{ color: isExpired ? undefined : '#1677ff' }} disabled={isExpired} title="교환" />
             <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: isExpired ? undefined : '#722ed1' }} disabled={isExpired} />
-            <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} disabled={isExpired} />
+            {!isStoreManager && (
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
+            )}
           </Space>
         );
       },
@@ -799,16 +806,23 @@ export default function SalesEntryPage() {
                 <InputNumber min={1} value={editQty} style={{ width: '100%' }} onChange={(v) => setEditQty(v || 1)} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가</div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가{isStoreManager && ' (변경불가)'}</div>
                 <InputNumber min={0} value={editUnitPrice} style={{ width: '100%' }}
                   formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  onChange={(v) => setEditUnitPrice(v || 0)} />
+                  onChange={(v) => setEditUnitPrice(v || 0)}
+                  disabled={isStoreManager} />
               </div>
             </div>
             <div>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>메모</div>
               <Input placeholder="택스프리, 현금결제 등" value={editMemo} onChange={(e) => setEditMemo(e.target.value)} allowClear />
             </div>
+            {isHqOrAbove && (
+              <div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (면세)</div>
+                <Switch checked={editTaxFree} onChange={setEditTaxFree} checkedChildren="면세" unCheckedChildren="과세" />
+              </div>
+            )}
             <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600 }}>
               합계: {(editQty * editUnitPrice).toLocaleString()}원
             </div>

@@ -26,13 +26,16 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/products/event-price', label: '매장 행사가', icon: 'TagOutlined', roles: ADMIN_HQ },
     ],
   },
   {
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-{ key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/warehouse', label: '창고재고', icon: 'HomeOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/my-store', label: '매장재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/inbound', label: '입고관리', icon: 'ImportOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
     ],
@@ -40,7 +43,8 @@ export const menuItems: MenuItem[] = [
   {
     key: '/shipment', label: '출고관리', icon: 'ExportOutlined', roles: ADMIN_HQ_STORE,
     children: [
-      { key: '/shipment/request', label: '출고의뢰', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/request', label: '오픈출고등록', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/new-product', label: '신상 판매분 출고', icon: 'RocketOutlined', roles: ADMIN_HQ },
       { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },

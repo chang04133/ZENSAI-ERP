@@ -90,7 +90,7 @@ export const salesApi = {
   },
 
   // 매출 수정
-  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string }) => {
+  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string; tax_free?: boolean }) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(body) }));
   },
   // 매출 삭제
@@ -113,6 +113,25 @@ export const salesApi = {
   exchangeList: async (params?: Record<string, string>) => {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
     return parse(await apiFetch(`/api/sales/exchanges/list${q}`));
+  },
+
+  // 신상 판매분 분석
+  newProductSales: async (params: {
+    date_from: string;
+    date_to: string;
+    filter_type: 'season' | 'recent_days';
+    season?: string;
+    recent_days?: string;
+    category?: string;
+  }) => {
+    const sp = new URLSearchParams();
+    sp.set('date_from', params.date_from);
+    sp.set('date_to', params.date_to);
+    sp.set('filter_type', params.filter_type);
+    if (params.season) sp.set('season', params.season);
+    if (params.recent_days) sp.set('recent_days', params.recent_days);
+    if (params.category) sp.set('category', params.category);
+    return parse(await apiFetch(`/api/sales/new-product-sales?${sp}`));
   },
 
   // 바코드/SKU 스캔 조회

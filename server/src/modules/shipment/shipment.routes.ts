@@ -15,7 +15,7 @@ shipmentController.registerCrudRoutes(router, {
   readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
   writeRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
   requiredFields: ['request_type', 'from_partner'],
-  entityName: '출고의뢰',
+  entityName: '출고',
 });
 
 export default router;

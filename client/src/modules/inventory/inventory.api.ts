@@ -25,8 +25,11 @@ export const inventoryApi = {
     return data.data as { data: Inventory[]; total: number; sumQty: number; page: number; limit: number; totalPages: number };
   },
 
-  dashboardStats: async (scope?: 'all') => {
-    const q = scope ? `?scope=${scope}` : '';
+  dashboardStats: async (scope?: 'all', partnerCode?: string) => {
+    const params = new URLSearchParams();
+    if (scope) params.set('scope', scope);
+    if (partnerCode) params.set('partner_code', partnerCode);
+    const q = params.toString() ? `?${params.toString()}` : '';
     const res = await apiFetch(`/api/inventory/dashboard-stats${q}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);

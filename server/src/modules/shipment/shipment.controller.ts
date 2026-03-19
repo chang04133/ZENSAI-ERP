@@ -28,9 +28,9 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     const pc = req.user?.partnerCode;
     if (!pc) { res.status(403).json({ success: false, error: '권한이 없습니다.' }); return false; }
     const shipment = await shipmentService.getWithItems(requestId);
-    if (!shipment) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return false; }
+    if (!shipment) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return false; }
     if (shipment.from_partner !== pc && shipment.to_partner !== pc) {
-      res.status(403).json({ success: false, error: '해당 출고의뢰에 접근 권한이 없습니다.' });
+      res.status(403).json({ success: false, error: '해당 출고건에 접근 권한이 없습니다.' });
       return false;
     }
     return true;
@@ -41,7 +41,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const item = await shipmentService.getWithItems(id);
-    if (!item) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
+    if (!item) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: item });
   });
 
@@ -83,7 +83,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const result = await shipmentService.updateWithInventory(id, req.body, req.user!.userId);
-    if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
+    if (!result) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });
   });
 
@@ -110,7 +110,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       await client.query('BEGIN');
       // 상태 검증: PENDING에서만 수량 변경 가능
       const current = await client.query('SELECT status FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [requestId]);
-      if (current.rows.length === 0) throw new Error('출고의뢰를 찾을 수 없습니다.');
+      if (current.rows.length === 0) throw new Error('출고건을 찾을 수 없습니다.');
       if (current.rows[0].status !== 'PENDING') {
         throw new Error(`현재 상태(${current.rows[0].status})에서는 출고수량을 변경할 수 없습니다. PENDING 상태만 가능합니다.`);
       }
@@ -161,7 +161,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       }
     }
     const result = await shipmentService.shipAndConfirm(requestId, items, req.user!.userId);
-    if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
+    if (!result) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });
   });
 
@@ -183,27 +183,57 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       }
     }
     const result = await shipmentService.receiveWithInventory(requestId, items, req.user!.userId);
-    if (!result) { res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' }); return; }
+    if (!result) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });
   });
 
-  /** 삭제: PENDING 상태만 삭제 가능 (hard delete, CASCADE로 items 자동 삭제) */
+  /** 삭제: SHIPPED 상태까지 삭제 가능 (재고 롤백 포함) */
   remove = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     if (!(await this.checkStoreAccess(req, res, id))) return;
     const pool = getPool();
-    const current = await pool.query('SELECT status FROM shipment_requests WHERE request_id = $1', [id]);
-    if (current.rows.length === 0) {
-      res.status(404).json({ success: false, error: '출고의뢰를 찾을 수 없습니다.' });
-      return;
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query('SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE', [id]);
+      if (current.rows.length === 0) {
+        await client.query('ROLLBACK');
+        res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' });
+        return;
+      }
+      const shipment = current.rows[0];
+      if (shipment.status === 'RECEIVED') {
+        await client.query('ROLLBACK');
+        res.status(400).json({ success: false, error: '수령완료(RECEIVED) 상태의 출고건은 삭제할 수 없습니다.' });
+        return;
+      }
+      // SHIPPED 상태: from_partner 재고 복구
+      if (shipment.status === 'SHIPPED' && shipment.from_partner) {
+        const { inventoryRepository } = await import('../inventory/inventory.repository');
+        const items = await client.query(
+          'SELECT variant_id, shipped_qty FROM shipment_request_items WHERE request_id = $1', [id],
+        );
+        const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER' };
+        const txType = txTypeMap[shipment.request_type] || 'SHIPMENT';
+        for (const item of items.rows) {
+          if (item.shipped_qty > 0) {
+            await inventoryRepository.applyChange(
+              shipment.from_partner, item.variant_id, item.shipped_qty,
+              txType, id, req.user!.userId, client,
+            );
+          }
+        }
+      }
+      await client.query('DELETE FROM shipment_requests WHERE request_id = $1', [id]);
+      await client.query('COMMIT');
+      res.json({ success: true });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
     }
-    if (current.rows[0].status !== 'PENDING') {
-      res.status(400).json({ success: false, error: '대기(PENDING) 상태의 의뢰만 삭제할 수 있습니다.' });
-      return;
-    }
-    await pool.query('DELETE FROM shipment_requests WHERE request_id = $1', [id]);
-    res.json({ success: true });
   });
 }
 

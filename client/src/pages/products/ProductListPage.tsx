@@ -19,6 +19,8 @@ export default function ProductListPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [fitFilter, setFitFilter] = useState('');
@@ -33,6 +35,8 @@ export default function ProductListPage() {
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
@@ -54,6 +58,12 @@ export default function ProductListPage() {
     codeApi.getByType('FIT').then((data: any[]) => {
       setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch((e: any) => { message.error('핏 옵션 로드 실패: ' + e.message); });
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
@@ -65,6 +75,8 @@ export default function ProductListPage() {
     if (search) params.search = search;
     if (categoryFilter) params.category = categoryFilter;
     if (subCategoryFilter) params.sub_category = subCategoryFilter;
+    if (yearFromFilter) params.year_from = yearFromFilter;
+    if (yearToFilter) params.year_to = yearToFilter;
     if (seasonFilter) params.season = seasonFilter;
     if (statusFilter) params.sale_status = statusFilter;
     if (fitFilter) params.fit = fitFilter;
@@ -73,7 +85,7 @@ export default function ProductListPage() {
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
 
   const handleCategoryFilterChange = (value: string) => {
     setCategoryFilter(value);
@@ -212,6 +224,8 @@ export default function ProductListPage() {
       if (search) params.search = search;
       if (categoryFilter) params.category = categoryFilter;
       if (subCategoryFilter) params.sub_category = subCategoryFilter;
+      if (yearFromFilter) params.year_from = yearFromFilter;
+      if (yearToFilter) params.year_to = yearToFilter;
       if (seasonFilter) params.season = seasonFilter;
       if (fitFilter) params.fit = fitFilter;
       if (statusFilter) params.sale_status = statusFilter;
@@ -318,7 +332,8 @@ export default function ProductListPage() {
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
     { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 90, ellipsis: true, render: (v: string) => v || '-' },
     { title: '브랜드', dataIndex: 'brand', key: 'brand', width: 80 },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80 },
+    { title: '연도', dataIndex: 'year', key: 'year', width: 60 },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 70 },
     { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
     { title: '기장', dataIndex: 'length', key: 'length', width: 65, render: (v: string) => v ? <Tag color="volcano">{v}</Tag> : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90,
@@ -427,13 +442,15 @@ export default function ProductListPage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
           <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
             options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[
-              { label: '전체 보기', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-            ]} /></div>
+          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
           <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
             options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>

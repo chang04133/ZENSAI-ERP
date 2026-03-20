@@ -10,6 +10,7 @@ export class ProductRepository extends BaseRepository<Product> {
       searchFields: ['product_code', 'product_name'],
       filterFields: ['category', 'sub_category', 'brand', 'season', 'year', 'fit', 'length', 'is_active', 'sale_status'],
       defaultOrder: 'created_at DESC',
+      tableAlias: 'p',
     });
   }
 

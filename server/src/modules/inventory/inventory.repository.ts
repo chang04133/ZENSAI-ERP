@@ -19,7 +19,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   async listWithDetails(options: any = {}) {
-    const { page = 1, limit: rawLimit = 20, partner_code, search, category, season, size, color, fit, length, stock_level, sort_field, sort_dir } = options;
+    const { page = 1, limit: rawLimit = 20, partner_code, search, category, season, size, color, fit, length, year, stock_level, sort_field, sort_dir } = options;
     const limit = Math.min(Number(rawLimit) || 20, 200); // S-7: limit 상한 200
     const offset = (page - 1) * limit;
 
@@ -40,6 +40,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
     if (fit) qb.raw('p.fit = ?', fit);
     if (length) qb.raw('p.length = ?', length);
+    if (year) qb.raw('p.year = ?', year);
     if (stock_level === 'zero') qb.raw('i.qty = 0');
     else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
     else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);
@@ -171,6 +172,25 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY total_qty DESC`;
+    return (await this.pool.query(sql, params)).rows;
+  }
+
+  /** 생산연도별 재고 요약 */
+  async summaryByYear(partnerCode?: string) {
+    const params: any[] = [];
+    let pcJoin = '';
+    if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
+    const sql = `
+      SELECT COALESCE(p.year, '미지정') AS year,
+             COUNT(DISTINCT p.product_code) AS product_count,
+             COUNT(DISTINCT pv.variant_id) AS variant_count,
+             COALESCE(SUM(i.qty), 0)::int AS total_qty
+      FROM products p
+      JOIN product_variants pv ON p.product_code = pv.product_code
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      WHERE p.is_active = TRUE AND pv.is_active = TRUE
+      GROUP BY COALESCE(p.year, '미지정')
+      ORDER BY year DESC`;
     return (await this.pool.query(sql, params)).rows;
   }
 

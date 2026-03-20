@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, message } from 'antd';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, AutoComplete, message } from 'antd';
 import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined, ShopOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
@@ -35,6 +35,8 @@ export default function MyStoreInventoryPage() {
 
   // Filters
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [category, setCategory] = useState<string | undefined>();
   const [season, setSeason] = useState<string | undefined>();
   const [size, setSize] = useState<string | undefined>();
@@ -46,14 +48,15 @@ export default function MyStoreInventoryPage() {
   // Dashboard stats
   const [stats, setStats] = useState<any>(null);
 
-  const load = useCallback(async (p?: number) => {
+  const load = useCallback(async (p?: number, searchOverride?: string) => {
     if (isHqOrAbove && !selectedPartner) return;
     const currentPage = p ?? page;
     setLoading(true);
     try {
+      const s = searchOverride !== undefined ? searchOverride : search;
       const params: Record<string, string> = { page: String(currentPage), limit: '50', sort_field: sortField, sort_dir: sortDir };
       if (isHqOrAbove && selectedPartner) params.partner_code = selectedPartner;
-      if (search) params.search = search;
+      if (s) params.search = s;
       if (category) params.category = category;
       if (season) params.season = season;
       if (size) params.size = size;
@@ -89,6 +92,28 @@ export default function MyStoreInventoryPage() {
   useEffect(() => { load(); }, [page, sortField, sortDir, category, season, size, color, stockLevel, selectedPartner]);
 
   const doSearch = () => { setPage(1); load(1); };
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await inventoryApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+
+  const onSearchSelect = (value: string) => {
+    setSearch(value);
+    setPage(1);
+    load(1, value);
+  };
+
+  useEffect(() => {
+    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
+  }, []);
 
   const resetFilters = () => {
     setSearch(''); setCategory(undefined); setSeason(undefined);
@@ -358,12 +383,25 @@ export default function MyStoreInventoryPage() {
       {/* Filters + Table (매장 선택 필요) */}
       {(!isHqOrAbove || selectedPartner) && (<>
       <Space wrap style={{ marginBottom: 16 }}>
-        <Input
-          size="small" placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
-          value={search} onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={doSearch} style={{ width: 220 }}
-          allowClear
-        />
+        <AutoComplete
+          value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+          style={{ width: 220 }}
+          options={searchSuggestions.map(s => ({
+            value: s.product_code,
+            label: (
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+              </div>
+            ),
+          }))}
+        >
+          <Input
+            size="small" placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
+            onPressEnter={doSearch}
+            allowClear
+          />
+        </AutoComplete>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select size="small" value={category || ''} onChange={(v) => { setCategory(v || undefined); setPage(1); }}
             style={{ width: 120 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} /></div>

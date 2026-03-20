@@ -74,14 +74,15 @@ class InventoryController extends BaseController<Inventory> {
     const partnerCode = (isHqOrAbove && explicitPartner) ? explicitPartner
       : canSeeAll ? undefined
       : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-    const [overall, byCategory, bySeason, byFit, byLength] = await Promise.all([
+    const [overall, byCategory, bySeason, byFit, byLength, byYear] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),
       inventoryRepository.summaryByCategory(partnerCode),
       inventoryRepository.summaryBySeason(partnerCode),
       inventoryRepository.summaryByFit(partnerCode),
       inventoryRepository.summaryByLength(partnerCode),
+      inventoryRepository.summaryByYear(partnerCode),
     ]);
-    res.json({ success: true, data: { overall, byCategory, bySeason, byFit, byLength, isStore: !!partnerCode } });
+    res.json({ success: true, data: { overall, byCategory, bySeason, byFit, byLength, byYear, isStore: !!partnerCode } });
   });
 
   /** 리오더 알림: 수량 임계값 기반 — 매장/본사 모두 지원 */

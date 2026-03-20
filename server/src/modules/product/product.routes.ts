@@ -188,6 +188,28 @@ router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {
   res.json({ success: true, data });
 }));
 
+// 상품 검색 자동완성
+router.get('/search-suggest', authMiddleware, asyncHandler(async (req, res) => {
+  const q = (req.query.q as string || '').trim();
+  if (!q || q.length < 1) {
+    res.json({ success: true, data: [] });
+    return;
+  }
+  const pool = getPool();
+  const sql = `
+    SELECT p.product_code, p.product_name, p.category, p.season, p.brand
+    FROM products p
+    WHERE p.is_active = TRUE AND (
+      p.product_code ILIKE $1
+      OR p.product_name ILIKE $1
+      OR EXISTS (SELECT 1 FROM product_variants pv WHERE pv.product_code = p.product_code AND pv.sku ILIKE $1)
+    )
+    ORDER BY p.product_name
+    LIMIT 10`;
+  const result = await pool.query(sql, [`%${q}%`]);
+  res.json({ success: true, data: result.rows });
+}));
+
 router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) => {
   const pool = getPool();
   const colors = await pool.query("SELECT DISTINCT color FROM product_variants WHERE is_active = TRUE AND color IS NOT NULL ORDER BY color");

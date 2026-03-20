@@ -5,6 +5,13 @@ import type { Product } from '../../../../shared/types/product';
 export const productApi = {
   ...createCrudApi<Product>('/api/products'),
 
+  searchSuggest: async (q: string) => {
+    const res = await apiFetch(`/api/products/search-suggest?q=${encodeURIComponent(q)}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{ product_code: string; product_name: string; category: string; season: string; brand: string }>;
+  },
+
   variantOptions: async () => {
     const res = await apiFetch('/api/products/variants/options');
     const data = await res.json();

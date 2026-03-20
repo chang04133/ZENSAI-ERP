@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, message, Alert, Spin } from 'antd';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, AutoComplete, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -17,6 +17,8 @@ export default function ProductListPage() {
   const { data: products, total, loading, fetchList: fetchProducts } = useProductStore();
   const user = useAuthStore((s) => s.user);
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string; season: string; brand: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [yearFromFilter, setYearFromFilter] = useState('');
@@ -70,9 +72,10 @@ export default function ProductListPage() {
     }).catch(() => {});
   }, []);
 
-  const load = () => {
+  const load = (searchOverride?: string) => {
     const params: Record<string, string> = { page: String(page), limit: '50' };
-    if (search) params.search = search;
+    const s = searchOverride !== undefined ? searchOverride : search;
+    if (s) params.search = s;
     if (categoryFilter) params.category = categoryFilter;
     if (subCategoryFilter) params.sub_category = subCategoryFilter;
     if (yearFromFilter) params.year_from = yearFromFilter;
@@ -86,6 +89,28 @@ export default function ProductListPage() {
   };
 
   useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+
+  const onSearchSelect = (value: string) => {
+    setSearch(value);
+    setPage(1);
+    load(value);
+  };
+
+  useEffect(() => {
+    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
+  }, []);
 
   const handleCategoryFilterChange = (value: string) => {
     setCategoryFilter(value);
@@ -428,14 +453,21 @@ export default function ProductListPage() {
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input
-            placeholder="코드 또는 이름 검색"
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={load}
+          <AutoComplete
+            value={search} onChange={onSearchChange} onSelect={onSearchSelect}
             style={{ width: '100%' }}
-          /></div>
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                  <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+                </div>
+              ),
+            }))}
+          >
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => load()} />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
@@ -473,7 +505,7 @@ export default function ProductListPage() {
               { label: '사이즈 2개+ 깨짐', value: 'broken2' },
               { label: '총수량 10개 미만', value: 'low10' },
             ]} /></div>
-        <Button onClick={load}>조회</Button>
+        <Button onClick={() => load()}>조회</Button>
       </div>
       {canWrite && selectedRowKeys.length > 0 && (
         <Space style={{ marginBottom: 8 }}>

@@ -39,6 +39,7 @@ export const inventoryApi = {
       bySeason: Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
       byFit: Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
       byLength: Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
+      byYear: Array<{ year: string; product_count: number; variant_count: number; total_qty: number }>;
       isStore: boolean;
     };
   },

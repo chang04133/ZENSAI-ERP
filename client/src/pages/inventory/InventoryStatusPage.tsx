@@ -6,7 +6,7 @@ import {
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
-  SendOutlined, AlertOutlined, ThunderboltOutlined,
+  CalendarOutlined, SendOutlined, AlertOutlined, ThunderboltOutlined,
   ReloadOutlined, EditOutlined, HistoryOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
@@ -238,6 +238,7 @@ function DashboardTab() {
   const bySeason = (stats?.bySeason || []) as Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
   const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
   const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
+  const byYear = (stats?.byYear || []) as Array<{ year: string; product_count: number; variant_count: number; total_qty: number }>;
   const searchResultRef = useRef<HTMLDivElement>(null);
 
   const analyzeProduct = (productCode: string) => {
@@ -552,7 +553,7 @@ function DashboardTab() {
             </Card>
           </Col>
           <Col xs={24} md={12}>
-            <Card title={<span><BarChartOutlined style={{ marginRight: 8 }} />시즌(생산연도)별 물량</span>}
+            <Card title={<span><BarChartOutlined style={{ marginRight: 8 }} />시즌별 물량</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
               <HBar data={bySeason.map(s => ({ label: s.season || '미지정', value: Number(s.total_qty), sub: `${s.product_count}상품 / ${Number(s.partner_count)}거래처` }))}
                 onBarClick={(label) => openDrillDown(`시즌: ${label}`, { season: label === '미지정' ? '' : label })} />
@@ -574,6 +575,17 @@ function DashboardTab() {
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
               <HBar data={byLength.map(l => ({ label: l.length, value: Number(l.total_qty), sub: `${l.product_count}상품 / ${l.variant_count}옵션` }))}
                 onBarClick={(label) => openDrillDown(`기장: ${label}`, { length: label === '미지정' ? '' : label })} />
+            </Card>
+          </Col>
+        </Row>
+      )}
+      {!effectiveStore && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card title={<span><CalendarOutlined style={{ marginRight: 8 }} />생산연도별 재고현황</span>}
+              size="small" style={{ borderRadius: 10 }} loading={statsLoading}>
+              <HBar data={byYear.map(y => ({ label: y.year, value: Number(y.total_qty), sub: `${y.product_count}상품 / ${y.variant_count}옵션` }))}
+                onBarClick={(label) => openDrillDown(`생산연도: ${label}`, { year: label === '미지정' ? '' : label })} />
             </Card>
           </Col>
         </Row>

@@ -331,7 +331,12 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
   async categorySummary(): Promise<any[]> {
     const pool = getPool();
     const sql = `
-      WITH current_season AS (
+      WITH all_categories AS (
+        SELECT code_value AS category
+        FROM master_codes
+        WHERE code_type = 'CATEGORY' AND parent_code IS NULL AND is_active = TRUE
+      ),
+      current_season AS (
         SELECT CASE
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
@@ -397,12 +402,12 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         GROUP BY pi.category
       )
       SELECT
-        cs.category,
+        ac.category,
         COALESCE(cst.product_count, 0) AS product_count,
-        cs.total_sold_90d,
-        cs.avg_daily_sales,
+        COALESCE(cs.total_sold_90d, 0) AS total_sold_90d,
+        COALESCE(cs.avg_daily_sales, 0) AS avg_daily_sales,
         CASE
-          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) > 0
+          WHEN (COALESCE(cs.avg_daily_sales, 0) * COALESCE(caw.avg_weight, 1.0)) > 0
             THEN (CURRENT_DATE + (COALESCE(cst.total_stock, 0)::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int)::text
           ELSE NULL
         END AS sellout_date,
@@ -410,21 +415,22 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         COALESCE(cp.pending_qty, 0) AS in_production_qty,
         (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0)) AS total_available,
         CASE
-          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) > 0
+          WHEN (COALESCE(cs.avg_daily_sales, 0) * COALESCE(caw.avg_weight, 1.0)) > 0
             THEN ROUND((COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int
           ELSE 9999
         END AS stock_coverage_days,
         CASE
-          WHEN (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) = 0 THEN 'HEALTHY'
+          WHEN COALESCE(cs.avg_daily_sales, 0) = 0 THEN 'HEALTHY'
           WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 30 THEN 'HEALTHY'
           WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 15 THEN 'WARNING'
           ELSE 'CRITICAL'
         END AS stock_status
-      FROM category_sales cs
-      LEFT JOIN category_avg_weight caw ON cs.category = caw.category
-      LEFT JOIN category_stock cst ON cs.category = cst.category
-      LEFT JOIN category_production cp ON cs.category = cp.category
-      ORDER BY stock_coverage_days ASC, cs.category`;
+      FROM all_categories ac
+      LEFT JOIN category_sales cs ON ac.category = cs.category
+      LEFT JOIN category_avg_weight caw ON ac.category = caw.category
+      LEFT JOIN category_stock cst ON ac.category = cst.category
+      LEFT JOIN category_production cp ON ac.category = cp.category
+      ORDER BY stock_coverage_days ASC, ac.category`;
 
     const result = await pool.query(sql);
     return result.rows;

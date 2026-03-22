@@ -380,23 +380,37 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     return (await this.pool.query(sql, params)).rows;
   }
 
-  /** 시즌별 재고 요약 */
+  /** 시즌별 재고 요약 (마스터코드 기준 — 0건 시즌도 표시) */
   async summaryBySeason(partnerCode?: string) {
     const params: any[] = [];
     let pcJoin = '';
     if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
-      SELECT p.season,
-             COUNT(DISTINCT p.product_code) AS product_count,
-             COUNT(DISTINCT pv.variant_id) AS variant_count,
-             COALESCE(SUM(i.qty), 0) AS total_qty,
-             COUNT(DISTINCT i.partner_code) AS partner_count
-      FROM products p
-      JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
-      WHERE p.is_active = TRUE AND pv.is_active = TRUE
-      GROUP BY p.season
-      ORDER BY p.season DESC`;
+      WITH all_seasons AS (
+        SELECT code_value AS season, sort_order
+        FROM master_codes
+        WHERE code_type = 'SEASON' AND is_active = TRUE
+      ),
+      product_stats AS (
+        SELECT p.season,
+               COUNT(DISTINCT p.product_code)::int AS product_count,
+               COUNT(DISTINCT pv.variant_id)::int AS variant_count,
+               COALESCE(SUM(i.qty), 0)::int AS total_qty,
+               COUNT(DISTINCT i.partner_code)::int AS partner_count
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+        WHERE p.is_active = TRUE AND pv.is_active = TRUE
+        GROUP BY p.season
+      )
+      SELECT COALESCE(s.season, ps.season) AS season,
+             COALESCE(ps.product_count, 0)::int AS product_count,
+             COALESCE(ps.variant_count, 0)::int AS variant_count,
+             COALESCE(ps.total_qty, 0)::int AS total_qty,
+             COALESCE(ps.partner_count, 0)::int AS partner_count
+      FROM all_seasons s
+      FULL OUTER JOIN product_stats ps ON s.season = ps.season
+      ORDER BY s.sort_order ASC NULLS LAST, season DESC`;
     return (await this.pool.query(sql, params)).rows;
   }
 

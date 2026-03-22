@@ -25,6 +25,7 @@ import { sizeSort } from '../../utils/size-order';
 import { CAT_COLORS, CAT_TAG_COLORS } from '../../utils/constants';
 import StatCard from '../../components/StatCard';
 import HBar from '../../components/HBar';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 const TX_TYPE_LABELS: Record<string, string> = {
   ADJUST: '수동조정', SHIPMENT: '출고', RETURN: '반품', TRANSFER: '이동', SALE: '판매', RESTOCK: '재입고',
@@ -47,6 +48,7 @@ function DashboardTab() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const effectiveStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  const { formatCode } = useCodeLabels();
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -308,7 +310,7 @@ function DashboardTab() {
     },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true },
     { title: '색상', dataIndex: 'color', key: 'color', width: 65, render: (v: string) => v || '-' },
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 65, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
@@ -355,7 +357,7 @@ function DashboardTab() {
       render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => analyzeProduct(r.product_code)}>{v}</Button> },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '옵션수', dataIndex: 'variant_count', key: 'vc', width: 70, align: 'center' as const,
       render: (v: number) => <Tag>{v}</Tag> },
     { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, align: 'right' as const,
@@ -501,7 +503,7 @@ function DashboardTab() {
               <span style={{ marginLeft: 12, color: '#6366f1', fontSize: 13, fontWeight: 600 }}>{searchResult.product.product_code}</span>
               {searchResult.product.category && <Tag color="blue" style={{ marginLeft: 8 }}>{searchResult.product.category}</Tag>}
               {searchResult.product.fit && <Tag style={{ marginLeft: 4 }}>{searchResult.product.fit}</Tag>}
-              {searchResult.product.season && <Tag style={{ marginLeft: 4 }}>{searchResult.product.season}</Tag>}
+              {searchResult.product.season && <Tag style={{ marginLeft: 4 }}>{formatCode('SEASON', searchResult.product.season)}</Tag>}
               <span style={{ marginLeft: 12, color: '#888', fontSize: 12 }}>{searchResult.variants?.length || 0}개 옵션</span>
             </div>
             <Table dataSource={(searchResult.variants || []).filter((v: any) =>
@@ -549,14 +551,14 @@ function DashboardTab() {
             <Card title={<span><TagsOutlined style={{ marginRight: 8 }} />카테고리별 물량</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
               <HBar data={byCategory.map(c => ({ label: c.category, value: Number(c.total_qty), sub: `${c.product_count}상품 / ${c.variant_count}옵션` }))} colorKey={CAT_COLORS}
-                onBarClick={(label) => openDrillDown(`카테고리: ${label}`, { category: label })} />
+                maxItems={8} onBarClick={(label) => openDrillDown(`카테고리: ${label}`, { category: label })} />
             </Card>
           </Col>
           <Col xs={24} md={12}>
             <Card title={<span><BarChartOutlined style={{ marginRight: 8 }} />시즌별 물량</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
-              <HBar data={bySeason.map(s => ({ label: s.season || '미지정', value: Number(s.total_qty), sub: `${s.product_count}상품 / ${Number(s.partner_count)}거래처` }))}
-                onBarClick={(label) => openDrillDown(`시즌: ${label}`, { season: label === '미지정' ? '' : label })} />
+              <HBar data={bySeason.map(s => ({ label: formatCode('SEASON', s.season), key: s.season || '미지정', value: Number(s.total_qty), sub: `${s.product_count}상품 / ${Number(s.partner_count)}거래처` }))}
+                maxItems={8} onBarClick={(key) => openDrillDown(`시즌: ${formatCode('SEASON', key === '미지정' ? null : key)}`, { season: key === '미지정' ? 'NULL' : key })} />
             </Card>
           </Col>
         </Row>
@@ -566,15 +568,15 @@ function DashboardTab() {
           <Col xs={24} md={12}>
             <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 재고현황</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
-              <HBar data={byFit.map(f => ({ label: f.fit, value: Number(f.total_qty), sub: `${f.product_count}상품 / ${f.variant_count}옵션` }))}
-                onBarClick={(label) => openDrillDown(`핏: ${label}`, { fit: label === '미지정' ? '' : label })} />
+              <HBar data={byFit.map(f => ({ label: formatCode('FIT', f.fit === '미지정' ? null : f.fit), key: f.fit, value: Number(f.total_qty), sub: `${f.product_count}상품 / ${f.variant_count}옵션` }))}
+                maxItems={8} onBarClick={(key) => openDrillDown(`핏: ${formatCode('FIT', key === '미지정' ? null : key)}`, { fit: key === '미지정' ? 'NULL' : key })} />
             </Card>
           </Col>
           <Col xs={24} md={12}>
             <Card title={<span><ColumnHeightOutlined style={{ marginRight: 8 }} />기장별 재고현황</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
-              <HBar data={byLength.map(l => ({ label: l.length, value: Number(l.total_qty), sub: `${l.product_count}상품 / ${l.variant_count}옵션` }))}
-                onBarClick={(label) => openDrillDown(`기장: ${label}`, { length: label === '미지정' ? '' : label })} />
+              <HBar data={byLength.map(l => ({ label: formatCode('LENGTH', l.length === '미지정' ? null : l.length), key: l.length, value: Number(l.total_qty), sub: `${l.product_count}상품 / ${l.variant_count}옵션` }))}
+                maxItems={8} onBarClick={(key) => openDrillDown(`기장: ${formatCode('LENGTH', key === '미지정' ? null : key)}`, { length: key === '미지정' ? 'NULL' : key })} />
             </Card>
           </Col>
         </Row>
@@ -585,7 +587,11 @@ function DashboardTab() {
             <Card title={<span><CalendarOutlined style={{ marginRight: 8 }} />생산연도별 재고현황</span>}
               size="small" style={{ borderRadius: 10 }} loading={statsLoading}>
               <HBar data={byYear.map(y => ({ label: y.year, value: Number(y.total_qty), sub: `${y.product_count}상품 / ${y.variant_count}옵션` }))}
-                onBarClick={(label) => openDrillDown(`생산연도: ${label}`, { year: label === '미지정' ? '' : label })} />
+                maxItems={12} onBarClick={(label) => {
+                  const m = label.match(/\(([A-Z0-9]+)\)$/);
+                  const code = m ? m[1] : label === '미지정' ? 'NULL' : label;
+                  openDrillDown(`생산연도: ${label}`, { year: code });
+                }} />
             </Card>
           </Col>
         </Row>
@@ -782,6 +788,7 @@ function DashboardTab() {
    Tab 2: 재고조정 (기존 InventoryAdjustPage)
    ══════════════════════════════════════════ */
 function AdjustTab() {
+  const { formatCode } = useCodeLabels();
   const [selectedPartner, setSelectedPartner] = useState<any>(null);
   const [partners, setPartners] = useState<any[]>([]);
   const [partnerSearch, setPartnerSearch] = useState('');
@@ -1003,7 +1010,7 @@ function AdjustTab() {
     { title: '상품명', dataIndex: 'product_name', key: 'name', width: 160, ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
       render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? <Tag>{formatCode('SEASON', v)}</Tag> : '-' },
     { title: '색상', dataIndex: 'color', key: 'color', width: 65, render: (v: string) => v || '-' },
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 65, render: (v: string) => v || '-' },
     { title: '현재수량', dataIndex: 'qty', key: 'qty', width: 90, align: 'right' as const,

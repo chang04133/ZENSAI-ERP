@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { codeApi } from '../../modules/code/code.api';
 import { apiFetch } from '../../core/api.client';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 const AGE_OPTIONS = [
   { label: '1년+', value: '1' },
@@ -17,6 +18,7 @@ const AGE_OPTIONS = [
 
 export default function DeadStockPage() {
   const navigate = useNavigate();
+  const { formatCode } = useCodeLabels();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [minAgeYears, setMinAgeYears] = useState('1');
@@ -69,7 +71,12 @@ export default function DeadStockPage() {
     },
     { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80 },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 100,
+      render: (v: string) => v ? formatCode('SEASON', v) : '-',
+    },
+    { title: '연도', dataIndex: 'year', key: 'year', width: 80,
+      render: (v: string, r: any) => v ? `${formatCode('YEAR', v)}` : '-',
+    },
     {
       title: '연차', dataIndex: 'age_years', key: 'age', width: 70, align: 'right' as const,
       sorter: (a: any, b: any) => Number(a.age_years) - Number(b.age_years),

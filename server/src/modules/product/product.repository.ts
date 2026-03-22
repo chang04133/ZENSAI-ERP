@@ -16,7 +16,7 @@ export class ProductRepository extends BaseRepository<Product> {
 
   /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20, color, size, year_from, year_to } = options;
+    const { page = 1, limit = 20, color, size, year_from, year_to, orderBy, orderDir, issue } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
     const { whereClause, params, nextIdx: baseNextIdx } = qb.build();
@@ -61,7 +61,42 @@ export class ProductRepository extends BaseRepository<Product> {
       }
     }
 
-    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${whereClause}${variantFilter}`;
+    // 하자 필터 (issue) — 서버 사이드
+    let issueFilter = '';
+    let issueCountJoin = '';
+    if (issue === 'low10') {
+      issueFilter = ' AND COALESCE(inv.total_inv_qty, 0) < 10';
+      issueCountJoin = `LEFT JOIN (
+        SELECT pv.product_code, SUM(i.qty) AS total_inv_qty
+        FROM inventory i JOIN product_variants pv ON i.variant_id = pv.variant_id
+        GROUP BY pv.product_code
+      ) inv ON p.product_code = inv.product_code`;
+    } else if (issue === 'broken1' || issue === 'broken2') {
+      const minBroken = issue === 'broken1' ? 1 : 2;
+      issueFilter = ` AND COALESCE(bs.broken_count, 0) >= ${minBroken}`;
+      issueCountJoin = `LEFT JOIN LATERAL (
+        SELECT COALESCE(COUNT(*) FILTER (
+          WHERE w.total_qty <= ${brokenQtyThreshold}
+            AND w.size_order > w.min_stocked AND w.size_order < w.max_stocked
+        ), 0)::int AS broken_count
+        FROM (
+          SELECT s.size_order, s.total_qty,
+            MIN(s.size_order) FILTER (WHERE s.total_qty > ${brokenQtyThreshold}) OVER () AS min_stocked,
+            MAX(s.size_order) FILTER (WHERE s.total_qty > ${brokenQtyThreshold}) OVER () AS max_stocked
+          FROM (
+            SELECT CASE spv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3
+              WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 ELSE 99 END AS size_order,
+              COALESCE(SUM(si.qty), 0) AS total_qty
+            FROM product_variants spv LEFT JOIN inventory si ON spv.variant_id = si.variant_id
+            WHERE spv.product_code = p.product_code AND spv.is_active = TRUE AND spv.size != 'FREE'
+            GROUP BY spv.size
+          ) s
+        ) w
+        HAVING COUNT(*) >= ${brokenMinSizes}
+      ) bs ON TRUE`;
+    }
+
+    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${issueCountJoin} ${whereClause}${variantFilter}${issueFilter}`;
     const countResult = await this.pool.query(countSql, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
@@ -124,12 +159,28 @@ export class ProductRepository extends BaseRepository<Product> {
         ) w
         HAVING COUNT(*) >= ${brokenMinSizes}
       ) bs ON TRUE
-      ${whereClause}${variantFilter}
-      ORDER BY p.created_at DESC
+      ${whereClause}${variantFilter}${issueFilter}
+      ORDER BY ${this.buildProductOrder(orderBy, orderDir)}
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const dataResult = await this.pool.query(dataSql, [...params, limit, offset]);
 
     return { data: dataResult.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  private buildProductOrder(orderBy?: string, orderDir?: string): string {
+    const dir = orderDir === 'ASC' ? 'ASC' : 'DESC';
+    const allowed: Record<string, string> = {
+      total_inv_qty: 'total_inv_qty',
+      year: 'p.year',
+      base_price: 'p.base_price',
+      product_name: 'p.product_name',
+      season: 'p.season',
+      category: 'p.category',
+      created_at: 'p.created_at',
+    };
+    const col = orderBy && allowed[orderBy];
+    if (col) return `${col} ${dir} NULLS LAST, p.created_at DESC`;
+    return 'p.created_at DESC';
   }
 
   async getWithVariants(code: string): Promise<Product | null> {

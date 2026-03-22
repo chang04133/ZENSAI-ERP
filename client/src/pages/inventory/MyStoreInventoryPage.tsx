@@ -8,6 +8,7 @@ import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { sizeSort } from '../../utils/size-order';
 import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 const STOCK_LEVELS = [
   { label: '전체', value: '' },
@@ -21,6 +22,7 @@ type ViewMode = 'product' | 'color' | 'size';
 export default function MyStoreInventoryPage() {
   const user = useAuthStore((s) => s.user);
   const isHqOrAbove = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
+  const { formatCode } = useCodeLabels();
 
   // 매장 선택 (HQ 이상)
   const [partners, setPartners] = useState<any[]>([]);
@@ -125,7 +127,7 @@ export default function MyStoreInventoryPage() {
   // Extract season options from stats
   const seasonOptions = (stats?.bySeason || [])
     .filter((s: any) => s.season)
-    .map((s: any) => ({ label: `${s.season} (${s.total_qty}개)`, value: s.season }));
+    .map((s: any) => ({ label: `${formatCode('SEASON', s.season)} (${s.total_qty}개)`, value: s.season }));
 
   // --- 뷰모드별 데이터 변환 ---
   const displayData = useMemo(() => {
@@ -199,7 +201,7 @@ export default function MyStoreInventoryPage() {
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 90,
       render: (v: string) => v ? <Tag>{v}</Tag> : '-',
     },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90,
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
     },
@@ -223,7 +225,7 @@ export default function MyStoreInventoryPage() {
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 90,
       render: (v: string) => v ? <Tag>{v}</Tag> : '-',
     },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100,
       render: (v: number) => renderQty(v),
     },

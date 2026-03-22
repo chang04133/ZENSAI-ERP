@@ -1,44 +1,73 @@
+import { useState } from 'react';
 import { COLORS } from '../utils/constants';
 
+interface HBarItem {
+  label: string;
+  value: number;
+  sub?: string;
+  /** 클릭 시 전달할 키 (미지정 시 label 사용) */
+  key?: string;
+}
+
 interface HBarProps {
-  data: Array<{ label: string; value: number; sub?: string }>;
+  data: HBarItem[];
   colorKey?: Record<string, string>;
   /** 값 포맷 함수 (기본: toLocaleString() + '개') */
   formatValue?: (v: number) => string;
-  onBarClick?: (label: string) => void;
+  onBarClick?: (key: string) => void;
+  /** 최대 표시 개수 (초과분은 접힘, 펼쳐서 볼 수 있음) */
+  maxItems?: number;
 }
 
-export default function HBar({ data, colorKey, formatValue, onBarClick }: HBarProps) {
+export default function HBar({ data, colorKey, formatValue, onBarClick, maxItems }: HBarProps) {
+  const [expanded, setExpanded] = useState(false);
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
+
+  const hasMore = maxItems && data.length > maxItems;
+  const visibleData = hasMore && !expanded ? data.slice(0, maxItems) : data;
+  const restCount = hasMore ? data.length - maxItems : 0;
+
   const max = Math.max(...data.map(d => d.value), 1);
   const fmtVal = formatValue || ((v: number) => `${v.toLocaleString()}개`);
+
+  const renderBar = (d: HBarItem, i: number) => {
+    const pct = (d.value / max) * 100;
+    const colorLookup = d.key || d.label;
+    const c = colorKey?.[colorLookup] || colorKey?.[d.label] || COLORS[i % COLORS.length];
+    const clickable = !!onBarClick;
+    return (
+      <div key={d.key || d.label} onClick={() => onBarClick?.(d.key || d.label)}
+        style={{ cursor: clickable ? 'pointer' : 'default', borderRadius: 8, padding: '2px 4px', transition: 'background 0.15s' }}
+        onMouseEnter={(e) => clickable && (e.currentTarget.style.background = '#f0f1f3')}
+        onMouseLeave={(e) => clickable && (e.currentTarget.style.background = 'transparent')}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+          <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
+            {fmtVal(d.value)}
+            {d.sub && <span style={{ fontWeight: 400, color: '#999', marginLeft: 6 }}>{d.sub}</span>}
+          </span>
+        </div>
+        <div style={{ background: '#f3f4f6', borderRadius: 6, height: 18, overflow: 'hidden' }}>
+          <div style={{
+            width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${c}, ${c}aa)`,
+            borderRadius: 6, transition: 'width 0.5s ease',
+          }} />
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {data.map((d, i) => {
-        const pct = (d.value / max) * 100;
-        const c = colorKey?.[d.label] || COLORS[i % COLORS.length];
-        const clickable = !!onBarClick;
-        return (
-          <div key={d.label} onClick={() => onBarClick?.(d.label)}
-            style={{ cursor: clickable ? 'pointer' : 'default', borderRadius: 8, padding: '2px 4px', transition: 'background 0.15s' }}
-            onMouseEnter={(e) => clickable && (e.currentTarget.style.background = '#f0f1f3')}
-            onMouseLeave={(e) => clickable && (e.currentTarget.style.background = 'transparent')}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
-                {fmtVal(d.value)}
-                {d.sub && <span style={{ fontWeight: 400, color: '#999', marginLeft: 6 }}>{d.sub}</span>}
-              </span>
-            </div>
-            <div style={{ background: '#f3f4f6', borderRadius: 6, height: 18, overflow: 'hidden' }}>
-              <div style={{
-                width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${c}, ${c}aa)`,
-                borderRadius: 6, transition: 'width 0.5s ease',
-              }} />
-            </div>
-          </div>
-        );
-      })}
+      {visibleData.map((d, i) => renderBar(d, i))}
+      {hasMore && (
+        <div
+          onClick={() => setExpanded(!expanded)}
+          style={{ textAlign: 'center', padding: '4px 0', cursor: 'pointer', fontSize: 12, color: '#1677ff', userSelect: 'none' }}
+        >
+          {expanded ? '접기 ▲' : `기타 ${restCount}개 더보기 ▼`}
+        </div>
+      )}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, AutoComplete, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
@@ -11,11 +11,13 @@ import { getToken, apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 import { SALE_STATUS_COLORS } from '../../utils/constants';
 import { exportToExcel } from '../../utils/export-excel';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 export default function ProductListPage() {
   const navigate = useNavigate();
   const { data: products, total, loading, fetchList: fetchProducts } = useProductStore();
   const user = useAuthStore((s) => s.user);
+  const { formatCode } = useCodeLabels();
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string; season: string; brand: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -29,6 +31,7 @@ export default function ProductListPage() {
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
+  const [sortValue, setSortValue] = useState('created_at_DESC');
   const [uploadModalOpen, setUploadModalOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadResult, setUploadResult] = useState<any>(null);
@@ -85,10 +88,14 @@ export default function ProductListPage() {
     if (fitFilter) params.fit = fitFilter;
     if (colorFilter) params.color = colorFilter;
     if (sizeFilter) params.size = sizeFilter;
+    if (issueFilter) params.issue = issueFilter;
+    const lastUnderscore = sortValue.lastIndexOf('_');
+    params.orderBy = sortValue.substring(0, lastUnderscore);
+    params.orderDir = sortValue.substring(lastUnderscore + 1);
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter, sortValue, issueFilter]);
 
   const onSearchChange = (value: string) => {
     setSearch(value);
@@ -332,17 +339,6 @@ export default function ProductListPage() {
     );
   };
 
-  const filteredProducts = useMemo(() => {
-    if (!issueFilter) return products;
-    return products.filter((p: any) => {
-      const broken = Number(p.broken_size_count || 0);
-      const inv = Number(p.total_inv_qty || 0);
-      if (issueFilter === 'broken1') return broken >= 1;
-      if (issueFilter === 'broken2') return broken >= 2;
-      if (issueFilter === 'low10') return inv < 10;
-      return true;
-    });
-  }, [products, issueFilter]);
 
   const columns = [
     { title: '', dataIndex: 'image_url', key: 'image_url', width: 50,
@@ -357,10 +353,10 @@ export default function ProductListPage() {
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
     { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 90, ellipsis: true, render: (v: string) => v || '-' },
     { title: '브랜드', dataIndex: 'brand', key: 'brand', width: 80 },
-    { title: '연도', dataIndex: 'year', key: 'year', width: 60 },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 70 },
-    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{v}</Tag> : '-' },
-    { title: '기장', dataIndex: 'length', key: 'length', width: 65, render: (v: string) => v ? <Tag color="volcano">{v}</Tag> : '-' },
+    { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
+    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
+    { title: '기장', dataIndex: 'length', key: 'length', width: 65, render: (v: string) => v ? <Tag color="volcano">{formatCode('LENGTH', v)}</Tag> : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90,
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
     },
@@ -505,6 +501,19 @@ export default function ProductListPage() {
               { label: '사이즈 2개+ 깨짐', value: 'broken2' },
               { label: '총수량 10개 미만', value: 'low10' },
             ]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
+          <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
+            options={[
+              { label: '등록순(최신)', value: 'created_at_DESC' },
+              { label: '등록순(오래된)', value: 'created_at_ASC' },
+              { label: '재고 많은순', value: 'total_inv_qty_DESC' },
+              { label: '재고 적은순', value: 'total_inv_qty_ASC' },
+              { label: '연도 최신순', value: 'year_DESC' },
+              { label: '연도 오래된순', value: 'year_ASC' },
+              { label: '가격 높은순', value: 'base_price_DESC' },
+              { label: '가격 낮은순', value: 'base_price_ASC' },
+              { label: '상품명순', value: 'product_name_ASC' },
+            ]} /></div>
         <Button onClick={() => load()}>조회</Button>
       </div>
       {canWrite && selectedRowKeys.length > 0 && (
@@ -518,12 +527,12 @@ export default function ProductListPage() {
       )}
       <Table
         columns={columns}
-        dataSource={filteredProducts}
+        dataSource={products}
         rowKey="product_code"
         loading={loading || bulkLoading}
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{ current: page, total: issueFilter ? filteredProducts.length : total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
         expandable={{ expandedRowRender, onExpand: handleExpand }}
         rowSelection={canWrite ? {
           selectedRowKeys,

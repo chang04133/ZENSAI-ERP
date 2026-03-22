@@ -150,7 +150,28 @@
       "Bash(do echo -n \"반품 $s: \")",
       "Bash(while read:*)",
       "Bash(do sed -i 's/flex: 1, minWidth: 200/minWidth: 200, maxWidth: 320/g' \"$f\")",
-      "Bash(git fetch:*)"
+      "Bash(git fetch:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoi7Iuc7Iqk7YWc6rSA66as7J6QIiwicm9sZSI6IkFETUlOIiwicGFydG5lckNvZGUiOm51bGwsImlhdCI6MTc3Mzk3Njg0NiwiZXhwIjoxNzc0MDYzMjQ2fQ.LsPjmW3Sdf45pEf8iIVztig7lR1rbnZJ6RzoNBvKA0I\")",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoi7Iuc7Iqk7YWc6rSA66as7J6QIiwicm9sZSI6IkFETUlOIiwicGFydG5lckNvZGUiOm51bGwsImlhdCI6MTc3NDAxNjYzMywiZXhwIjoxNzc0MTAzMDMzfQ.CCIzFk1aU3dP4QkHdoGK9zajzsNeB4M1t3FZJbtXOPc\")",
+      "Bash(__NEW_LINE_9c79fac3702acf41__ echo \"=== Test 1: Default sort \\(created_at DESC\\) ===\")",
+      "Bash(__NEW_LINE_688eb1bfe19420ab__ echo \"\")",
+      "Bash(__NEW_LINE_24119d66e2959211__ echo \"\")",
+      "Bash(__NEW_LINE_0436f0426310dcc7__ echo \"\")",
+      "Bash(TMPDIR=\"$TEMP\":*)",
+      "Bash(__NEW_LINE_56577047baa97d08__ echo \"=== Default \\(created_at DESC\\) ===\")",
+      "Bash(__NEW_LINE_56577047baa97d08__ echo \"\")",
+      "Bash(powershell -Command \"Get-CimInstance Win32_Process | Where-Object {\\($_.ProcessId -eq 546584\\)} | Select-Object ProcessId,CommandLine | Format-List\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 1. created_at DESC ===\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 2. total_inv_qty DESC ===\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 3. total_inv_qty ASC ===\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 4. base_price DESC ===\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 5. year DESC ===\")",
+      "Bash(__NEW_LINE_3df88afa8531ca98__ echo \"=== 6. product_name ASC ===\")",
+      "Bash(\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/tmp_check_inv_dates.js\":*)",
+      "Bash(\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/tmp_check_inv_dates2.js\":*)",
+      "Bash(powershell -Command:*)",
+      "Bash(git reset:*)",
+      "Bash(start:*)"
     ]
   }
 }

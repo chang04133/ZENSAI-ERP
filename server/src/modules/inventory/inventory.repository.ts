@@ -35,12 +35,16 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     if (partner_code) qb.eq('partner_code', partner_code);
     if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
     if (category) qb.raw('p.category = ?', category);
-    if (season) qb.raw('p.season = ?', season);
+    if (season === 'NULL') qb.raw('p.season IS NULL');
+    else if (season) qb.raw('p.season = ?', season);
     if (size) qb.raw('pv.size = ?', size);
     if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
-    if (fit) qb.raw('p.fit = ?', fit);
-    if (length) qb.raw('p.length = ?', length);
-    if (year) qb.raw('p.year = ?', year);
+    if (fit === 'NULL') qb.raw('p.fit IS NULL');
+    else if (fit) qb.raw('p.fit = ?', fit);
+    if (length === 'NULL') qb.raw('p.length IS NULL');
+    else if (length) qb.raw('p.length = ?', length);
+    if (year === 'NULL') qb.raw('p.year IS NULL');
+    else if (year) qb.raw('p.year = ?', year);
     if (stock_level === 'zero') qb.raw('i.qty = 0');
     else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
     else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);
@@ -175,22 +179,34 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     return (await this.pool.query(sql, params)).rows;
   }
 
-  /** 생산연도별 재고 요약 */
+  /** 생산연도별 재고 요약 (마스터코드 라벨 사용: 예 H → 2026(H)) */
   async summaryByYear(partnerCode?: string) {
     const params: any[] = [];
     let pcJoin = '';
     if (partnerCode) { params.push(partnerCode); pcJoin = 'AND i.partner_code = $1'; }
     const sql = `
-      SELECT COALESCE(p.year, '미지정') AS year,
-             COUNT(DISTINCT p.product_code) AS product_count,
-             COUNT(DISTINCT pv.variant_id) AS variant_count,
-             COALESCE(SUM(i.qty), 0)::int AS total_qty
+      SELECT
+        CASE
+          WHEN mc.code_label IS NOT NULL THEN mc.code_label || '(' || p.year || ')'
+          WHEN p.year IS NOT NULL THEN p.year
+          ELSE '미지정'
+        END AS year,
+        COUNT(DISTINCT p.product_code) AS product_count,
+        COUNT(DISTINCT pv.variant_id) AS variant_count,
+        COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
       LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      LEFT JOIN master_codes mc ON mc.code_type = 'YEAR' AND mc.code_value = p.year AND mc.is_active = TRUE
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
-      GROUP BY COALESCE(p.year, '미지정')
-      ORDER BY year DESC`;
+      GROUP BY
+        CASE
+          WHEN mc.code_label IS NOT NULL THEN mc.code_label || '(' || p.year || ')'
+          WHEN p.year IS NOT NULL THEN p.year
+          ELSE '미지정'
+        END,
+        mc.sort_order
+      ORDER BY mc.sort_order DESC NULLS LAST, year DESC`;
     return (await this.pool.query(sql, params)).rows;
   }
 
@@ -514,7 +530,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     };
   }
 
-  /** 악성재고 분석 */
+  /** 악성재고 분석 - year 코드(A~H) + master_codes 매핑으로 연차 계산 */
   async deadStockAnalysis(options: {
     minAgeYears?: number; category?: string; partnerCode?: string;
   } = {}) {
@@ -524,10 +540,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const { minAgeYears = defaultAge, category, partnerCode } = options;
 
     const currentYear = new Date().getFullYear();
-    const maxSeasonYear = currentYear - minAgeYears;
+    const maxProductYear = currentYear - minAgeYears; // e.g. 2026-1 = 2025
 
-    // 파라미터: $1=maxSeasonYear, $2=currentYear, $3=brokenQtyThreshold, $4=brokenMinSizes
-    const params: any[] = [maxSeasonYear, currentYear, brokenSettings.qtyThreshold, brokenSettings.minSizes];
+    // 파라미터: $1=currentYear, $2=maxProductYear, $3=brokenQtyThreshold, $4=brokenMinSizes
+    const params: any[] = [currentYear, maxProductYear, brokenSettings.qtyThreshold, brokenSettings.minSizes];
     let idx = 5;
     let extraFilters = '';
     let invPartnerFilter = '';
@@ -546,7 +562,13 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const partnerIdx = partnerCode ? idx - 1 : 0;
 
     const sql = `
-      WITH stock AS (
+      WITH year_map AS (
+        SELECT code_value, CAST(code_label AS int) AS product_year
+        FROM master_codes
+        WHERE code_type = 'YEAR' AND is_active = TRUE
+          AND code_label ~ '^[0-9]{4}$'
+      ),
+      stock AS (
         SELECT pv.product_code,
                SUM(i.qty)::int AS current_stock
         FROM product_variants pv
@@ -569,7 +591,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         FROM inventory i
         ${partnerCode ? `WHERE i.partner_code = $${partnerIdx}` : ''}
       )
-      SELECT p.product_code, p.product_name, p.category, p.season,
+      SELECT p.product_code, p.product_name, p.category, p.season, p.year,
              p.base_price,
              st.current_stock,
              COALESCE(rs.sold_qty, 0)::int AS sold_qty,
@@ -580,10 +602,12 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              END AS days_without_sale,
              (p.base_price * st.current_stock)::bigint AS stock_value,
              ti.total_qty,
-             $2 - CASE WHEN p.season ~ '^[0-9]{4}' THEN CAST(LEFT(p.season, 4) AS int) ELSE $2 END AS age_years,
+             ($1 - ym.product_year)::int AS age_years,
+             ym.product_year,
              COALESCE(bs.broken_store_count, 0)::int AS broken_store_count,
              COALESCE(bs.broken_size_count, 0)::int AS broken_size_count
       FROM products p
+      JOIN year_map ym ON p.year = ym.code_value
       JOIN stock st ON p.product_code = st.product_code
       LEFT JOIN recent_sales rs ON p.product_code = rs.product_code
       CROSS JOIN total_inv ti
@@ -608,10 +632,9 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       ) bs ON TRUE
       WHERE p.is_active = TRUE
         AND COALESCE(p.is_reorder, FALSE) = FALSE
-        AND p.season IS NOT NULL AND p.season ~ '^[0-9]{4}'
-        AND CAST(LEFT(p.season, 4) AS int) <= $1
+        AND ym.product_year <= $2
         ${extraFilters}
-      ORDER BY days_without_sale DESC, stock_value DESC`;
+      ORDER BY age_years DESC, days_without_sale DESC, stock_value DESC`;
 
     const result = await pool.query(sql, params);
     return result.rows;

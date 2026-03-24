@@ -170,7 +170,7 @@ export default function MonthlySalesPage() {
             onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
             presets={datePresets}
             format="YYYY-MM-DD"
-            style={{ width: 240 }}
+            style={{ width: 300 }}
           /></div>
         <Space size={4} wrap style={{ alignSelf: 'flex-end' }}>
           <Button size="small" onClick={() => quickRange(today, today)}>오늘</Button>

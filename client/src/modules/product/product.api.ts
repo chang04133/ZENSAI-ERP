@@ -79,11 +79,22 @@ export const productApi = {
     return data.data as Product;
   },
 
-  bulkUpdateEventPrices: async (updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) => {
+  bulkUpdateEventPrices: async (updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null, startDate?: string | null, endDate?: string | null) => {
     const body: any = { updates };
     if (storeCodes !== undefined) body.event_store_codes = storeCodes;
+    if (startDate !== undefined) body.event_start_date = startDate;
+    if (endDate !== undefined) body.event_end_date = endDate;
     const res = await apiFetch('/api/products/events/bulk', {
       method: 'PUT', body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
+  bulkUpdateEventDates: async (productCodes: string[], startDate: string | null, endDate: string | null) => {
+    const res = await apiFetch('/api/products/events/bulk-dates', {
+      method: 'PUT', body: JSON.stringify({ product_codes: productCodes, event_start_date: startDate, event_end_date: endDate }),
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error);

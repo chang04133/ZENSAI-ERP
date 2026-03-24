@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from 'react';
-import { Card, Select, Space, Tag, Table, Row, Col, Statistic, Progress, Spin, Tabs, message, DatePicker, Button, Segmented, Modal, Input } from 'antd';
+import { useEffect, useState, useMemo, useRef } from 'react';
+import { Card, Select, Space, Tag, Table, Row, Col, Statistic, Progress, Spin, Tabs, message, DatePicker, Button, Segmented, Modal, AutoComplete, Input } from 'antd';
 import {
   RiseOutlined, FallOutlined, LineChartOutlined, FireOutlined,
   SkinOutlined, ColumnHeightOutlined, TagOutlined, BgColorsOutlined,
@@ -8,6 +8,8 @@ import {
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
+import { productApi } from '../../modules/product/product.api';
+import { codeApi } from '../../modules/code/code.api';
 import dayjs, { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
 dayjs.extend(isoWeek);
@@ -112,10 +114,16 @@ function PeriodTab() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string; season: string; brand: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [categoryFilter, setCategoryFilter] = useState('');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
+  const [yearOptions, setYearOptions] = useState<Array<{ label: string; value: string }>>([]);
   const [seasonFilter, setSeasonFilter] = useState('');
   const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -133,10 +141,9 @@ function PeriodTab() {
   }, [filterCombos]);
 
   const dynamicSubCategoryOptions = useMemo(() => {
-    if (!categoryFilter) return [];
-    const subs = [...new Set(
-      filterCombos.filter(c => c.category === categoryFilter).map(c => c.sub_category).filter(Boolean)
-    )].sort();
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    const subs = [...new Set(f.map(c => c.sub_category).filter(Boolean))].sort();
     return subs.map(s => ({ label: s, value: s }));
   }, [filterCombos, categoryFilter]);
 
@@ -179,8 +186,45 @@ function PeriodTab() {
     return sizes.map(v => ({ label: v, value: v }));
   }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter]);
 
+  const dynamicLengthOptions = useMemo(() => {
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    if (subCategoryFilter) f = f.filter(c => c.sub_category === subCategoryFilter);
+    if (seasonFilter) f = f.filter(c => c.season === seasonFilter);
+    if (fitFilter) f = f.filter(c => c.fit === fitFilter);
+    const lengths = [...new Set(f.map(c => c.length).filter(Boolean))].sort();
+    return lengths.map(v => ({ label: v, value: v }));
+  }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter, fitFilter]);
+
+  /* ── YEAR 코드 로드 ── */
+  useEffect(() => {
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      data.sort((a: any, b: any) => b.code_value.localeCompare(a.code_value));
+      setYearOptions(data.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
+    }).catch(() => {});
+    return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
+  }, []);
+
+  /* ── AutoComplete 핸들러 ── */
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+
+  const onSearchSelect = (value: string) => {
+    setSearch(value);
+    load(value);
+  };
+
   /* ── 데이터 로드 ── */
-  const load = () => {
+  const load = (searchOverride?: string) => {
     setLoading(true);
     const r = getRange(mode, refDate);
     const filters: Record<string, string> = {};
@@ -189,15 +233,19 @@ function PeriodTab() {
     if (fitFilter) filters.fit = fitFilter;
     if (colorFilter) filters.color = colorFilter;
     if (sizeFilter) filters.size = sizeFilter;
-    if (search) filters.search = search;
+    const s = searchOverride !== undefined ? searchOverride : search;
+    if (s) filters.search = s;
     if (statusFilter) filters.sale_status = statusFilter;
+    if (yearFromFilter) filters.year_from = yearFromFilter;
+    if (yearToFilter) filters.year_to = yearToFilter;
+    if (lengthFilter) filters.length = lengthFilter;
     salesApi.styleByRange(r.from, r.to, categoryFilter || undefined, filters)
       .then((d) => { setData(d); if (d?.filterCombinations) setFilterCombos(d.filterCombinations); })
       .catch((e: any) => message.error(e.message))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [mode, refDate, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, statusFilter]);
+  useEffect(() => { load(); }, [mode, refDate, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter]);
 
   const handleModeChange = (v: string) => { setMode(v as ViewMode); };
   const handleMove = (dir: number) => { setRefDate(moveRef(mode, refDate, dir)); };
@@ -293,21 +341,41 @@ function PeriodTab() {
       {/* 검색 필터 (깔때기: 상위 선택 → 하위 옵션 자동 좁혀짐) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={load} style={{ width: '100%' }} /></div>
+          <AutoComplete
+            value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+            style={{ width: '100%' }}
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span>{s.product_code}</span>
+                <span style={{ color: '#888', fontSize: 12 }}>{s.product_name}</span>
+              </div>,
+            }))}
+          >
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
+              onPressEnter={() => load()} />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...dynamicCategoryOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
           <Select value={subCategoryFilter} onChange={handleSubCategoryChange} style={{ width: 140 }}
-            options={[{ label: '전체 보기', value: '' }, ...dynamicSubCategoryOptions]} disabled={!categoryFilter} /></div>
+            options={[{ label: '전체 보기', value: '' }, ...dynamicSubCategoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select value={yearFromFilter} onChange={(v) => setYearFromFilter(v)} style={{ width: 100 }}
+            options={[{ label: '전체', value: '' }, ...yearOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select value={yearToFilter} onChange={(v) => setYearToFilter(v)} style={{ width: 100 }}
+            options={[{ label: '전체', value: '' }, ...yearOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
           <Select value={seasonFilter} onChange={handleSeasonChange} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...dynamicSeasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
           <Select value={fitFilter} onChange={(v) => setFitFilter(v)} style={{ width: 130 }}
             options={[{ label: '전체 보기', value: '' }, ...dynamicFitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={(v) => setLengthFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicLengthOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => setColorFilter(v)} style={{ width: 120 }}
@@ -319,7 +387,7 @@ function PeriodTab() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
           <Select value={statusFilter} onChange={(v) => setStatusFilter(v)} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
-        <Button onClick={load}>조회</Button>
+        <Button onClick={() => load()}>조회</Button>
       </div>
 
       {loading && !data ? <Spin style={{ display: 'block', margin: '60px auto' }} /> : (

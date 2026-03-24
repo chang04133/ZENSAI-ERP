@@ -15,9 +15,13 @@ export class ProductRepository extends BaseRepository<Product> {
 
   /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20, color, size } = options;
+    const { page = 1, limit = 20, color, size, partner_code } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
+    if (options.year_from) qb.raw('p.year >= ?', options.year_from);
+    if (options.year_to) qb.raw('p.year <= ?', options.year_to);
+    if (options.date_from) qb.raw('p.created_at >= ?::date', options.date_from);
+    if (options.date_to) qb.raw('p.created_at < ?::date + INTERVAL \'1 day\'', options.date_to);
     const { whereClause, params, nextIdx: baseNextIdx } = qb.build();
 
     // 컬러/사이즈 필터: product_variants JOIN
@@ -38,7 +42,20 @@ export class ProductRepository extends BaseRepository<Product> {
       }
     }
 
-    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${whereClause}${variantFilter}`;
+    // 거래처 필터: 해당 거래처에 재고가 있는 상품만
+    let partnerJoin = '';
+    if (partner_code) {
+      partnerJoin = `JOIN (
+        SELECT DISTINCT pv_pc.product_code
+        FROM inventory i_pc
+        JOIN product_variants pv_pc ON i_pc.variant_id = pv_pc.variant_id
+        WHERE i_pc.partner_code = $${nextIdx} AND i_pc.qty > 0
+      ) pc_filter ON p.product_code = pc_filter.product_code`;
+      params.push(partner_code);
+      nextIdx++;
+    }
+
+    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${partnerJoin} ${whereClause}${variantFilter}`;
     const countResult = await this.pool.query(countSql, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
@@ -47,6 +64,7 @@ export class ProductRepository extends BaseRepository<Product> {
         COALESCE(inv.total_inv_qty, 0)::int AS total_inv_qty
       FROM products p
       ${variantJoin}
+      ${partnerJoin}
       LEFT JOIN (
         SELECT pv.product_code, SUM(i.qty) AS total_inv_qty
         FROM inventory i
@@ -156,7 +174,7 @@ export class ProductRepository extends BaseRepository<Product> {
   }
 
   async listEventProducts(options: any = {}) {
-    const { page = 1, limit = 50, search, category, season, fit, sub_category, color, size } = options;
+    const { page = 1, limit = 50, search, category, season, fit, sub_category, color, size, active, expired, year_from, year_to, orderBy, orderDir, store } = options;
     const offset = (page - 1) * limit;
     const params: any[] = [];
     let nextIdx = 1;
@@ -200,13 +218,43 @@ export class ProductRepository extends BaseRepository<Product> {
       extraFilters += ` AND pv_filter.size = $${nextIdx}`;
       nextIdx++;
     }
+    if (year_from) {
+      params.push(year_from);
+      extraFilters += ` AND p.year >= $${nextIdx}`;
+      nextIdx++;
+    }
+    if (year_to) {
+      params.push(year_to);
+      extraFilters += ` AND p.year <= $${nextIdx}`;
+      nextIdx++;
+    }
+    // 매장 필터: event_store_codes에 해당 매장 포함 또는 NULL(전체매장)
+    if (store) {
+      params.push(store);
+      extraFilters += ` AND (p.event_store_codes IS NULL OR $${nextIdx} = ANY(p.event_store_codes))`;
+      nextIdx++;
+    }
+
+    // 행사 상태 필터: active=행사중, expired=종료
+    let eventFilter = 'p.event_price IS NOT NULL';
+    if (active === 'true') {
+      eventFilter += ` AND (p.event_end_date IS NULL OR p.event_end_date >= CURRENT_DATE)`;
+    }
+    if (expired === 'true') {
+      eventFilter += ` AND p.event_end_date IS NOT NULL AND p.event_end_date < CURRENT_DATE`;
+    }
 
     const variantJoin = joinVariants ? `JOIN product_variants pv_filter ON p.product_code = pv_filter.product_code` : '';
     const distinctKey = joinVariants ? 'DISTINCT' : '';
-    const whereClause = `WHERE p.event_price IS NOT NULL AND p.is_active = TRUE ${extraFilters}`;
+    const whereClause = `WHERE ${eventFilter} AND p.is_active = TRUE ${extraFilters}`;
 
     const countSql = `SELECT COUNT(${distinctKey} p.product_code) FROM products p ${variantJoin} ${whereClause}`;
     const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+
+    // 정렬
+    const allowedOrder: Record<string, string> = { created_at: 'p.created_at', base_price: 'p.base_price', product_name: 'p.product_name', year: 'p.year', total_inv_qty: 'total_inv_qty' };
+    const orderCol = allowedOrder[orderBy as string] || 'p.product_name';
+    const direction = orderDir === 'ASC' ? 'ASC' : 'DESC';
 
     const dataSql = `
       SELECT ${distinctKey} p.*,
@@ -220,7 +268,7 @@ export class ProductRepository extends BaseRepository<Product> {
         GROUP BY pv.product_code
       ) inv ON p.product_code = inv.product_code
       ${whereClause}
-      ORDER BY p.product_name
+      ORDER BY ${orderCol} ${direction}
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = (await this.pool.query(dataSql, [...params, limit, offset])).rows;
     return { data, total, page, limit, totalPages: Math.ceil(total / limit) };
@@ -234,7 +282,7 @@ export class ProductRepository extends BaseRepository<Product> {
     return result.rows[0] || null;
   }
 
-  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) {
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null, startDate?: string | null, endDate?: string | null) {
     const pool = getPool();
     const client = await pool.connect();
     try {
@@ -242,15 +290,10 @@ export class ProductRepository extends BaseRepository<Product> {
       const results = [];
       const storeArr = storeCodes && storeCodes.length > 0 ? storeCodes : null;
       for (const { product_code, event_price } of updates) {
-        const result = storeCodes !== undefined
-          ? await client.query(
-              `UPDATE products SET event_price = $1, event_store_codes = $2, updated_at = NOW() WHERE product_code = $3 RETURNING *`,
-              [event_price, storeArr, product_code],
-            )
-          : await client.query(
-              `UPDATE products SET event_price = $1, updated_at = NOW() WHERE product_code = $2 RETURNING *`,
-              [event_price, product_code],
-            );
+        const result = await client.query(
+          `UPDATE products SET event_price = $1, event_store_codes = $2, event_start_date = $3, event_end_date = $4, updated_at = NOW() WHERE product_code = $5 RETURNING *`,
+          [event_price, storeArr, startDate || null, endDate || null, product_code],
+        );
         if (result.rows[0]) results.push(result.rows[0]);
       }
       await client.query('COMMIT');
@@ -262,6 +305,29 @@ export class ProductRepository extends BaseRepository<Product> {
       client.release();
     }
   }
+  async bulkUpdateEventDates(productCodes: string[], startDate: string | null, endDate: string | null) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const results = [];
+      for (const product_code of productCodes) {
+        const result = await client.query(
+          `UPDATE products SET event_start_date = $1, event_end_date = $2, updated_at = NOW() WHERE product_code = $3 AND event_price IS NOT NULL RETURNING *`,
+          [startDate || null, endDate || null, product_code],
+        );
+        if (result.rows[0]) results.push(result.rows[0]);
+      }
+      await client.query('COMMIT');
+      return { updated: results.length, products: results };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async eventRecommendations(options: { category?: string; limit?: number } = {}): Promise<any[]> {
     const pool = getPool();
 

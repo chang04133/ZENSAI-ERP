@@ -88,4 +88,20 @@ export const productionApi = {
     if (!d.success) throw new Error(d.error);
     return d.data as ProductionPlan;
   },
+
+  // 엑셀 템플릿 다운로드 URL
+  excelTemplateUrl: '/api/productions/excel/template',
+
+  // 엑셀 업로드
+  uploadExcel: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiFetch('/api/productions/excel/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data as { total: number; createdPlans: number; createdItems: number; errors?: string[] };
+  },
 };

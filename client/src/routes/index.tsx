@@ -15,6 +15,7 @@ const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
 const EventProductsPage = lazy(() => import('../pages/products/StoreEventPricePage'));
+const DeadStockPage = lazy(() => import('../pages/products/DeadStockPage'));
 
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
@@ -104,7 +105,8 @@ export const appRoutes: AppRoute[] = [
 
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
-  { path: '/products/events', element: <EventProductsPage />, roles: ADMIN_HQ_STORE },
+  { path: '/products/event-price', element: <EventProductsPage />, roles: ADMIN_HQ },
+  { path: '/products/dead-stock', element: <DeadStockPage />, roles: ADMIN_HQ_STORE },
   { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
   { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
@@ -128,8 +130,8 @@ export const appRoutes: AppRoute[] = [
   { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
-  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: [ROLES.STORE_MANAGER] },
+  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: ADMIN_HQ_STORE },
   // Sales — 매출등록은 STORE_STAFF도 가능
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },

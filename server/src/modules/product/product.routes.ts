@@ -148,6 +148,7 @@ router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(
 // 행사 상품
 router.get('/events', authMiddleware, productController.listEventProducts);
 router.put('/events/bulk', ...eventWrite, productController.bulkUpdateEventPrices);
+router.put('/events/bulk-dates', ...eventWrite, productController.bulkUpdateEventDates);
 
 // Variant 일괄 조회 (variant_id 배열 → 상품+variant 상세)
 router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {

@@ -19,7 +19,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   }
 
   async listWithDetails(options: any = {}) {
-    const { page = 1, limit: rawLimit = 20, partner_code, search, category, season, size, color, fit, length, year, stock_level, sort_field, sort_dir } = options;
+    const { page = 1, limit: rawLimit = 20, partner_code, search, category, sub_category, season, size, color, fit, length, year, year_from, year_to, date_from, date_to, stock_level, sort_field, sort_dir, sale_status } = options;
     const limit = Math.min(Number(rawLimit) || 20, 200); // S-7: limit 상한 200
     const offset = (page - 1) * limit;
 
@@ -35,6 +35,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     if (partner_code) qb.eq('partner_code', partner_code);
     if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
     if (category) qb.raw('p.category = ?', category);
+    if (sub_category) qb.raw('p.sub_category = ?', sub_category);
+    if (sale_status) qb.raw('p.sale_status = ?', sale_status);
     if (season === 'NULL') qb.raw('p.season IS NULL');
     else if (season) qb.raw('p.season = ?', season);
     if (size) qb.raw('pv.size = ?', size);
@@ -45,6 +47,10 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     else if (length) qb.raw('p.length = ?', length);
     if (year === 'NULL') qb.raw('p.year IS NULL');
     else if (year) qb.raw('p.year = ?', year);
+    if (year_from) qb.raw('p.year >= ?', year_from);
+    if (year_to) qb.raw('p.year <= ?', year_to);
+    if (date_from) qb.raw('p.created_at >= ?::date', date_from);
+    if (date_to) qb.raw('p.created_at < ?::date + INTERVAL \'1 day\'', date_to);
     if (stock_level === 'zero') qb.raw('i.qty = 0');
     else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
     else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);

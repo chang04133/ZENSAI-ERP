@@ -1,8 +1,10 @@
 import { useEffect, useState, useRef, useCallback, useMemo, CSSProperties } from 'react';
 import {
-  Card, Col, Row, Table, Tag, Input, Spin, Button,
+  Card, Col, Row, Table, Tag, Input, Spin, Button, AutoComplete, DatePicker,
   InputNumber, Select, Space, Modal, Form, Segmented, message,
 } from 'antd';
+import dayjs, { Dayjs } from 'dayjs';
+import { datePresets } from '../../utils/date-presets';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
@@ -91,18 +93,27 @@ function DashboardTab() {
 
   // 검색/필터 (상품관리와 동일 패턴)
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
   const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [invData, setInvData] = useState<any[]>([]);
@@ -168,8 +179,17 @@ function DashboardTab() {
       setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
     codeApi.getByType('FIT').then((data: any[]) => {
       setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
@@ -185,11 +205,18 @@ function DashboardTab() {
       if (search) params.search = search;
       if (categoryFilter) params.category = categoryFilter;
       if (subCategoryFilter) params.sub_category = subCategoryFilter;
+      if (yearFromFilter) params.year_from = yearFromFilter;
+      if (yearToFilter) params.year_to = yearToFilter;
       if (seasonFilter) params.season = seasonFilter;
       if (statusFilter) params.sale_status = statusFilter;
       if (fitFilter) params.fit = fitFilter;
+      if (lengthFilter) params.length = lengthFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (dateRange) {
+        params.date_from = dateRange[0].format('YYYY-MM-DD');
+        params.date_to = dateRange[1].format('YYYY-MM-DD');
+      }
       const result = await inventoryApi.list(params);
       setInvData(result.data);
       setInvTotal(result.total);
@@ -197,7 +224,7 @@ function DashboardTab() {
     finally { setInvLoading(false); }
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, dateRange]);
 
   const handleCategoryFilterChange = (value: string) => {
     setCategoryFilter(value);
@@ -214,6 +241,20 @@ function DashboardTab() {
       setSubCategoryOptions([]);
     }
   };
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+  const onSearchSelect = (value: string) => { setSearch(value); setPage(1); load(); };
+  useEffect(() => () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); }, []);
 
   const loadMyPendingRequests = useCallback(async () => {
     try {
@@ -472,31 +513,48 @@ function DashboardTab() {
 
       {/* 검색바 (상품관리와 100% 동일) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
-        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input
-            placeholder="코드 또는 이름 검색"
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={load}
-            style={{ width: '100%' }}
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간(등록일)</div>
+          <DatePicker.RangePicker
+            value={dateRange}
+            onChange={(v) => { setDateRange(v as [Dayjs, Dayjs] | null); setPage(1); }}
+            presets={datePresets}
+            format="YYYY-MM-DD"
+            allowClear
+            style={{ width: 300 }}
           /></div>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <AutoComplete value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+            style={{ width: '100%' }}
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+              </div>,
+            }))}>
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => load()} />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
           <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
             options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[
-              { label: '전체 보기', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-            ]} /></div>
+          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
           <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
             options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -681,17 +739,49 @@ function StoreInventoryTab() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [partnerFilter, setPartnerFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
   const [viewMode, setViewMode] = useState<StoreViewMode>('product');
 
   const [searchTrigger, setSearchTrigger] = useState(0);
+
+  const handleCategoryFilterChange = (value: string) => {
+    setCategoryFilter(value);
+    setSubCategoryFilter('');
+    setPage(1);
+    if (!value) { setSubCategoryOptions([]); return; }
+    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
+    if (parent) {
+      setSubCategoryOptions(
+        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+    } else {
+      setSubCategoryOptions([]);
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -700,15 +790,39 @@ function StoreInventoryTab() {
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       if (categoryFilter) params.category = categoryFilter;
+      if (subCategoryFilter) params.sub_category = subCategoryFilter;
       if (seasonFilter) params.season = seasonFilter;
+      if (fitFilter) params.fit = fitFilter;
+      if (lengthFilter) params.length = lengthFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (statusFilter) params.sale_status = statusFilter;
+      if (yearFromFilter) params.year_from = yearFromFilter;
+      if (yearToFilter) params.year_to = yearToFilter;
+      if (dateRange) {
+        params.date_from = dateRange[0].format('YYYY-MM-DD');
+        params.date_to = dateRange[1].format('YYYY-MM-DD');
+      }
       const result = await inventoryApi.list(params);
       setRawData(result.data);
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
   };
+
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+  const onSearchSelect = (value: string) => { setSearch(value); setPage(1); setSearchTrigger(t => t + 1); };
+  useEffect(() => () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); }, []);
 
   const loadPartners = async () => {
     try {
@@ -717,9 +831,25 @@ function StoreInventoryTab() {
     } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, seasonFilter, colorFilter, sizeFilter, searchTrigger]);
+  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter, dateRange, searchTrigger]);
   useEffect(() => {
     loadPartners();
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setAllCategoryCodes(data);
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('FIT').then((data: any[]) => {
+      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
@@ -860,24 +990,52 @@ function StoreInventoryTab() {
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간(등록일)</div>
+          <DatePicker.RangePicker
+            value={dateRange}
+            onChange={(v) => { setDateRange(v as [Dayjs, Dayjs] | null); setPage(1); }}
+            presets={datePresets}
+            format="YYYY-MM-DD"
+            allowClear
+            style={{ width: 300 }}
+          /></div>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
-            value={search} onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={() => { setPage(1); setSearchTrigger(t => t + 1); }} style={{ width: '100%' }} /></div>
+          <AutoComplete value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+            style={{ width: '100%' }}
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+              </div>,
+            }))}>
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); setSearchTrigger(t => t + 1); }} />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장</div>
           <Select showSearch optionFilterProp="label"
             value={partnerFilter} onChange={(v) => { setPartnerFilter(v); setPage(1); }}
             style={{ width: 180 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select value={categoryFilter} onChange={(v) => { setCategoryFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' }, { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' }]} /></div>
+          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[
-              { label: '전체 보기', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-            ]} /></div>
+          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -886,6 +1044,9 @@ function StoreInventoryTab() {
           <Select showSearch optionFilterProp="label" value={sizeFilter}
             onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
         <Button onClick={() => { setPage(1); setSearchTrigger(t => t + 1); }}>조회</Button>
       </div>
 
@@ -926,12 +1087,28 @@ function AdjustTab() {
   const [search, setSearch] = useState('');
   const [partnerFilter, setPartnerFilter] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
 
   const [modalOpen, setModalOpen] = useState(false);
   const [adjustTarget, setAdjustTarget] = useState<any>(null);
@@ -953,6 +1130,22 @@ function AdjustTab() {
   const [txTypeFilter, setTxTypeFilter] = useState('');
   const [txPartnerFilter, setTxPartnerFilter] = useState('');
 
+  const handleAdjustCategoryChange = (value: string) => {
+    setCategoryFilter(value);
+    setSubCategoryFilter('');
+    setPage(1);
+    if (!value) { setSubCategoryOptions([]); return; }
+    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
+    if (parent) {
+      setSubCategoryOptions(
+        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+    } else {
+      setSubCategoryOptions([]);
+    }
+  };
+
   const load = async (p?: number) => {
     const currentPage = p ?? page;
     setLoading(true);
@@ -961,9 +1154,19 @@ function AdjustTab() {
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       if (categoryFilter) params.category = categoryFilter;
+      if (subCategoryFilter) params.sub_category = subCategoryFilter;
       if (seasonFilter) params.season = seasonFilter;
+      if (fitFilter) params.fit = fitFilter;
+      if (lengthFilter) params.length = lengthFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (statusFilter) params.sale_status = statusFilter;
+      if (yearFromFilter) params.year_from = yearFromFilter;
+      if (yearToFilter) params.year_to = yearToFilter;
+      if (dateRange) {
+        params.date_from = dateRange[0].format('YYYY-MM-DD');
+        params.date_to = dateRange[1].format('YYYY-MM-DD');
+      }
       const result = await inventoryApi.list(params);
       setData(result.data);
       setTotal(result.total);
@@ -1001,6 +1204,20 @@ function AdjustTab() {
     finally { setTxLoadingKeys(prev => prev.filter(k => k !== key)); }
   };
 
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+  const onSearchSelect = (value: string) => { setSearch(value); setPage(1); load(1); };
+  useEffect(() => () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); }, []);
+
   const loadPartners = async () => {
     try {
       const result = await partnerApi.list({ limit: '1000' });
@@ -1008,9 +1225,25 @@ function AdjustTab() {
     } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, seasonFilter, colorFilter, sizeFilter]);
+  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter, dateRange]);
   useEffect(() => {
     loadPartners();
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setAllCategoryCodes(data);
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('FIT').then((data: any[]) => {
+      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
@@ -1138,14 +1371,35 @@ function AdjustTab() {
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        {viewMode === 'inventory' && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간(등록일)</div>
+            <DatePicker.RangePicker
+              value={dateRange}
+              onChange={(v) => { setDateRange(v as [Dayjs, Dayjs] | null); setPage(1); }}
+              presets={datePresets}
+              format="YYYY-MM-DD"
+              allowClear
+              style={{ width: 300 }}
+            /></div>
+        )}
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
-            value={viewMode === 'inventory' ? search : txSearch}
-            onChange={(e) => viewMode === 'inventory' ? setSearch(e.target.value) : setTxSearch(e.target.value)}
-            onPressEnter={() => {
-              if (viewMode === 'inventory') { setPage(1); load(1); }
-              else { setTxPage(1); loadTx(1); }
-            }} style={{ width: '100%' }} /></div>
+          {viewMode === 'inventory' ? (
+            <AutoComplete value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+              style={{ width: '100%' }}
+              options={searchSuggestions.map(s => ({
+                value: s.product_code,
+                label: <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                  <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+                </div>,
+              }))}>
+              <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); load(1); }} />
+            </AutoComplete>
+          ) : (
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
+              value={txSearch} onChange={(e) => setTxSearch(e.target.value)}
+              onPressEnter={() => { setTxPage(1); loadTx(1); }} style={{ width: '100%' }} />
+          )}</div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
           <Select showSearch optionFilterProp="label"
             value={viewMode === 'inventory' ? partnerFilter : txPartnerFilter}
@@ -1157,15 +1411,26 @@ function AdjustTab() {
           <>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
               <Select style={{ width: 120 }} value={categoryFilter}
-                onChange={(v) => { setCategoryFilter(v); setPage(1); }}
-                options={[{ label: '전체 보기', value: '' }, { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' }, { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' }]} /></div>
+                onChange={handleAdjustCategoryChange}
+                options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+              <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+                options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+              <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+                placeholder="전체" options={yearOptions} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+              <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+                placeholder="전체" options={yearOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-              <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[
-                  { label: '전체 보기', value: '' },
-                  { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-                  { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-                ]} /></div>
+              <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
+                options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+              <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+                options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+              <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
+                options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
               <Select showSearch optionFilterProp="label" value={colorFilter}
                 onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -1174,6 +1439,9 @@ function AdjustTab() {
               <Select showSearch optionFilterProp="label" value={sizeFilter}
                 onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
                 options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+              <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+                options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
           </>
         )}
         {viewMode === 'history' && (

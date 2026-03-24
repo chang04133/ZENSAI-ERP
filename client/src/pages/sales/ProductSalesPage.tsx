@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Card, Table, Tag, DatePicker, Space, Spin, Select, Input, message, Row, Col, Button } from 'antd';
+import { useEffect, useState, useRef } from 'react';
+import { Card, Table, Tag, DatePicker, Space, Spin, Select, Input, AutoComplete, message, Row, Col, Button } from 'antd';
 import {
   DollarOutlined, ShoppingCartOutlined, SearchOutlined,
   ShopOutlined, TagOutlined, SkinOutlined,
@@ -32,6 +32,8 @@ export default function ProductSalesPage() {
 
   // 필터 상태
   const [search, setSearch] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
+  const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [categoryFilter, setCategoryFilter] = useState('');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
@@ -39,12 +41,17 @@ export default function ProductSalesPage() {
   const [lengthFilter, setLengthFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
   const [partnerFilter, setPartnerFilter] = useState('');
 
   // 옵션 데이터
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
@@ -56,6 +63,12 @@ export default function ProductSalesPage() {
     codeApi.getByType('CATEGORY').then((data: any[]) => {
       setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     codeApi.getByType('FIT').then((data: any[]) => {
       setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
@@ -89,6 +102,20 @@ export default function ProductSalesPage() {
     }
   };
 
+  const onSearchChange = (value: string) => {
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const data = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(data) ? data : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+  const onSearchSelect = (value: string) => { setSearch(value); handleSearch(); };
+  useEffect(() => () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); }, []);
+
   const buildFilters = () => {
     const f: Record<string, string> = {};
     if (search) f.search = search;
@@ -99,6 +126,9 @@ export default function ProductSalesPage() {
     if (lengthFilter) f.length = lengthFilter;
     if (colorFilter) f.color = colorFilter;
     if (sizeFilter) f.size = sizeFilter;
+    if (statusFilter) f.sale_status = statusFilter;
+    if (yearFromFilter) f.year_from = yearFromFilter;
+    if (yearToFilter) f.year_to = yearToFilter;
     if (partnerFilter) f.partner_code = partnerFilter;
     return Object.keys(f).length > 0 ? f : undefined;
   };
@@ -126,7 +156,7 @@ export default function ProductSalesPage() {
   const summary = data?.summary || [];
 
   // 활성 필터 개수
-  const activeFilterCount = [categoryFilter, subCategoryFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, partnerFilter, search].filter(Boolean).length;
+  const activeFilterCount = [categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter, partnerFilter, search].filter(Boolean).length;
 
   return (
     <div>
@@ -144,8 +174,7 @@ export default function ProductSalesPage() {
           onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
           presets={datePresets}
           format="YYYY-MM-DD"
-          size="small"
-          style={{ width: 240 }}
+          style={{ width: 300 }}
         />
         <Space size={4} wrap>
           <Button size="small" onClick={() => quickRange(today, today)}>오늘</Button>
@@ -160,27 +189,32 @@ export default function ProductSalesPage() {
       {/* 세부 필터 바 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input
-            placeholder="코드 또는 이름 검색"
-            prefix={<SearchOutlined />}
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={handleSearch}
+          <AutoComplete value={search} onChange={onSearchChange} onSelect={onSearchSelect}
             style={{ width: '100%' }}
-          /></div>
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+              </div>,
+            }))}>
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={handleSearch} />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={handleCategoryChange} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
           <Select value={subCategoryFilter} onChange={setSubCategoryFilter} style={{ width: 140 }}
             options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select allowClear value={yearFromFilter} onChange={(v) => setYearFromFilter(v || '')} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select allowClear value={yearToFilter} onChange={(v) => setYearToFilter(v || '')} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={seasonFilter} onChange={setSeasonFilter} style={{ width: 120 }}
-            options={[
-              { label: '전체 보기', value: '' },
-              { label: '26 봄/가을', value: '2026SA' }, { label: '26 여름', value: '2026SM' }, { label: '26 겨울', value: '2026WN' },
-              { label: '25 봄/가을', value: '2025SA' }, { label: '25 여름', value: '2025SM' }, { label: '25 겨울', value: '2025WN' },
-            ]} /></div>
+          <Select value={seasonFilter} onChange={setSeasonFilter} style={{ width: 110 }}
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
           <Select value={fitFilter} onChange={setFitFilter} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
@@ -195,6 +229,9 @@ export default function ProductSalesPage() {
           <Select showSearch optionFilterProp="label" value={sizeFilter}
             onChange={setSizeFilter} style={{ width: 100 }}
             options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter} onChange={setStatusFilter} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
         {isHQ && (
           <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
             <Select showSearch optionFilterProp="label" value={partnerFilter}
@@ -205,8 +242,9 @@ export default function ProductSalesPage() {
         {activeFilterCount > 0 && (
           <Button size="small" onClick={() => {
             setSearch(''); setCategoryFilter(''); setSubCategoryFilter(''); setSubCategoryOptions([]);
+            setYearFromFilter(''); setYearToFilter('');
             setSeasonFilter(''); setFitFilter(''); setLengthFilter('');
-            setColorFilter(''); setSizeFilter(''); setPartnerFilter('');
+            setColorFilter(''); setSizeFilter(''); setStatusFilter(''); setPartnerFilter('');
           }}>필터 초기화 ({activeFilterCount})</Button>
         )}
       </div>

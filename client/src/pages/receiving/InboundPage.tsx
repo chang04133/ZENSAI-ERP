@@ -406,7 +406,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
         <div>
           <span style={{ fontSize: 11, color: '#888', marginRight: 4 }}>기간</span>
           <DatePicker.RangePicker value={dateRange as any} onChange={(v) => setDateRange(v as any)}
-            style={{ width: 240 }} />
+            style={{ width: 300 }} />
         </div>
         <Button onClick={() => load(1)}>조회</Button>
       </div>

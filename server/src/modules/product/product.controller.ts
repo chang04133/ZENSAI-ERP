@@ -190,12 +190,25 @@ class ProductController extends BaseController<Product> {
   });
 
   bulkUpdateEventPrices = asyncHandler(async (req: Request, res: Response) => {
-    const { updates, event_store_codes } = req.body;
+    const { updates, event_store_codes, event_start_date, event_end_date } = req.body;
     if (!Array.isArray(updates) || updates.length === 0) {
       res.status(400).json({ success: false, error: '업데이트 항목이 필요합니다.' });
       return;
     }
-    const result = await productService.bulkUpdateEventPrices(updates, event_store_codes);
+    const result = await productService.bulkUpdateEventPrices(updates, event_store_codes, event_start_date, event_end_date);
+    if (isStoreRole(req) && result?.products) {
+      result.products = result.products.map(stripCost);
+    }
+    res.json({ success: true, data: result });
+  });
+
+  bulkUpdateEventDates = asyncHandler(async (req: Request, res: Response) => {
+    const { product_codes, event_start_date, event_end_date } = req.body;
+    if (!Array.isArray(product_codes) || product_codes.length === 0) {
+      res.status(400).json({ success: false, error: '상품 코드가 필요합니다.' });
+      return;
+    }
+    const result = await productService.bulkUpdateEventDates(product_codes, event_start_date || null, event_end_date || null);
     if (isStoreRole(req) && result?.products) {
       result.products = result.products.map(stripCost);
     }

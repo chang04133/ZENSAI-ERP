@@ -5,6 +5,7 @@ import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
   StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
   FileTextOutlined, CheckCircleOutlined, SearchOutlined,
+  UploadOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { productApi } from '../../modules/product/product.api';
@@ -249,6 +250,45 @@ export default function ProductionPlanPage() {
   };
 
   const [submitting, setSubmitting] = useState(false);
+  const excelInputRef = useRef<HTMLInputElement>(null);
+
+  const handleExcelDownload = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch(productionApi.excelTemplateUrl, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'production_plan_template.xlsx';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) { message.error('템플릿 다운로드 실패: ' + e.message); }
+  };
+
+  const handleExcelUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    try {
+      setLoading(true);
+      const result = await productionApi.uploadExcel(file);
+      const msgs: string[] = [`${result.createdPlans}건 계획 생성 (품목 ${result.createdItems}건)`];
+      if (result.errors?.length) msgs.push(`오류 ${result.errors.length}건`);
+      message.success(msgs.join(', '));
+      if (result.errors?.length) {
+        Modal.warning({ title: '일부 오류 발생', width: 520, content: (
+          <div style={{ maxHeight: 300, overflow: 'auto' }}>
+            {result.errors.map((err, i) => <div key={i} style={{ color: '#cf1322', fontSize: 12 }}>{err}</div>)}
+          </div>
+        )});
+      }
+      load(); loadCounts();
+    } catch (err: any) { message.error('엑셀 업로드 실패: ' + err.message); }
+    finally { setLoading(false); }
+  };
 
   const handleCreate = async () => {
     if (submitting) return;
@@ -399,7 +439,12 @@ export default function ProductionPlanPage() {
         <Button onClick={() => { setPage(1); }}>조회</Button>
       </div>
       <Card title={`생산계획 관리${statusFilter ? ` - ${STATUS_LABELS[statusFilter]}` : ''}`} extra={
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
+        <Space>
+          <Button icon={<DownloadOutlined />} onClick={handleExcelDownload}>템플릿</Button>
+          <Button icon={<UploadOutlined />} onClick={() => excelInputRef.current?.click()}>엑셀 등록</Button>
+          <input ref={excelInputRef} type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleExcelUpload} />
+          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>생산계획 등록</Button>
+        </Space>
       }>
         <Table columns={columns} dataSource={plans} rowKey="plan_id" loading={loading}
           size="small" scroll={{ x: 1100, y: 'calc(100vh - 350px)' }}

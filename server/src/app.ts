@@ -25,6 +25,7 @@ import systemRoutes from './modules/system/system.routes';
 import restockRoutes from './modules/restock/restock.routes';
 import dashboardRoutes from './modules/dashboard/dashboard.routes';
 import notificationRoutes from './modules/notification/notification.routes';
+import productionExcelRoutes from './modules/production/production-excel.routes';
 import productionRoutes from './modules/production/production.routes';
 import materialRoutes from './modules/production/material.routes';
 import fundRoutes from './modules/fund/fund.routes';
@@ -106,6 +107,7 @@ app.use('/api/system', systemRoutes);
 app.use('/api/restocks', restockRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/productions', productionExcelRoutes);  // Excel routes first
 app.use('/api/productions', productionRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/funds', fundRoutes);

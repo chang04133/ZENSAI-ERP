@@ -1,11 +1,10 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Table, Button, Select, Space, DatePicker, InputNumber, message,
-  Modal, Tag, Switch, Row, Col, Card, Statistic, Input, Empty, AutoComplete,
+  Modal, Tag, Switch, Input, Empty, AutoComplete,
 } from 'antd';
 import {
-  SearchOutlined, TagsOutlined, ShopOutlined, DeleteOutlined,
-  ExclamationCircleOutlined, CalendarOutlined,
+  SearchOutlined, ExclamationCircleOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
@@ -19,10 +18,11 @@ const { RangePicker } = DatePicker;
 export default function StoreEventPricePage() {
   const { formatCode } = useCodeLabels();
 
-  // 필터 상태 (ProductListPage 동일)
+  // ── 필터 (ProductListPage 동일) ──
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
+  const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
   const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [yearFromFilter, setYearFromFilter] = useState('');
@@ -31,10 +31,9 @@ export default function StoreEventPricePage() {
   const [fitFilter, setFitFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'expired'>('all');
   const [sortValue, setSortValue] = useState('created_at_DESC');
 
-  // 필터 옵션 (codeApi에서 로드)
+  // 필터 옵션
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
@@ -47,7 +46,6 @@ export default function StoreEventPricePage() {
   // 데이터
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
-  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
 
@@ -55,15 +53,12 @@ export default function StoreEventPricePage() {
   const [selectedRowKeys, setSelectedRowKeys] = useState<string[]>([]);
   const [selectedProductsCache, setSelectedProductsCache] = useState<Record<string, any>>({});
 
-  // 행사가 설정 모달
-  const [eventModalOpen, setEventModalOpen] = useState(false);
-  const [eventPriceMap, setEventPriceMap] = useState<Record<string, number>>({});
-  const [eventDateRange, setEventDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
-  const [eventStores, setEventStores] = useState<string[]>([]);
-  const [allStores, setAllStores] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
+  // 일괄 날짜 변경 모달
+  const [dateModalOpen, setDateModalOpen] = useState(false);
+  const [bulkDateRange, setBulkDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
+  const [dateSubmitting, setDateSubmitting] = useState(false);
 
-  // 단건 수정 모달
+  // 단건 행사가 수정 모달
   const [singleModalOpen, setSingleModalOpen] = useState(false);
   const [singleRecord, setSingleRecord] = useState<any>(null);
   const [singlePrice, setSinglePrice] = useState<number>(0);
@@ -138,7 +133,7 @@ export default function StoreEventPricePage() {
     loadAll(1, value);
   };
 
-  // 데이터 로드
+  // 데이터 로드 (전체 상품)
   const loadAll = useCallback(async (p?: number, searchOverride?: string) => {
     const currentPage = p ?? page;
     setLoading(true);
@@ -157,106 +152,69 @@ export default function StoreEventPricePage() {
       const lastUnderscore = sortValue.lastIndexOf('_');
       params.orderBy = sortValue.substring(0, lastUnderscore);
       params.orderDir = sortValue.substring(lastUnderscore + 1);
-
-      if (statusFilter === 'all') {
-        const result = await productApi.list(params);
-        setData(result.data || []);
-        setTotal(result.total || 0);
-      } else {
-        if (statusFilter === 'active') params.active = 'true';
-        if (statusFilter === 'expired') params.expired = 'true';
-        const result = await productApi.listEventProducts(params);
-        setData(result.data || []);
-        setTotal(result.total || 0);
-      }
+      const result = await productApi.list(params);
+      setData(result.data || []);
+      setTotal(result.total || 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue, statusFilter]);
+  }, [page, search, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue]);
 
-  useEffect(() => { loadAll(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue, statusFilter]);
+  useEffect(() => { loadAll(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue]);
 
-  // 선택 시 캐시에 상품 데이터 보존 (페이지 이동해도 유지)
+  // 선택 캐시
   const handleRowSelect = (keys: string[]) => {
     setSelectedRowKeys(keys);
     setSelectedProductsCache(prev => {
       const next = { ...prev };
       data.forEach(d => { if (keys.includes(d.product_code)) next[d.product_code] = d; });
-      // 선택 해제된 항목 제거
       Object.keys(next).forEach(k => { if (!keys.includes(k)) delete next[k]; });
       return next;
     });
   };
 
-  // 모달에 표시할 선택 상품 목록 (캐시에서 가져옴)
   const selectedProducts = useMemo(() =>
     selectedRowKeys.map(k => selectedProductsCache[k]).filter(Boolean),
     [selectedRowKeys, selectedProductsCache],
   );
 
-  // 행사가 일괄 설정 모달 열기
-  const openEventModal = () => {
-    if (selectedRowKeys.length === 0) { message.warning('상품을 선택해주세요'); return; }
-    const priceMap: Record<string, number> = {};
-    selectedProducts.forEach(p => {
-      priceMap[p.product_code] = p.event_price || p.discount_price || p.base_price || 0;
-    });
-    setEventPriceMap(priceMap);
-    setEventDateRange([null, null]);
-    setEventStores([]);
-    setAllStores(true);
-    setEventModalOpen(true);
-  };
-
-  // 행사가 일괄 적용 (전체 동일 금액)
-  const applyBulkPrice = (price: number) => {
-    const newMap: Record<string, number> = {};
-    selectedRowKeys.forEach(code => { newMap[code] = price; });
-    setEventPriceMap(newMap);
-  };
-
-  // 일괄 행사가 설정
-  const handleBulkEventSet = async () => {
-    const hasZero = Object.values(eventPriceMap).some(v => !v || v <= 0);
-    if (hasZero) { message.error('모든 상품의 행사가를 입력해주세요'); return; }
-    if (!allStores && eventStores.length === 0) { message.error('대상 매장을 선택해주세요'); return; }
-    setSubmitting(true);
+  // ── 행사 ON/OFF 토글 ──
+  const handleToggleEvent = async (record: any, checked: boolean) => {
     try {
-      const updates = selectedRowKeys.map(code => ({ product_code: code, event_price: eventPriceMap[code] || 0 }));
-      const storeCodes = allStores ? null : eventStores;
-      const startDate = eventDateRange[0]?.format('YYYY-MM-DD') || null;
-      const endDate = eventDateRange[1]?.format('YYYY-MM-DD') || null;
-      await productApi.bulkUpdateEventPrices(updates, storeCodes, startDate, endDate);
-      message.success(`${selectedRowKeys.length}개 상품 행사가가 설정되었습니다.`);
-      setEventModalOpen(false);
+      if (checked) {
+        const price = record.discount_price || record.base_price || 0;
+        await productApi.updateEventPrice(record.product_code, price);
+        message.success(`${record.product_name} 행사 등록 (${Number(price).toLocaleString()}원)`);
+      } else {
+        await productApi.updateEventPrice(record.product_code, null, null, null, null);
+        message.success(`${record.product_name} 행사 해제`);
+      }
+      loadAll();
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  // ── 일괄 날짜 변경 ──
+  const openDateModal = () => {
+    const eventProducts = selectedProducts.filter(p => p.event_price);
+    if (eventProducts.length === 0) { message.warning('행사중인 상품을 선택해주세요'); return; }
+    setBulkDateRange([null, null]);
+    setDateModalOpen(true);
+  };
+
+  const handleBulkDateChange = async () => {
+    if (!bulkDateRange[0] || !bulkDateRange[1]) { message.error('행사기간을 선택해주세요'); return; }
+    setDateSubmitting(true);
+    try {
+      const codes = selectedProducts.filter(p => p.event_price).map(p => p.product_code);
+      await productApi.bulkUpdateEventDates(codes, bulkDateRange[0].format('YYYY-MM-DD'), bulkDateRange[1].format('YYYY-MM-DD'));
+      message.success(`${codes.length}개 상품의 행사기간이 변경되었습니다.`);
+      setDateModalOpen(false);
       setSelectedRowKeys([]);
       loadAll();
     } catch (e: any) { message.error(e.message); }
-    finally { setSubmitting(false); }
+    finally { setDateSubmitting(false); }
   };
 
-  // 일괄 행사 해제
-  const handleBulkEventClear = () => {
-    if (selectedRowKeys.length === 0) { message.warning('상품을 선택해주세요'); return; }
-    Modal.confirm({
-      title: '행사 해제',
-      icon: <ExclamationCircleOutlined />,
-      content: `선택한 ${selectedRowKeys.length}개 상품의 행사가를 해제하시겠습니까?`,
-      okText: '해제',
-      okType: 'danger',
-      cancelText: '취소',
-      onOk: async () => {
-        try {
-          const updates = selectedRowKeys.map(code => ({ product_code: code, event_price: null as any }));
-          await productApi.bulkUpdateEventPrices(updates, null, null, null);
-          message.success(`${selectedRowKeys.length}개 상품 행사가가 해제되었습니다.`);
-          setSelectedRowKeys([]);
-          loadAll();
-        } catch (e: any) { message.error(e.message); }
-      },
-    });
-  };
-
-  // 단건 수정 모달 열기
+  // ── 단건 행사가 수정 모달 ──
   const openSingleModal = (record: any) => {
     setSingleRecord(record);
     setSinglePrice(record.event_price || record.discount_price || record.base_price || 0);
@@ -270,7 +228,6 @@ export default function StoreEventPricePage() {
     setSingleModalOpen(true);
   };
 
-  // 단건 행사가 저장
   const handleSingleSave = async () => {
     if (!singleRecord) return;
     if (singlePrice <= 0) { message.error('행사가를 입력해주세요'); return; }
@@ -278,8 +235,7 @@ export default function StoreEventPricePage() {
     setSingleSubmitting(true);
     try {
       await productApi.updateEventPrice(
-        singleRecord.product_code,
-        singlePrice,
+        singleRecord.product_code, singlePrice,
         singleDateRange[0]?.format('YYYY-MM-DD') || null,
         singleDateRange[1]?.format('YYYY-MM-DD') || null,
         singleAllStores ? null : singleStores,
@@ -291,7 +247,6 @@ export default function StoreEventPricePage() {
     finally { setSingleSubmitting(false); }
   };
 
-  // 단건 행사 해제
   const handleSingleClear = async () => {
     if (!singleRecord) return;
     setSingleSubmitting(true);
@@ -304,42 +259,45 @@ export default function StoreEventPricePage() {
     finally { setSingleSubmitting(false); }
   };
 
-  // 요약
-  const summary = useMemo(() => {
-    const eventProducts = data.filter(d => d.event_price);
-    const storeSet = new Set<string>();
-    eventProducts.forEach(d => {
-      if (d.event_store_codes) d.event_store_codes.forEach((c: string) => storeSet.add(c));
-    });
-    return { total, eventCount: eventProducts.length, storeCount: storeSet.size };
-  }, [data, total]);
-
-  // 테이블 컬럼
+  // ── 테이블 컬럼 ──
   const columns = [
+    {
+      title: '행사', key: 'event_toggle', width: 60, fixed: 'left' as const,
+      render: (_: any, record: any) => (
+        <Switch
+          size="small"
+          checked={!!record.event_price}
+          onChange={(checked) => handleToggleEvent(record, checked)}
+        />
+      ),
+    },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120 },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
+    { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 80, render: (v: string) => v || '-' },
     { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
     {
-      title: '정상가', dataIndex: 'base_price', key: 'base_price', width: 100,
-      render: (v: number) => v ? `${Number(v).toLocaleString()}` : '-',
+      title: '정상가', dataIndex: 'base_price', key: 'base_price', width: 90,
+      render: (v: number) => v ? Number(v).toLocaleString() : '-',
     },
     {
-      title: '할인가', dataIndex: 'discount_price', key: 'discount_price', width: 100,
+      title: '할인가', dataIndex: 'discount_price', key: 'discount_price', width: 90,
       render: (v: number) => v ? <span style={{ color: '#cf1322' }}>{Number(v).toLocaleString()}</span> : '-',
     },
     {
       title: '행사가', dataIndex: 'event_price', key: 'event_price', width: 100,
-      render: (v: number) => v ? <span style={{ fontWeight: 600, color: '#fa8c16' }}>{Number(v).toLocaleString()}</span> : '-',
+      render: (v: number, record: any) => v
+        ? <Button type="link" size="small" style={{ fontWeight: 600, color: '#fa8c16', padding: 0 }} onClick={() => openSingleModal(record)}>{Number(v).toLocaleString()}</Button>
+        : <span style={{ color: '#ccc' }}>-</span>,
     },
     {
-      title: '행사매장', key: 'event_stores', width: 150, ellipsis: true,
+      title: '적용매장', key: 'event_stores', width: 130, ellipsis: true,
       render: (_: any, record: any) => {
-        const codes: string[] = record.event_store_codes || [];
         if (!record.event_price) return '-';
-        if (codes.length === 0) return <Tag color="blue">전체 매장</Tag>;
+        const codes: string[] = record.event_store_codes || [];
+        if (codes.length === 0) return <Tag color="blue">전체</Tag>;
         return (
           <span>
             {codes.map((code: string) => {
@@ -351,7 +309,7 @@ export default function StoreEventPricePage() {
       },
     },
     {
-      title: '행사기간', key: 'event_period', width: 170,
+      title: '행사기간', key: 'event_period', width: 160,
       render: (_: any, record: any) => {
         if (!record.event_price) return '-';
         const start = record.event_start_date;
@@ -363,30 +321,19 @@ export default function StoreEventPricePage() {
         return <span style={{ color: isExpired ? '#cf1322' : '#389e0d', fontSize: 12 }}>{s} ~ {e}{isExpired ? ' (종료)' : ''}</span>;
       },
     },
-    {
-      title: '설정', key: 'actions', width: 70, fixed: 'right' as const,
-      render: (_: any, record: any) => (
-        <Button size="small" type="link" onClick={() => openSingleModal(record)}>
-          {record.event_price ? '수정' : '설정'}
-        </Button>
-      ),
-    },
   ];
 
   return (
     <div>
-      <PageHeader title="매장 행사가 관리" extra={
+      <PageHeader title="행사관리" extra={
         <Space>
-          <Button icon={<DeleteOutlined />} danger onClick={handleBulkEventClear} disabled={selectedRowKeys.length === 0}>
-            행사 해제 ({selectedRowKeys.length})
-          </Button>
-          <Button type="primary" icon={<TagsOutlined />} onClick={openEventModal} disabled={selectedRowKeys.length === 0}>
-            행사가 설정 ({selectedRowKeys.length})
+          <Button icon={<CalendarOutlined />} onClick={openDateModal} disabled={selectedRowKeys.length === 0}>
+            날짜 변경 ({selectedRowKeys.length})
           </Button>
         </Space>
       } />
 
-      {/* 필터 (상품관리 UI 동일) */}
+      {/* 필터 (상품관리 동일 UI) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete
@@ -430,13 +377,6 @@ export default function StoreEventPricePage() {
           <Select showSearch optionFilterProp="label" value={sizeFilter}
             onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 110 }}
-            options={[
-              { label: '전체 상품', value: 'all' },
-              { label: '행사중', value: 'active' },
-              { label: '행사종료', value: 'expired' },
-            ]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
           <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
             options={[
@@ -448,21 +388,6 @@ export default function StoreEventPricePage() {
             ]} /></div>
         <Button onClick={() => { setPage(1); loadAll(1); }}>조회</Button>
       </div>
-
-      {/* 요약 */}
-      {data.length > 0 && (
-        <Row gutter={16} style={{ marginBottom: 16 }}>
-          <Col span={8}>
-            <Card size="small"><Statistic title="조회 상품" value={summary.total} suffix="개" /></Card>
-          </Col>
-          <Col span={8}>
-            <Card size="small"><Statistic title="행사 적용 중" value={summary.eventCount} suffix="개" valueStyle={{ color: '#fa8c16' }} prefix={<TagsOutlined />} /></Card>
-          </Col>
-          <Col span={8}>
-            <Card size="small"><Statistic title="행사 매장" value={summary.storeCount > 0 ? summary.storeCount : '전체'} prefix={<ShopOutlined />} /></Card>
-          </Col>
-        </Row>
-      )}
 
       {/* 메인 테이블 */}
       <Table
@@ -486,97 +411,49 @@ export default function StoreEventPricePage() {
         locale={{ emptyText: <Empty description="조회 결과가 없습니다" /> }}
       />
 
-      {/* 일괄 행사가 설정 모달 */}
+      {/* 일괄 날짜 변경 모달 */}
       <Modal
-        title={`행사가 일괄 설정 (${selectedRowKeys.length}개 상품)`}
-        open={eventModalOpen}
-        onCancel={() => setEventModalOpen(false)}
-        onOk={handleBulkEventSet}
-        confirmLoading={submitting}
-        okText="행사가 설정"
+        title={`행사기간 일괄 변경 (${selectedProducts.filter(p => p.event_price).length}개 상품)`}
+        open={dateModalOpen}
+        onCancel={() => setDateModalOpen(false)}
+        onOk={handleBulkDateChange}
+        confirmLoading={dateSubmitting}
+        okText="날짜 변경"
         cancelText="취소"
-        width={700}
+        width={520}
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, marginTop: 8 }}>
-          {/* 공통 설정: 기간 + 매장 */}
-          <Row gutter={16}>
-            <Col span={12}>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                <CalendarOutlined style={{ marginRight: 4 }} />행사기간 (공통)
-              </div>
-              <RangePicker
-                value={eventDateRange as any}
-                onChange={(v) => setEventDateRange(v ? [v[0], v[1]] : [null, null])}
-                style={{ width: '100%' }}
-                placeholder={['시작일', '종료일']}
-              />
-            </Col>
-            <Col span={12}>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                <ShopOutlined style={{ marginRight: 4 }} />대상 매장
-                <Switch
-                  size="small" style={{ marginLeft: 8 }}
-                  checked={allStores}
-                  onChange={(v) => { setAllStores(v); if (v) setEventStores([]); }}
-                  checkedChildren="전체" unCheckedChildren="선택"
-                />
-              </div>
-              {!allStores ? (
-                <Select
-                  mode="multiple" placeholder="매장 선택"
-                  options={storeOptions} value={eventStores}
-                  onChange={setEventStores} style={{ width: '100%' }}
-                  optionFilterProp="label"
-                />
-              ) : <div style={{ height: 32, lineHeight: '32px', color: '#999', fontSize: 12 }}>전체 매장 적용</div>}
-            </Col>
-          </Row>
-
-          {/* 일괄 가격 적용 */}
-          <div className="event-bulk-price-row" style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f6f6f6', padding: '8px 12px', borderRadius: 6 }}>
-            <span style={{ fontSize: 12, color: '#666', whiteSpace: 'nowrap' }}>일괄 가격:</span>
-            <InputNumber
-              min={0} style={{ width: 160 }}
-              formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-              placeholder="금액 입력 후 적용"
-              onPressEnter={(e) => { const v = Number((e.target as HTMLInputElement).value.replace(/,/g, '')); if (v > 0) applyBulkPrice(v); }}
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+              <CalendarOutlined style={{ marginRight: 4 }} />새 행사기간
+            </div>
+            <RangePicker
+              value={bulkDateRange as any}
+              onChange={(v) => setBulkDateRange(v ? [v[0], v[1]] : [null, null])}
+              style={{ width: '100%' }}
+              placeholder={['시작일', '종료일']}
             />
-            <Button size="small" onClick={() => {
-              const el = document.querySelector('.event-bulk-price-row input') as HTMLInputElement;
-              const v = el ? Number(el.value.replace(/,/g, '')) : 0;
-              if (v > 0) applyBulkPrice(v);
-              else message.warning('금액을 입력해주세요');
-            }}>전체 적용</Button>
-            <span style={{ fontSize: 11, color: '#999' }}>Enter로도 적용 가능</span>
           </div>
-
-          {/* 상품별 행사가 테이블 */}
-          <div style={{ maxHeight: 340, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
+          <div style={{ maxHeight: 300, overflow: 'auto', border: '1px solid #f0f0f0', borderRadius: 6 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
                   <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #f0f0f0' }}>상품코드</th>
                   <th style={{ padding: '6px 8px', textAlign: 'left', borderBottom: '1px solid #f0f0f0' }}>상품명</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f0f0f0' }}>정상가</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f0f0f0' }}>할인가</th>
-                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f0f0f0', width: 150 }}>행사가 *</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'right', borderBottom: '1px solid #f0f0f0' }}>행사가</th>
+                  <th style={{ padding: '6px 8px', textAlign: 'center', borderBottom: '1px solid #f0f0f0' }}>현재 기간</th>
                 </tr>
               </thead>
               <tbody>
-                {selectedProducts.map(p => (
+                {selectedProducts.filter(p => p.event_price).map(p => (
                   <tr key={p.product_code} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={{ padding: '4px 8px', color: '#666', fontSize: 12 }}>{p.product_code}</td>
-                    <td style={{ padding: '4px 8px', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.product_name}</td>
-                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#999', fontSize: 12 }}>{Number(p.base_price || 0).toLocaleString()}</td>
-                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#cf1322', fontSize: 12 }}>{p.discount_price ? Number(p.discount_price).toLocaleString() : '-'}</td>
-                    <td style={{ padding: '4px 8px' }}>
-                      <InputNumber
-                        min={0} size="small"
-                        style={{ width: '100%' }}
-                        value={eventPriceMap[p.product_code] || 0}
-                        formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                        onChange={(v) => setEventPriceMap(prev => ({ ...prev, [p.product_code]: v || 0 }))}
-                      />
+                    <td style={{ padding: '4px 8px', maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.product_name}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'right', color: '#fa8c16', fontWeight: 600 }}>{Number(p.event_price).toLocaleString()}</td>
+                    <td style={{ padding: '4px 8px', textAlign: 'center', fontSize: 12, color: '#999' }}>
+                      {p.event_start_date || p.event_end_date
+                        ? `${p.event_start_date ? dayjs(p.event_start_date).format('YY.MM.DD') : '~'} ~ ${p.event_end_date ? dayjs(p.event_end_date).format('YY.MM.DD') : '~'}`
+                        : '무기한'}
                     </td>
                   </tr>
                 ))}
@@ -586,12 +463,12 @@ export default function StoreEventPricePage() {
         </div>
       </Modal>
 
-      {/* 단건 행사가 설정 모달 */}
+      {/* 단건 행사가 수정 모달 */}
       <Modal
-        title="행사가 설정"
+        title="행사가 수정"
         open={singleModalOpen}
         onCancel={() => setSingleModalOpen(false)}
-        width={520}
+        width={480}
         footer={[
           singleRecord?.event_price && (
             <Button key="clear" danger onClick={handleSingleClear} loading={singleSubmitting}>행사 해제</Button>
@@ -623,7 +500,7 @@ export default function StoreEventPricePage() {
             </div>
             <div>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                <CalendarOutlined style={{ marginRight: 4 }} />행사기간 (선택)
+                <CalendarOutlined style={{ marginRight: 4 }} />행사기간
               </div>
               <RangePicker
                 value={singleDateRange as any}

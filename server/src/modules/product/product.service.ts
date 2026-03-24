@@ -35,8 +35,12 @@ class ProductService extends BaseService<Product> {
     return productRepository.updateEventPrice(code, eventPrice, startDate, endDate, storeCodes);
   }
 
-  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null) {
-    return productRepository.bulkUpdateEventPrices(updates, storeCodes);
+  async bulkUpdateEventPrices(updates: Array<{ product_code: string; event_price: number | null }>, storeCodes?: string[] | null, startDate?: string | null, endDate?: string | null) {
+    return productRepository.bulkUpdateEventPrices(updates, storeCodes, startDate, endDate);
+  }
+
+  async bulkUpdateEventDates(productCodes: string[], startDate: string | null, endDate: string | null) {
+    return productRepository.bulkUpdateEventDates(productCodes, startDate, endDate);
   }
 
 }

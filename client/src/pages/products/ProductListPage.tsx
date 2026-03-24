@@ -1,12 +1,15 @@
 import { useEffect, useState, useRef } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, AutoComplete, message, Alert, Spin } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, AutoComplete, DatePicker, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
+import dayjs, { Dayjs } from 'dayjs';
+import { datePresets } from '../../utils/date-presets';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { useProductStore } from '../../modules/product/product.store';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
+import { partnerApi } from '../../modules/partner/partner.api';
 import { getToken, apiFetch } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
 import { SALE_STATUS_COLORS } from '../../utils/constants';
@@ -52,8 +55,14 @@ export default function ProductListPage() {
   const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false);
   const [bulkStatus, setBulkStatus] = useState<string | undefined>();
   const [issueFilter, setIssueFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
+  const [partnerFilter, setPartnerFilter] = useState('');
+  const [partners, setPartners] = useState<any[]>([]);
+  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+  const isHQ = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
 
   useEffect(() => {
     codeApi.getByType('CATEGORY').then((data: any[]) => {
@@ -69,10 +78,18 @@ export default function ProductListPage() {
     codeApi.getByType('SEASON').then((data: any[]) => {
       setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
     }).catch(() => {});
+    if (isHQ) {
+      partnerApi.list({ limit: '1000' }).then((r: any) => {
+        setPartners(r.data || []);
+      }).catch(() => {});
+    }
   }, []);
 
   const load = (searchOverride?: string) => {
@@ -86,16 +103,22 @@ export default function ProductListPage() {
     if (seasonFilter) params.season = seasonFilter;
     if (statusFilter) params.sale_status = statusFilter;
     if (fitFilter) params.fit = fitFilter;
+    if (lengthFilter) params.length = lengthFilter;
     if (colorFilter) params.color = colorFilter;
     if (sizeFilter) params.size = sizeFilter;
     if (issueFilter) params.issue = issueFilter;
+    if (partnerFilter) params.partner_code = partnerFilter;
+    if (dateRange) {
+      params.date_from = dateRange[0].format('YYYY-MM-DD');
+      params.date_to = dateRange[1].format('YYYY-MM-DD');
+    }
     const lastUnderscore = sortValue.lastIndexOf('_');
     params.orderBy = sortValue.substring(0, lastUnderscore);
     params.orderDir = sortValue.substring(lastUnderscore + 1);
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, colorFilter, sizeFilter, sortValue, issueFilter]);
+  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, sortValue, issueFilter, partnerFilter, dateRange]);
 
   const onSearchChange = (value: string) => {
     setSearch(value);
@@ -263,6 +286,10 @@ export default function ProductListPage() {
       if (statusFilter) params.sale_status = statusFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (dateRange) {
+        params.date_from = dateRange[0].format('YYYY-MM-DD');
+        params.date_to = dateRange[1].format('YYYY-MM-DD');
+      }
       const rows = await productApi.exportVariants(params);
       const excelCols = [
         { title: '상품코드', key: 'product_code' },
@@ -448,6 +475,15 @@ export default function ProductListPage() {
         }
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간(등록일)</div>
+          <DatePicker.RangePicker
+            value={dateRange}
+            onChange={(v) => { setDateRange(v as [Dayjs, Dayjs] | null); setPage(1); }}
+            presets={datePresets}
+            format="YYYY-MM-DD"
+            allowClear
+            style={{ width: 300 }}
+          /></div>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete
             value={search} onChange={onSearchChange} onSelect={onSearchSelect}
@@ -482,6 +518,9 @@ export default function ProductListPage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
           <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
             options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -501,6 +540,12 @@ export default function ProductListPage() {
               { label: '사이즈 2개+ 깨짐', value: 'broken2' },
               { label: '총수량 10개 미만', value: 'low10' },
             ]} /></div>
+        {isHQ && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+            <Select showSearch optionFilterProp="label" value={partnerFilter}
+              onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 160 }}
+              options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} /></div>
+        )}
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
           <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
             options={[

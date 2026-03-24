@@ -585,7 +585,7 @@ export class SalesRepository {
     dateFrom: string,
     dateTo: string,
     partnerCode?: string,
-    filters?: { category?: string; sub_category?: string; season?: string; fit?: string; length?: string; color?: string; size?: string; search?: string },
+    filters?: { category?: string; sub_category?: string; season?: string; fit?: string; length?: string; color?: string; size?: string; search?: string; year_from?: string; year_to?: string; sale_status?: string },
   ) {
     const params: any[] = [dateFrom, dateTo];
     let nextIdx = 3;
@@ -601,6 +601,9 @@ export class SalesRepository {
     if (filters?.season) { params.push(filters.season); productFilters += ` AND p.season = $${nextIdx++}`; }
     if (filters?.fit) { params.push(filters.fit); productFilters += ` AND p.fit = $${nextIdx++}`; }
     if (filters?.length) { params.push(filters.length); productFilters += ` AND p.length = $${nextIdx++}`; }
+    if (filters?.year_from) { params.push(filters.year_from); productFilters += ` AND p.year >= $${nextIdx++}`; }
+    if (filters?.year_to) { params.push(filters.year_to); productFilters += ` AND p.year <= $${nextIdx++}`; }
+    if (filters?.sale_status) { params.push(filters.sale_status); productFilters += ` AND p.sale_status = $${nextIdx++}`; }
     if (filters?.color) { params.push(filters.color); variantFilters += ` AND pv.color = $${nextIdx++}`; }
     if (filters?.size) { params.push(filters.size); variantFilters += ` AND pv.size = $${nextIdx++}`; }
     if (filters?.search) {
@@ -617,7 +620,7 @@ export class SalesRepository {
     let simpleIdx = 3;
     if (partnerCode) { simpleParams.push(partnerCode); simpleFilter = `AND partner_code = $${simpleIdx++}`; }
     // 간단 쿼리에서도 product 필터가 있으면 서브쿼리로 variant_id 제한
-    const hasProductFilter = !!(filters?.category || filters?.sub_category || filters?.season || filters?.fit || filters?.length || filters?.color || filters?.size || filters?.search);
+    const hasProductFilter = !!(filters?.category || filters?.sub_category || filters?.season || filters?.fit || filters?.length || filters?.color || filters?.size || filters?.search || filters?.year_from || filters?.year_to || filters?.sale_status);
 
     // 상품별 집계
     const summarySql = `
@@ -715,7 +718,7 @@ export class SalesRepository {
 
   /** 스타일별 판매현황 (기간별) */
   async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string, category?: string,
-    filters?: { sub_category?: string; season?: string; fit?: string; color?: string; size?: string; search?: string; sale_status?: string }) {
+    filters?: { sub_category?: string; season?: string; fit?: string; color?: string; size?: string; search?: string; sale_status?: string; year_from?: string; year_to?: string; length?: string }) {
     const params: any[] = [dateFrom, dateTo];
     let pcFilter = '';
     let catFilter = '';
@@ -764,6 +767,21 @@ export class SalesRepository {
     if (filters?.sale_status) {
       params.push(filters.sale_status);
       extraFilter += ` AND p.sale_status = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.year_from) {
+      params.push(filters.year_from);
+      extraFilter += ` AND p.year >= $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.year_to) {
+      params.push(filters.year_to);
+      extraFilter += ` AND p.year <= $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.length) {
+      params.push(filters.length);
+      extraFilter += ` AND p.length = $${nextIdx}`;
       nextIdx++;
     }
 

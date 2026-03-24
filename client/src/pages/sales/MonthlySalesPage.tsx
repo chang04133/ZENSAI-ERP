@@ -1,12 +1,11 @@
 import { useEffect, useState } from 'react';
-import { Button, DatePicker, Space, Modal, Table, Tag, message } from 'antd';
+import { Button, DatePicker, Space, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
-import { useSearchParams } from 'react-router-dom';
 import dayjs, { Dayjs } from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
+
 import { datePresets } from '../../utils/date-presets';
-import { fmt } from '../../utils/format';
 
 const { RangePicker } = DatePicker;
 
@@ -24,6 +23,8 @@ interface PartnerRow {
   mtd_qty: number;
 }
 
+const fmt = (v: number) => v.toLocaleString();
+
 /* 증감 표시 */
 function Change({ cur, prev }: { cur: number; prev: number }) {
   const diff = cur - prev;
@@ -37,16 +38,6 @@ function Change({ cur, prev }: { cur: number; prev: number }) {
   );
 }
 
-/* 금액 + 증감 2줄 렌더 */
-function AmtWithChange({ amt, prev, bold, color }: { amt: number; prev?: number; bold?: boolean; color?: string }) {
-  return (
-    <div>
-      <div style={{ fontWeight: bold ? 700 : 400, color }}>{fmt(amt)}</div>
-      {prev !== undefined && <Change cur={amt} prev={prev} />}
-    </div>
-  );
-}
-
 const ZERO_ROW = {
   prev_year_amount: 0, prev_month_amount: 0,
   normal_amount: 0, discount_amount: 0, event_amount: 0,
@@ -54,17 +45,9 @@ const ZERO_ROW = {
 };
 
 export default function MonthlySalesPage() {
-  const [searchParams] = useSearchParams();
   const [data, setData] = useState<PartnerRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [range, setRange] = useState<[Dayjs, Dayjs]>(() => {
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
-    return [
-      from && dayjs(from).isValid() ? dayjs(from) : dayjs().startOf('month'),
-      to && dayjs(to).isValid() ? dayjs(to) : dayjs(),
-    ];
-  });
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
 
   const load = async (from: Dayjs, to: Dayjs) => {
     setLoading(true);
@@ -88,47 +71,6 @@ export default function MonthlySalesPage() {
 
   const handleSearch = () => load(range[0], range[1]);
 
-  /* ── 판매 상세 모달 ── */
-  const [detailOpen, setDetailOpen] = useState(false);
-  const [detailData, setDetailData] = useState<any[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailTitle, setDetailTitle] = useState('');
-
-  const showDetail = async (partnerCode: string | undefined, partnerName: string, saleType?: string) => {
-    const typeLabel = saleType === '정상' ? '정상' : saleType === '할인' ? '할인' : saleType === '행사' ? '행사' : '전체';
-    const who = partnerCode ? partnerName : '전체 매장';
-    setDetailTitle(`${who} — ${typeLabel} 매출 상세`);
-    setDetailOpen(true);
-    setDetailLoading(true);
-    try {
-      const result = await salesApi.comprehensiveDetail(
-        range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'),
-        partnerCode, saleType,
-      );
-      setDetailData(result || []);
-    } catch (e: any) { message.error(e.message); }
-    finally { setDetailLoading(false); }
-  };
-
-  const detailColumns = [
-    { title: '판매일', dataIndex: 'sale_date', width: 100,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
-    { title: '품번', dataIndex: 'product_code', width: 110 },
-    { title: '상품명', dataIndex: 'product_name', width: 160, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', width: 140 },
-    { title: '컬러', dataIndex: 'color', width: 60 },
-    { title: '사이즈', dataIndex: 'size', width: 60 },
-    { title: '유형', dataIndex: 'sale_type', width: 60,
-      render: (v: string) => {
-        const c = v === '할인' ? 'red' : v === '행사' ? 'orange' : 'blue';
-        return <Tag color={c}>{v}</Tag>;
-      } },
-    { title: '수량', dataIndex: 'qty', width: 60, render: (v: number) => fmt(v) },
-    { title: '단가', dataIndex: 'unit_price', width: 90, render: (v: number) => fmt(v) },
-    { title: '금액', dataIndex: 'total_price', width: 100,
-      render: (v: number) => <b>{fmt(v)}</b> },
-  ];
-
   const quickRange = (from: Dayjs, to: Dayjs) => {
     setRange([from, to]);
     load(from, to);
@@ -148,114 +90,89 @@ export default function MonthlySalesPage() {
     mtd_qty: acc.mtd_qty + r.mtd_qty,
   }), { ...ZERO_ROW });
 
-  /* 클릭 가능 셀 스타일 */
-  const clickableStyle: React.CSSProperties = { cursor: 'pointer', textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 2 };
+  /* 셀 스타일 */
+  const thStyle: React.CSSProperties = {
+    padding: '6px 8px', fontSize: 11, fontWeight: 600, textAlign: 'center',
+    borderBottom: '2px solid #1a3a6a', color: '#1a3a6a', whiteSpace: 'nowrap',
+    background: '#e8edf5',
+  };
+  const tdStyle: React.CSSProperties = {
+    padding: '4px 8px', fontSize: 12, textAlign: 'right',
+    borderBottom: '1px solid #e0e0e0', whiteSpace: 'nowrap',
+  };
+  const tdBold: React.CSSProperties = {
+    ...tdStyle, fontWeight: 700, borderBottom: '2px solid #ccc',
+  };
+  const tdLabel: React.CSSProperties = {
+    ...tdStyle, textAlign: 'left', fontWeight: 500,
+  };
+  const tdLabelBold: React.CSSProperties = {
+    ...tdLabel, fontWeight: 700, borderBottom: '2px solid #ccc',
+  };
 
-  /* 메인 테이블 컬럼 */
-  const columns: any[] = [
-    {
-      title: '거래처', dataIndex: 'partner_name', width: 140, fixed: 'left' as const,
-      render: (_: string, r: PartnerRow) => (
-        <div style={{ ...clickableStyle }} onClick={() => showDetail(r.partner_code, r.partner_name)}>
-          <div style={{ fontWeight: 600, fontSize: 12, color: '#1677ff' }}>{r.partner_name}</div>
-          <div style={{ fontSize: 10, color: '#888' }}>({r.partner_code})</div>
-        </div>
-      ),
-    },
-    {
-      title: '전년동기', dataIndex: 'prev_year_amount', width: 120, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.prev_year_amount - b.prev_year_amount,
-      render: (_: number, r: PartnerRow) => <AmtWithChange amt={r.prev_year_amount} />,
-    },
-    {
-      title: '전월', dataIndex: 'prev_month_amount', width: 120, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.prev_month_amount - b.prev_month_amount,
-      render: (_: number, r: PartnerRow) => <AmtWithChange amt={r.prev_month_amount} />,
-    },
-    {
-      title: '정상', dataIndex: 'normal_amount', width: 110, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.normal_amount - b.normal_amount,
-      render: (v: number, r: PartnerRow) => (
-        <div style={v > 0 ? clickableStyle : undefined} onClick={() => v > 0 && showDetail(r.partner_code, r.partner_name, '정상')}>
-          {fmt(v)}
-        </div>
-      ),
-    },
-    {
-      title: <span style={{ color: '#f5222d' }}>할인</span>, dataIndex: 'discount_amount', width: 110, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.discount_amount - b.discount_amount,
-      render: (v: number, r: PartnerRow) => (
-        <div style={{ color: v > 0 ? '#f5222d' : undefined, ...(v > 0 ? clickableStyle : {}) }}
-          onClick={() => v > 0 && showDetail(r.partner_code, r.partner_name, '할인')}>
-          {fmt(v)}
-        </div>
-      ),
-    },
-    {
-      title: <span style={{ color: '#fa8c16' }}>행사</span>, dataIndex: 'event_amount', width: 110, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.event_amount - b.event_amount,
-      render: (v: number, r: PartnerRow) => (
-        <div style={{ color: v > 0 ? '#fa8c16' : undefined, ...(v > 0 ? clickableStyle : {}) }}
-          onClick={() => v > 0 && showDetail(r.partner_code, r.partner_name, '행사')}>
-          {fmt(v)}
-        </div>
-      ),
-    },
-    {
-      title: '합계', dataIndex: 'cur_amount', width: 130, align: 'right' as const,
-      defaultSortOrder: 'descend' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.cur_amount - b.cur_amount,
-      render: (_: number, r: PartnerRow) => (
-        <div style={clickableStyle} onClick={() => showDetail(r.partner_code, r.partner_name)}>
-          <div style={{ fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</div>
-          <Change cur={r.cur_amount} prev={r.prev_year_amount} />
-        </div>
-      ),
-    },
-    {
-      title: '당월누계', dataIndex: 'mtd_amount', width: 120, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.mtd_amount - b.mtd_amount,
-      render: (v: number, r: PartnerRow) => (
-        <div style={{ color: '#1677ff', ...(v > 0 ? clickableStyle : {}) }}
-          onClick={() => v > 0 && showDetail(r.partner_code, r.partner_name)}>
-          {fmt(v)}
-        </div>
-      ),
-    },
-    {
-      title: '수량', dataIndex: 'cur_qty', width: 80, align: 'right' as const,
-      sorter: (a: PartnerRow, b: PartnerRow) => a.cur_qty - b.cur_qty,
-      render: (v: number) => fmt(v),
-    },
-    {
-      title: '비율', width: 70, align: 'center' as const,
-      render: (_: any, r: PartnerRow) => {
-        const pct = totals.cur_amount > 0 ? ((r.cur_amount / totals.cur_amount) * 100).toFixed(0) : '0';
-        return <span style={{ color: '#666' }}>{pct}%</span>;
-      },
-    },
-  ];
+  /* 행 렌더 (2줄: 금액 + 증감) */
+  const renderRow = (r: PartnerRow | typeof totals & { partner_code?: string; partner_name?: string }, idx: number, isTotal = false) => {
+    const bg1 = isTotal ? '#f0f4ff' : idx % 2 === 0 ? '#fff' : '#fafbfe';
+    const bg2 = isTotal ? '#e6ecf8' : idx % 2 === 0 ? '#f7f8fc' : '#f2f3f9';
+    const sAmt = isTotal ? tdBold : tdStyle;
+    const sLbl = isTotal ? tdLabelBold : tdLabel;
+    const label = isTotal ? '합계' : `${(r as PartnerRow).partner_name}`;
+    const code = isTotal ? '' : `(${(r as PartnerRow).partner_code})`;
+    const pctOfTotal = totals.cur_amount > 0 ? ((r.cur_amount / totals.cur_amount) * 100).toFixed(0) : '0';
+
+    return (
+      <>
+        {/* 금액 행 */}
+        <tr key={`${idx}-amt`} style={{ background: bg1 }}>
+          <td rowSpan={2} style={{ ...sLbl, textAlign: 'center', verticalAlign: 'middle', width: 32 }}>
+            {isTotal ? '' : idx}
+          </td>
+          <td rowSpan={2} style={{ ...sLbl, verticalAlign: 'middle', minWidth: 120 }}>
+            <div style={{ fontWeight: isTotal ? 700 : 600, fontSize: 12 }}>{label}</div>
+            {code && <div style={{ fontSize: 10, color: '#888' }}>{code}</div>}
+          </td>
+          <td style={sAmt}>{fmt(r.prev_year_amount)}</td>
+          <td style={sAmt}>{fmt(r.prev_month_amount)}</td>
+          <td style={sAmt}>{fmt(r.normal_amount)}</td>
+          <td style={{ ...sAmt, color: r.discount_amount > 0 ? '#f5222d' : undefined }}>{fmt(r.discount_amount)}</td>
+          <td style={{ ...sAmt, color: r.event_amount > 0 ? '#fa8c16' : undefined }}>{fmt(r.event_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</td>
+          <td style={{ ...sAmt, color: '#1677ff' }}>{fmt(r.mtd_amount)}</td>
+          <td style={sAmt}>{fmt(r.cur_qty)}</td>
+          <td rowSpan={2} style={{ ...sAmt, textAlign: 'center', verticalAlign: 'middle', color: '#666' }}>
+            {pctOfTotal}%
+          </td>
+        </tr>
+        {/* 증감 행 */}
+        <tr key={`${idx}-chg`} style={{ background: bg2 }}>
+          <td style={sAmt}><Change cur={r.cur_amount} prev={r.prev_year_amount} /></td>
+          <td style={sAmt}><Change cur={r.cur_amount} prev={r.prev_month_amount} /></td>
+          <td style={{ ...sAmt, fontWeight: 700 }}>{fmt(r.normal_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: r.discount_amount > 0 ? '#f5222d' : undefined }}>{fmt(r.discount_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: r.event_amount > 0 ? '#fa8c16' : undefined }}>{fmt(r.event_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1677ff' }}>{fmt(r.mtd_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700 }}>{fmt(r.mtd_qty)}</td>
+        </tr>
+      </>
+    );
+  };
 
   return (
     <div style={{ width: '100%' }}>
       <PageHeader title="종합 매출조회" />
 
       {/* ── 필터 바 ── */}
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8,
-        marginBottom: 16, padding: '10px 14px',
-        background: '#f5f7fa', borderRadius: 8, border: '1px solid #e0e4ea',
-      }}>
-        <span style={{ fontSize: 13, fontWeight: 600, color: '#333' }}>조회기간</span>
-        <RangePicker
-          value={range}
-          onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
-          presets={datePresets}
-          format="YYYY-MM-DD"
-          size="small"
-          style={{ width: 240 }}
-        />
-        <Space size={4} wrap>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간</div>
+          <RangePicker
+            value={range}
+            onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
+            presets={datePresets}
+            format="YYYY-MM-DD"
+            style={{ width: 240 }}
+          /></div>
+        <Space size={4} wrap style={{ alignSelf: 'flex-end' }}>
           <Button size="small" onClick={() => quickRange(today, today)}>오늘</Button>
           <Button size="small" onClick={() => quickRange(today.subtract(2, 'day'), today)}>3일</Button>
           <Button size="small" onClick={() => quickRange(today.subtract(6, 'day'), today)}>7일</Button>
@@ -263,7 +180,7 @@ export default function MonthlySalesPage() {
           <Button size="small" onClick={() => quickRange(today.subtract(1, 'month').startOf('month'), today.subtract(1, 'month').endOf('month'))}>전월</Button>
           <Button size="small" type="primary" ghost onClick={() => quickRange(today.startOf('month'), today)}>당월</Button>
         </Space>
-        <Button type="primary" size="small" icon={<SearchOutlined />} onClick={handleSearch}>검색</Button>
+        <Button onClick={handleSearch}>조회</Button>
       </div>
 
       {/* ── 기간 표시 ── */}
@@ -272,73 +189,44 @@ export default function MonthlySalesPage() {
         {' | '}거래처 <b>{data.length}</b>개
         {' | '}매출합계 <b style={{ color: '#1a3a6a' }}>{fmt(totals.cur_amount)}원</b>
         {' '}(정상 {fmt(totals.normal_amount)}
-        {' '}/ <span style={{ color: '#f5222d' }}>할인 {fmt(totals.discount_amount)}</span>
+        {' '}/ <span style={{ color: '#f5222d' }}>기획/할인 {fmt(totals.discount_amount)}</span>
         {' '}/ <span style={{ color: '#fa8c16' }}>행사 {fmt(totals.event_amount)}</span>)
         {' | '}당월누계 <b style={{ color: '#1677ff' }}>{fmt(totals.mtd_amount)}원</b>
       </div>
 
-      {/* ── 메인 테이블 ── */}
-      <Table
-        dataSource={data}
-        columns={columns}
-        rowKey="partner_code"
-        loading={loading}
-        size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 280px)' }}
-        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-        summary={() => {
-          if (data.length === 0) return null;
-          const pctTotal = '100';
-          return (
-            <Table.Summary fixed>
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0}><b>합계</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={1} align="right"><b>{fmt(totals.prev_year_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={2} align="right"><b>{fmt(totals.prev_month_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={3} align="right"><b>{fmt(totals.normal_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={4} align="right"><b style={{ color: '#f5222d' }}>{fmt(totals.discount_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={5} align="right"><b style={{ color: '#fa8c16' }}>{fmt(totals.event_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={6} align="right">
-                  <div>
-                    <b style={{ color: '#1a3a6a' }}>{fmt(totals.cur_amount)}</b>
-                    <div><Change cur={totals.cur_amount} prev={totals.prev_year_amount} /></div>
-                  </div>
-                </Table.Summary.Cell>
-                <Table.Summary.Cell index={7} align="right"><b style={{ color: '#1677ff' }}>{fmt(totals.mtd_amount)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={8} align="right"><b>{fmt(totals.cur_qty)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={9} align="center"><b>{pctTotal}%</b></Table.Summary.Cell>
-              </Table.Summary.Row>
-            </Table.Summary>
-          );
-        }}
-      />
-
-      {/* ── 판매 상세 모달 ── */}
-      <Modal title={detailTitle} open={detailOpen} onCancel={() => setDetailOpen(false)}
-        width={1000} footer={null}>
-        <div style={{ marginBottom: 8, fontSize: 12, color: '#666' }}>
-          {range[0].format('YYYY-MM-DD')} ~ {range[1].format('YYYY-MM-DD')}
-          {' | '}총 <b>{detailData.length}</b>건
-          {' | '}합계 <b>{fmt(detailData.reduce((s, r) => s + Number(r.total_price || 0), 0))}원</b>
-        </div>
-        <Table dataSource={detailData} columns={detailColumns} rowKey="sale_id"
-          loading={detailLoading} size="small"
-          scroll={{ x: 950, y: 'calc(100vh - 340px)' }}
-          pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-          summary={(d) => {
-            const totalQty = d.reduce((s, r) => s + Number(r.qty || 0), 0);
-            const totalAmt = d.reduce((s, r) => s + Number(r.total_price || 0), 0);
-            return (
-              <Table.Summary.Row>
-                <Table.Summary.Cell index={0} colSpan={7}><b>합계</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={7} align="right"><b>{fmt(totalQty)}</b></Table.Summary.Cell>
-                <Table.Summary.Cell index={8} align="right" />
-                <Table.Summary.Cell index={9} align="right"><b>{fmt(totalAmt)}</b></Table.Summary.Cell>
-              </Table.Summary.Row>
-            );
-          }}
-        />
-      </Modal>
+      {/* ── 테이블 ── */}
+      <div style={{ overflowX: 'auto', border: '1px solid #d0d5dd', borderRadius: 6 }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
+          <thead>
+            <tr>
+              <th style={thStyle}>No</th>
+              <th style={{ ...thStyle, textAlign: 'left' }}>거래처</th>
+              <th style={thStyle}>전년동기</th>
+              <th style={thStyle}>전월동기</th>
+              <th style={thStyle}>정상</th>
+              <th style={{ ...thStyle, color: '#f5222d' }}>기획/할인</th>
+              <th style={{ ...thStyle, color: '#fa8c16' }}>행사</th>
+              <th style={thStyle}>합계</th>
+              <th style={thStyle}>당월누계</th>
+              <th style={thStyle}>수량</th>
+              <th style={thStyle}>비율</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#999' }}>로딩 중...</td></tr>
+            ) : (
+              <>
+                {renderRow(totals, 0, true)}
+                {data.map((r, i) => renderRow(r, i + 1))}
+                {data.length === 0 && (
+                  <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#999' }}>매출 데이터가 없습니다</td></tr>
+                )}
+              </>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

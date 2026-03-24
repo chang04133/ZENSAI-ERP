@@ -162,7 +162,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         WHERE pp.status NOT IN ('COMPLETED', 'CANCELLED')
         GROUP BY pp.plan_id, pt.partner_name
         ORDER BY pp.target_date ASC NULLS LAST, pp.created_at DESC
-        LIMIT 10
+        LIMIT 7
       `),
       pool.query(`
         SELECT pp.season,

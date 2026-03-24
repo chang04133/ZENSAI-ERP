@@ -232,7 +232,7 @@ export default function NewProductShipmentPage() {
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 70 },
     {
       title: '총 판매수량', dataIndex: 'total_sold', key: 'total_sold', width: 100,
-      sorter: (a: GroupedVariant, b: GroupedVariant) => a.total_sold - b.total_sold,
+      sorter: (a: GroupedVariant, b: GroupedVariant) => Number(a.total_sold) - Number(b.total_sold),
       defaultSortOrder: 'descend' as const,
       render: (v: number) => <span style={{ fontWeight: 600, color: '#1677ff' }}>{v}</span>,
     },
@@ -292,7 +292,7 @@ export default function NewProductShipmentPage() {
       {/* 필터 */}
       <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <div>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>판매기간</div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>판매기간</div>
           <RangePicker
             value={dateRange}
             onChange={(v) => v && setDateRange(v as [dayjs.Dayjs, dayjs.Dayjs])}
@@ -305,7 +305,7 @@ export default function NewProductShipmentPage() {
           />
         </div>
         <div>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>신상 기준</div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>신상 기준</div>
           <Segmented
             value={filterType}
             onChange={(v) => setFilterType(v as 'season' | 'recent_days')}
@@ -317,17 +317,17 @@ export default function NewProductShipmentPage() {
         </div>
         {filterType === 'season' ? (
           <div>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>시즌</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
             <Select value={season} onChange={setSeason} options={SEASON_OPTIONS} style={{ width: 150 }} />
           </div>
         ) : (
           <div>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>등록 기간</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>등록 기간</div>
             <Select value={recentDays} onChange={setRecentDays} options={DAYS_OPTIONS} style={{ width: 100 }} />
           </div>
         )}
         <div>
-          <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>카테고리</div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={category} onChange={setCategory} options={CATEGORY_OPTIONS} style={{ width: 120 }} allowClear placeholder="전체" />
         </div>
         <Button type="primary" icon={<SearchOutlined />} onClick={handleSearch} loading={loading}>조회</Button>
@@ -358,6 +358,7 @@ export default function NewProductShipmentPage() {
         rowKey="key"
         loading={loading}
         size="small"
+        sortDirections={['descend', 'ascend', 'descend']}
         scroll={{ x: 1100, y: 'calc(100vh - 340px)' }}
         pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
         expandable={{ expandedRowRender }}

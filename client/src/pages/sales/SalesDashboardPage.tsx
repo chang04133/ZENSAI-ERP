@@ -46,19 +46,23 @@ function DailyChart({ data }: { data: Array<{ date: string; revenue: number; qty
 }
 
 /* ── Horizontal Bar ── */
-function HBar({ data, colorKey, history, onItemClick }: {
+function HBar({ data, colorKey, history, onItemClick, maxItems = 7 }: {
   data: Array<{ label: string; value: number; sub?: string }>;
   colorKey?: Record<string, string>;
   history?: Array<{ year: number; label: string; total_amount: number }>;
   onItemClick?: (label: string) => void;
+  maxItems?: number;
 }) {
+  const [expanded, setExpanded] = useState(false);
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
+  const hasMore = data.length > maxItems;
+  const visibleData = hasMore && !expanded ? data.slice(0, maxItems) : data;
   const max = Math.max(...data.map(d => d.value), 1);
   const curYear = new Date().getFullYear();
   const prevYears = history ? [...new Set(history.map(h => h.year))].filter(y => y < curYear).sort((a, b) => b - a) : [];
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {data.map((d, i) => {
+      {visibleData.map((d, i) => {
         const pct = (d.value / max) * 100;
         const c = colorKey?.[d.label] || COLORS[i % COLORS.length];
         const prevData = prevYears.map(y => {
@@ -108,6 +112,12 @@ function HBar({ data, colorKey, history, onItemClick }: {
           </div>
         );
       })}
+      {hasMore && (
+        <div onClick={() => setExpanded(!expanded)}
+          style={{ textAlign: 'center', padding: '4px 0', cursor: 'pointer', fontSize: 12, color: '#1677ff', userSelect: 'none' }}>
+          {expanded ? '접기 ▲' : `기타 ${data.length - maxItems}개 더보기 ▼`}
+        </div>
+      )}
     </div>
   );
 }
@@ -363,7 +373,7 @@ export default function SalesDashboardPage() {
       {/* ── 거래처별 매출 + 2월 매출 비교 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={12}>
-          <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />거래처별 매출 TOP 10 ({periodLabel})</span>}
+          <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />거래처별 매출 TOP 7 ({periodLabel})</span>}
             size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
             extra={<a onClick={() => navigate('/sales/partner-sales')}>상세보기</a>}>
             <HBar

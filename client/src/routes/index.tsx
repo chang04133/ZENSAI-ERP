@@ -14,8 +14,7 @@ const PartnerFormPage = lazy(() => import('../pages/partners/PartnerFormPage'));
 const ProductListPage = lazy(() => import('../pages/products/ProductListPage'));
 const ProductFormPage = lazy(() => import('../pages/products/ProductFormPage'));
 const ProductDetailPage = lazy(() => import('../pages/products/ProductDetailPage'));
-const DeadStockPage = lazy(() => import('../pages/products/DeadStockPage'));
-const StoreEventPricePage = lazy(() => import('../pages/products/StoreEventPricePage'));
+const EventProductsPage = lazy(() => import('../pages/products/StoreEventPricePage'));
 
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
@@ -30,15 +29,11 @@ const ReturnManagePage = lazy(() => import('../pages/shipment/ReturnManagePage')
 const HorizontalTransferPage = lazy(() => import('../pages/shipment/HorizontalTransferPage'));
 const ShipmentHistoryPage = lazy(() => import('../pages/shipment/ShipmentHistoryPage'));
 const ShipmentViewPage = lazy(() => import('../pages/shipment/ShipmentViewPage'));
-const NewProductShipmentPage = lazy(() => import('../pages/shipment/NewProductShipmentPage'));
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
 const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
 const WarehouseInventoryPage = lazy(() => import('../pages/inventory/WarehouseInventoryPage'));
-
-// Inbound (입고)
-const InboundPage = lazy(() => import('../pages/receiving/InboundPage'));
 
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
@@ -46,6 +41,8 @@ const SalesEntryPage = lazy(() => import('../pages/sales/SalesEntryPage'));
 const ProductSalesPage = lazy(() => import('../pages/sales/ProductSalesPage'));
 const MonthlySalesPage = lazy(() => import('../pages/sales/MonthlySalesPage'));
 const SalesAnalyticsPage = lazy(() => import('../pages/sales/SalesAnalyticsPage'));
+const SellThroughPage = lazy(() => import('../pages/sales/SellThroughPage'));
+
 // Production
 const ProductionDashboardPage = lazy(() => import('../pages/production/ProductionDashboardPage'));
 const ProductionPlanPage = lazy(() => import('../pages/production/ProductionPlanPage'));
@@ -65,13 +62,23 @@ const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage
 const ActivityLogPage = lazy(() => import('../pages/system/ActivityLogPage'));
 
 // ── NEW: 신규 모듈 ──
-
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
 
 // Notice (공지사항)
 const NoticeBoardPage = lazy(() => import('../pages/notice/NoticeBoardPage'));
 
+
+// CRM
+const CrmPage = lazy(() => import('../pages/crm/CrmPage'));
+const CampaignListPage = lazy(() => import('../pages/crm/CampaignListPage'));
+const CampaignDetailPage = lazy(() => import('../pages/crm/CampaignDetailPage'));
+const TemplatePage = lazy(() => import('../pages/crm/TemplatePage'));
+const SenderSettingsPage = lazy(() => import('../pages/crm/SenderSettingsPage'));
+const SegmentListPage = lazy(() => import('../pages/crm/SegmentListPage'));
+const SegmentDetailPage = lazy(() => import('../pages/crm/SegmentDetailPage'));
+const DormantCustomerPage = lazy(() => import('../pages/crm/DormantCustomerPage'));
+const AfterSalesPage = lazy(() => import('../pages/crm/AfterSalesPage'));
 
 // ── Route Definition ──
 export interface AppRoute {
@@ -97,13 +104,12 @@ export const appRoutes: AppRoute[] = [
 
   // Products
   { path: '/products', element: <ProductListPage />, roles: ALL },
-  { path: '/products/dead-stock', element: <DeadStockPage />, roles: ADMIN_HQ_STORE },
-  { path: '/products/event-price', element: <StoreEventPricePage />, roles: ADMIN_HQ },
-  { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_SYS },
+  { path: '/products/events', element: <EventProductsPage />, roles: ADMIN_HQ_STORE },
+  { path: '/products/new', element: <ProductFormPage />, roles: ADMIN_HQ },
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
-  { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_SYS },
+  { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
   // Codes
-  { path: '/codes', element: <CodeManagePage />, roles: ADMIN_SYS },
+  { path: '/codes', element: <CodeManagePage />, roles: ADMIN_HQ },
 
   // Users — 매장 매니저도 접근 가능 (서버에서 자기 매장 직원만 필터)
   { path: '/users', element: <UserListPage />, roles: ADMIN_HQ_STORE },
@@ -115,22 +121,22 @@ export const appRoutes: AppRoute[] = [
   { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/view', element: <ShipmentViewPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/new-product', element: <NewProductShipmentPage />, roles: ADMIN_HQ },
+  { path: '/shipment/view', element: <ShipmentViewPage />, roles: [ROLES.STORE_MANAGER] },
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-{ path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/inbound', element: <InboundPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: [ROLES.STORE_MANAGER] },
+  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: [ROLES.STORE_MANAGER] },
   // Sales — 매출등록은 STORE_STAFF도 가능
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
   { path: '/sales/product-sales', element: <ProductSalesPage />, roles: ALL },
   { path: '/sales/partner-sales', element: <MonthlySalesPage />, roles: ADMIN_HQ },
-  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ },
+  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
+  { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },
 
   // Production (ADMIN + HQ_MANAGER 읽기 가능)
   { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },
@@ -154,11 +160,23 @@ export const appRoutes: AppRoute[] = [
 
   // System (마스터 + 시스템관리자 전용)
   { path: '/system/settings', element: <SystemSettingsPage />, roles: ADMIN_SYS },
-
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
   { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
-  { path: '/system/activity-logs', element: <ActivityLogPage />, roles: ADMIN_SYS },
+  { path: '/system/activity-log', element: <ActivityLogPage />, roles: ADMIN_SYS },
 
+];
+
+export const crmRoutes: AppRoute[] = [
+  { path: '', element: <CrmPage />, roles: ADMIN_HQ_STORE },
+  { path: 'list', element: <CrmPage />, roles: ADMIN_HQ_STORE },
+  { path: 'segments', element: <SegmentListPage />, roles: ADMIN_HQ_STORE },
+  { path: 'segments/:id', element: <SegmentDetailPage />, roles: ADMIN_HQ_STORE },
+  { path: 'dormant', element: <DormantCustomerPage />, roles: ADMIN_HQ_STORE },
+  { path: 'after-sales', element: <AfterSalesPage />, roles: ADMIN_HQ_STORE },
+  { path: 'campaigns', element: <CampaignListPage />, roles: ADMIN_HQ_STORE },
+  { path: 'campaigns/:id', element: <CampaignDetailPage />, roles: ADMIN_HQ_STORE },
+  { path: 'templates', element: <TemplatePage />, roles: ADMIN_HQ_STORE },
+  { path: 'sender-settings', element: <SenderSettingsPage />, roles: ADMIN_HQ_STORE },
 ];
 
 export { LoginPage };

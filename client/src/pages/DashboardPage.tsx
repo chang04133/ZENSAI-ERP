@@ -1,22 +1,17 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, CSSProperties } from 'react';
 import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, message } from 'antd';
 import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, TruckOutlined,
   CheckOutlined, BellOutlined, SendOutlined,
   SwapOutlined, ReloadOutlined, PercentageOutlined,
-  ExperimentOutlined, ScheduleOutlined, SyncOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
 import { apiFetch, safeJson } from '../core/api.client';
 import { salesApi } from '../modules/sales/sales.api';
-import { productionApi } from '../modules/production/production.api';
-import { restockApi } from '../modules/restock/restock.api';
-import type { RestockSuggestion } from '../../../shared/types/restock';
 import dayjs from 'dayjs';
-import StatCard from '../components/StatCard';
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
@@ -24,6 +19,31 @@ const STATUS_COLORS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
 };
+
+/* ── Styled Stat Card ── */
+interface StatCardProps {
+  title: string; value: string | number; icon: React.ReactNode;
+  bg: string; color: string; sub?: string; onClick?: () => void;
+}
+function StatCard({ title, value, icon, bg, color, sub, onClick }: StatCardProps) {
+  const style: CSSProperties = {
+    background: bg, borderRadius: 12, padding: '20px 24px', cursor: onClick ? 'pointer' : 'default',
+    display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 110,
+    transition: 'transform 0.15s', border: 'none',
+  };
+  return (
+    <div style={style} onClick={onClick}
+      onMouseEnter={(e) => onClick && (e.currentTarget.style.transform = 'translateY(-2px)')}
+      onMouseLeave={(e) => onClick && (e.currentTarget.style.transform = 'translateY(0)')}>
+      <div>
+        <div style={{ fontSize: 13, color: color + 'cc', marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 28, fontWeight: 700, color, lineHeight: 1.2 }}>{typeof value === 'number' ? value.toLocaleString() : value}</div>
+        {sub && <div style={{ fontSize: 12, color: color + '99', marginTop: 4 }}>{sub}</div>}
+      </div>
+      <div style={{ fontSize: 36, color: color + '44' }}>{icon}</div>
+    </div>
+  );
+}
 
 /* ── Mini Bar for Sales Trend ── */
 function MiniBar({ data }: { data: Array<{ label: string; revenue: number }> }) {
@@ -54,12 +74,9 @@ export default function DashboardPage() {
   const [notiLoading, setNotiLoading] = useState(false);
 
   const [sellThrough, setSellThrough] = useState<any>(null);
-  const [prodDashboard, setProdDashboard] = useState<any>(null);
-  const [catStats, setCatStats] = useState<any[]>([]);
-  const [restockSuggestions, setRestockSuggestions] = useState<RestockSuggestion[]>([]);
 
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
+  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   const loadSellThrough = async () => {
     try {
@@ -67,7 +84,7 @@ export default function DashboardPage() {
       const to = dayjs().format('YYYY-MM-DD');
       const result = await salesApi.sellThrough(from, to);
       setSellThrough(result);
-    } catch (e) { console.error('판매율 로드 실패:', e); }
+    } catch { /* ignore */ }
   };
 
   const loadStats = async () => {
@@ -134,25 +151,7 @@ export default function DashboardPage() {
     } catch (e: any) { message.error('처리 실패: ' + e.message); }
   };
 
-  const loadProduction = async () => {
-    try {
-      const [dash, cats] = await Promise.all([
-        productionApi.dashboard(),
-        productionApi.categoryStats(),
-      ]);
-      setProdDashboard(dash);
-      setCatStats(cats);
-    } catch { /* ignore - 권한 없으면 무시 */ }
-  };
-
-  const loadRestockSuggestions = async () => {
-    try {
-      const result = await restockApi.getRestockSuggestions();
-      setRestockSuggestions(result.suggestions);
-    } catch { /* ignore */ }
-  };
-
-  useEffect(() => { loadStats(); loadNotifications(); if (isStore) loadMyPendingRequests(); if (isAdmin) { loadSellThrough(); loadProduction(); loadRestockSuggestions(); } }, []);
+  useEffect(() => { loadStats(); loadNotifications(); loadSellThrough(); if (isStore) loadMyPendingRequests(); }, []);
 
   // 재고 요청 (매장 매니저용)
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
@@ -322,7 +321,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToProcess || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/view')}
+                        onClick={() => navigate('/shipment/store')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -347,7 +346,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToReceive || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/view')}
+                        onClick={() => navigate('/shipment/store')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -372,7 +371,7 @@ export default function DashboardPage() {
                   {(pa.restockPending || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/inventory/restock')}
+                        onClick={() => navigate('/restock/progress')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -428,7 +427,7 @@ export default function DashboardPage() {
                   {(pa.pendingRestocks || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/inventory/restock')}
+                        onClick={() => navigate('/restock/progress')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -453,7 +452,7 @@ export default function DashboardPage() {
                   {(pa.shippedAwaitingReceipt || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/request')}
+                        onClick={() => navigate('/shipment/process')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -502,14 +501,12 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 오늘 매출' : '오늘 매출'} value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
-            sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`}
-            onClick={() => { if (isStore) { navigate('/sales/product-sales'); } else { const t = dayjs().format('YYYY-MM-DD'); navigate(`/sales/partner-sales?from=${t}&to=${t}`); } }} />
+            sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
-            sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`}
-            onClick={() => { if (isStore) { navigate('/sales/product-sales'); } else { const t = dayjs(); navigate(`/sales/partner-sales?from=${t.subtract(29, 'day').format('YYYY-MM-DD')}&to=${t.format('YYYY-MM-DD')}`); } }} />
+            sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`} />
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 재고' : '총 재고'} value={stats?.inventory?.totalQty || 0}
@@ -519,7 +516,7 @@ export default function DashboardPage() {
         <Col xs={24} sm={12} lg={6}>
           <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
             icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
-            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')} />
+            sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')} />
         </Col>
       </Row>
 
@@ -528,7 +525,7 @@ export default function DashboardPage() {
         {!isStore && (
           <>
             <Col xs={12} sm={6}>
-              <Card size="small" style={{ borderRadius: 10, cursor: 'pointer' }} loading={loading} onClick={() => navigate('/partners')}>
+              <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <ShopOutlined style={{ fontSize: 24, color: '#6366f1' }} />
                   <div>
@@ -539,7 +536,7 @@ export default function DashboardPage() {
               </Card>
             </Col>
             <Col xs={12} sm={6}>
-              <Card size="small" style={{ borderRadius: 10, cursor: 'pointer' }} loading={loading} onClick={() => navigate('/products')}>
+              <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                   <TagsOutlined style={{ fontSize: 24, color: '#ec4899' }} />
                   <div>
@@ -552,7 +549,7 @@ export default function DashboardPage() {
           </>
         )}
         <Col xs={12} sm={isStore ? 12 : 6}>
-          <Card size="small" style={{ borderRadius: 10, cursor: 'pointer' }} loading={loading} onClick={() => navigate('/sales/product-sales')}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShoppingCartOutlined style={{ fontSize: 24, color: '#f59e0b' }} />
               <div>
@@ -563,7 +560,7 @@ export default function DashboardPage() {
           </Card>
         </Col>
         <Col xs={12} sm={isStore ? 12 : 6}>
-          <Card size="small" style={{ borderRadius: 10, cursor: 'pointer' }} loading={loading} onClick={() => navigate('/sales/product-sales')}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShoppingCartOutlined style={{ fontSize: 24, color: '#10b981' }} />
               <div>
@@ -579,7 +576,7 @@ export default function DashboardPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={12}>
           <Card title={isStore ? '내 매장 출고 현황' : '출고 현황'} size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')}>전체보기</a>}>
+            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/process')}>전체보기</a>}>
             <div style={{ display: 'flex', justifyContent: 'space-around', textAlign: 'center', marginBottom: 16 }}>
               {[
                 { label: '대기', count: pendingCount, color: '#6366f1' },
@@ -624,13 +621,11 @@ export default function DashboardPage() {
               <Row gutter={[10, 10]}>
                 {/* 전체 판매율 */}
                 <Col xs={12} sm={8} md={4}>
-                  <div onClick={() => navigate('/sales/sell-through')} style={{
+                  <div style={{
                     background: Number(sellThrough.totals?.overall_rate) >= 50 ? '#e6f7ff' : Number(sellThrough.totals?.overall_rate) >= 30 ? '#fff7e6' : '#fff1f0',
-                    borderRadius: 10, padding: '12px 14px', textAlign: 'center', cursor: 'pointer', transition: 'transform 0.15s',
+                    borderRadius: 10, padding: '12px 14px', textAlign: 'center',
                     border: `1px solid ${Number(sellThrough.totals?.overall_rate) >= 50 ? '#1890ff' : Number(sellThrough.totals?.overall_rate) >= 30 ? '#fa8c16' : '#ff4d4f'}33`,
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                  onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                  }}>
                     <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>전체 판매율</div>
                     <div style={{ fontSize: 26, fontWeight: 800, color: Number(sellThrough.totals?.overall_rate) >= 50 ? '#1890ff' : Number(sellThrough.totals?.overall_rate) >= 30 ? '#fa8c16' : '#ff4d4f', lineHeight: 1.2 }}>
                       {sellThrough.totals?.overall_rate || 0}%
@@ -649,12 +644,10 @@ export default function DashboardPage() {
                   const color = CAT_C[c.category] || '#888';
                   return (
                     <Col xs={12} sm={8} md={4} key={c.category}>
-                      <div onClick={() => navigate('/sales/sell-through')} style={{
-                        borderRadius: 10, padding: '12px 14px', textAlign: 'center', cursor: 'pointer', transition: 'transform 0.15s',
+                      <div style={{
+                        borderRadius: 10, padding: '12px 14px', textAlign: 'center',
                         border: `1px solid ${color}33`, background: `${color}08`,
-                      }}
-                      onMouseEnter={e => e.currentTarget.style.transform = 'translateY(-2px)'}
-                      onMouseLeave={e => e.currentTarget.style.transform = 'translateY(0)'}>
+                      }}>
                         <Tag style={{ color, borderColor: color, fontWeight: 600, marginBottom: 4 }}>{c.category}</Tag>
                         <div style={{ fontSize: 22, fontWeight: 800, color, lineHeight: 1.2 }}>
                           {rate}%
@@ -668,110 +661,6 @@ export default function DashboardPage() {
                   );
                 })}
               </Row>
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* 생산기획 요약 (Admin/HQ 전용) */}
-      {isAdmin && prodDashboard && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          {/* 생산 현황 */}
-          <Col xs={24} md={8}>
-            <Card
-              title={<span><ExperimentOutlined style={{ marginRight: 8 }} />생산 현황</span>}
-              size="small" style={{ borderRadius: 10, height: '100%', cursor: 'pointer' }}
-              extra={<a onClick={(e) => { e.stopPropagation(); navigate('/production/plans'); }}>전체보기</a>}
-              onClick={() => navigate('/production/plans')}
-            >
-              <Row gutter={[8, 8]}>
-                {(prodDashboard.statusCounts || []).map((s: any) => {
-                  const STATUS_CONF: Record<string, { label: string; color: string; bg: string }> = {
-                    DRAFT: { label: '초안', color: '#8c8c8c', bg: '#f5f5f5' },
-                    CONFIRMED: { label: '확정', color: '#1890ff', bg: '#e6f7ff' },
-                    IN_PRODUCTION: { label: '생산중', color: '#fa8c16', bg: '#fff7e6' },
-                    COMPLETED: { label: '완료', color: '#52c41a', bg: '#f6ffed' },
-                    CANCELLED: { label: '취소', color: '#ff4d4f', bg: '#fff1f0' },
-                  };
-                  const conf = STATUS_CONF[s.status] || { label: s.status, color: '#888', bg: '#f5f5f5' };
-                  return (
-                    <Col xs={12} key={s.status}>
-                      <div style={{ background: conf.bg, borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
-                        <div style={{ fontSize: 11, color: '#888' }}>{conf.label}</div>
-                        <div style={{ fontSize: 22, fontWeight: 800, color: conf.color, lineHeight: 1.2 }}>{s.count}</div>
-                        <div style={{ fontSize: 10, color: '#aaa' }}>{Number(s.total_qty).toLocaleString()}개</div>
-                      </div>
-                    </Col>
-                  );
-                })}
-              </Row>
-            </Card>
-          </Col>
-
-          {/* 카테고리별 재고 커버리지 */}
-          <Col xs={24} md={9}>
-            <Card
-              title={<span><ScheduleOutlined style={{ marginRight: 8 }} />카테고리 재고현황</span>}
-              size="small" style={{ borderRadius: 10, height: '100%', cursor: 'pointer' }}
-              extra={<a onClick={(e) => { e.stopPropagation(); navigate('/production'); }}>상세보기</a>}
-              onClick={() => navigate('/production')}
-            >
-              {catStats.length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {catStats.map((cat: any) => {
-                    const stock = Number(cat.current_stock) || 0;
-                    const prod = Number(cat.in_production_qty) || 0;
-                    const maxStock = Math.max(...catStats.map((c: any) => Number(c.current_stock) || 0), 1);
-                    return (
-                      <div key={cat.category} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '5px 0', borderBottom: '1px solid #f0f0f0' }}>
-                        <Tag style={{ minWidth: 56, textAlign: 'center', fontWeight: 600 }}>{cat.category}</Tag>
-                        <div style={{ flex: 1 }}>
-                          <Progress percent={stock / maxStock * 100} showInfo={false} size="small" strokeColor="#1890ff" />
-                        </div>
-                        <div style={{ minWidth: 70, textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{stock.toLocaleString()}</div>
-                        {prod > 0 && <Tag color="purple" style={{ margin: 0, fontSize: 11 }}>+{prod.toLocaleString()}</Tag>}
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>카테고리 데이터 없음</div>
-              )}
-            </Card>
-          </Col>
-
-          {/* 진행중 생산 */}
-          <Col xs={24} md={7}>
-            <Card
-              title={<span><SyncOutlined style={{ marginRight: 8 }} />생산 진행</span>}
-              size="small" style={{ borderRadius: 10, height: '100%', cursor: 'pointer' }}
-              extra={<a onClick={(e) => { e.stopPropagation(); navigate('/production/progress'); }}>전체보기</a>}
-              onClick={() => navigate('/production/progress')}
-            >
-              {(prodDashboard.progressItems || []).length > 0 ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  {(prodDashboard.progressItems || []).slice(0, 5).map((item: any) => {
-                    const pct = item.plan_qty > 0 ? Math.round((item.produced_qty / item.plan_qty) * 100) : 0;
-                    return (
-                      <div key={item.item_id}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 2 }}>
-                          <span style={{ fontWeight: 600 }}>{item.plan_no}</span>
-                          <span style={{ color: '#888' }}>{item.category}</span>
-                        </div>
-                        <Progress percent={pct} size="small" strokeColor={pct >= 80 ? '#52c41a' : pct >= 50 ? '#1890ff' : '#fa8c16'} />
-                        <div style={{ fontSize: 11, color: '#888', textAlign: 'right' }}>
-                          {item.produced_qty}/{item.plan_qty}개
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>
-                  <SyncOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-                  진행중인 생산이 없습니다
-                </div>
-              )}
             </Card>
           </Col>
         </Row>
@@ -826,94 +715,30 @@ export default function DashboardPage() {
       {/* Tables */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={8}>
-          {isAdmin && restockSuggestions.length > 0 ? (() => {
-            const STATUS_CONF: Record<string, { label: string; color: string; bg: string; border: string }> = {
-              ALERT: { label: '알림', color: '#f5222d', bg: '#fff1f0', border: '#ffa39e' },
-              CONSIDER: { label: '고려', color: '#fa8c16', bg: '#fff7e6', border: '#ffd591' },
-              NORMAL: { label: '정상', color: '#8c8c8c', bg: '#f5f5f5', border: '#d9d9d9' },
-            };
-            const grouped = { ALERT: [] as RestockSuggestion[], CONSIDER: [] as RestockSuggestion[], NORMAL: [] as RestockSuggestion[] };
-            restockSuggestions.forEach(s => { (grouped[s.restock_status] || grouped.NORMAL).push(s); });
-            return (
-              <Card
-                title={<span>재입고 제안 <Badge count={restockSuggestions.length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
-                size="small" style={{ borderRadius: 10 }} loading={loading}
-                extra={<a onClick={() => navigate('/inventory/restock')}>전체보기</a>}
-              >
-                <Row gutter={[6, 6]} style={{ marginBottom: 12 }}>
-                  {(['ALERT', 'CONSIDER', 'NORMAL'] as const).map(st => {
-                    const conf = STATUS_CONF[st];
-                    const items = grouped[st];
-                    const totalQty = items.reduce((s, i) => s + i.suggested_qty, 0);
-                    return (
-                      <Col span={8} key={st}>
-                        <div style={{
-                          background: conf.bg, border: `1px solid ${conf.border}`, borderRadius: 8,
-                          padding: '8px 4px', textAlign: 'center', cursor: 'pointer',
-                        }} onClick={() => navigate('/inventory/restock')}>
-                          <div style={{ fontSize: 14, fontWeight: 800, color: conf.color }}>{conf.label}</div>
-                          <div style={{ fontSize: 18, fontWeight: 800, color: conf.color, lineHeight: 1.2 }}>{items.length}</div>
-                          <div style={{ fontSize: 10, color: '#888' }}>{totalQty.toLocaleString()}개</div>
-                        </div>
-                      </Col>
-                    );
-                  })}
-                </Row>
-                {/* 알림/고려 주요 품목 */}
-                {(() => {
-                  const topItems = [...grouped.ALERT, ...grouped.CONSIDER].slice(0, 5);
-                  if (topItems.length === 0) return <div style={{ textAlign: 'center', padding: 12, color: '#aaa', fontSize: 12 }}>알림/고려 품목이 없습니다</div>;
-                  return (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                      {topItems.map(item => {
-                        const conf = STATUS_CONF[item.restock_status];
-                        return (
-                          <div key={item.variant_id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0', borderBottom: '1px solid #f0f0f0' }}>
-                            <Tag style={{ margin: 0, fontWeight: 700, color: conf.color, borderColor: conf.border, background: conf.bg, minWidth: 32, textAlign: 'center', fontSize: 11 }}>{conf.label}</Tag>
-                            <div style={{ flex: 1, overflow: 'hidden' }}>
-                              <div style={{ fontSize: 12, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.product_name}</div>
-                              <div style={{ fontSize: 10, color: '#888' }}>{item.color}/{item.size}</div>
-                            </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 700, color: conf.color }}>{item.suggested_qty}개</div>
-                              <div style={{ fontSize: 10, color: '#888' }}>재고 {item.current_stock}</div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  );
-                })()}
-              </Card>
-            );
-          })() : (
-            <Card title={<span>{isStore ? '내 매장 재입고 필요' : '재입고 필요'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
-              size="small" style={{ borderRadius: 10 }} loading={loading}
-              extra={<a onClick={() => navigate('/inventory/status')}>전체보기</a>}>
-              {(stats?.lowStock || []).length > 0 ? (
-                <Table columns={lowStockColumns} dataSource={(stats?.lowStock || []).slice(0, 5)} rowKey={(r) => `${r.partner_code}-${r.variant_id}`} pagination={false} size="small" scroll={{ x: 500 }} />
-              ) : (
-                <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
-                  <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-                  재입고 필요 품목이 없습니다
-                </div>
-              )}
-            </Card>
-          )}
+          <Card title={<span>{isStore ? '내 매장 재입고 필요' : '재입고 필요'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
+            size="small" style={{ borderRadius: 10 }} loading={loading}
+            extra={<a onClick={() => navigate('/inventory/status')}>전체보기</a>}>
+            {(stats?.lowStock || []).length > 0 ? (
+              <Table columns={lowStockColumns} dataSource={(stats?.lowStock || []).slice(0, 5)} rowKey={(r) => `${r.partner_code}-${r.variant_id}`} pagination={false} size="small" scroll={{ x: 500 }} />
+            ) : (
+              <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
+                <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
+                재입고 필요 품목이 없습니다
+              </div>
+            )}
+          </Card>
         </Col>
         <Col xs={24} md={9}>
           <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate(isStore ? '/shipment/view' : '/shipment/request')}>전체보기</a>}>
-            <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" scroll={{ x: 500 }}
-              onRow={() => ({ onClick: () => navigate(isStore ? '/shipment/view' : '/shipment/request'), style: { cursor: 'pointer' } })} />
+            extra={<a onClick={() => navigate(isStore ? '/shipment/store' : '/shipment/request')}>전체보기</a>}>
+            <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" scroll={{ x: 500 }} />
           </Card>
         </Col>
         <Col xs={24} md={7}>
           <Card title={isStore ? '내 매장 인기상품 TOP 5' : '인기상품 TOP 5'} size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<span style={{ fontSize: 11, color: '#888' }}>최근 30일</span>}>
             {(stats?.topProducts || []).length > 0 ? (
-              <Table columns={productColumns} dataSource={stats?.topProducts || []} rowKey="product_code" pagination={false} size="small" scroll={{ x: 400 }}
-                onRow={() => ({ onClick: () => navigate('/sales/product-sales'), style: { cursor: 'pointer' } })} />
+              <Table columns={productColumns} dataSource={stats?.topProducts || []} rowKey="product_code" pagination={false} size="small" scroll={{ x: 400 }} />
             ) : (
               <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>판매 데이터가 없습니다</div>
             )}

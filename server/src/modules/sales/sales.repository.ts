@@ -129,7 +129,7 @@ export class SalesRepository {
       ORDER BY total_amount DESC`;
     const byCategory = (await this.pool.query(categorySql, baseParams)).rows;
 
-    // 거래처별 매출 TOP 10
+    // 거래처별 매출 TOP 7
     const partnerSql = `
       SELECT s.partner_code, pt.partner_name,
              SUM(s.qty)::int AS total_qty,
@@ -138,10 +138,10 @@ export class SalesRepository {
       JOIN partners pt ON s.partner_code = pt.partner_code
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY s.partner_code, pt.partner_name
-      ORDER BY total_amount DESC LIMIT 10`;
+      ORDER BY total_amount DESC LIMIT 7`;
     const byPartner = (await this.pool.query(partnerSql, baseParams)).rows;
 
-    // 인기상품 TOP 10
+    // 인기상품 TOP 7
     const topProductsSql = `
       SELECT p.product_code, p.product_name, p.category,
              SUM(s.qty)::int AS total_qty,
@@ -151,7 +151,7 @@ export class SalesRepository {
       JOIN products p ON pv.product_code = p.product_code
       WHERE ${dateFilter} ${pcFilter}
       GROUP BY p.product_code, p.product_name, p.category
-      ORDER BY total_amount DESC LIMIT 10`;
+      ORDER BY total_amount DESC LIMIT 7`;
     const topProducts = (await this.pool.query(topProductsSql, baseParams)).rows;
 
     // 일별 매출 추이 (최근 30일 - 항상 고정)
@@ -334,7 +334,7 @@ export class SalesRepository {
         -- 조회기간 매출유형별
         COALESCE(SUM(CASE WHEN s.sale_date BETWEEN p.df AND p.dt AND COALESCE(s.sale_type, '정상') = '정상'
           THEN s.total_price END), 0)::bigint AS normal_amount,
-        COALESCE(SUM(CASE WHEN s.sale_date BETWEEN p.df AND p.dt AND s.sale_type = '할인'
+        COALESCE(SUM(CASE WHEN s.sale_date BETWEEN p.df AND p.dt AND s.sale_type IN ('기획', '균일', '할인')
           THEN s.total_price END), 0)::bigint AS discount_amount,
         COALESCE(SUM(CASE WHEN s.sale_date BETWEEN p.df AND p.dt AND s.sale_type = '행사'
           THEN s.total_price END), 0)::bigint AS event_amount,
@@ -714,34 +714,69 @@ export class SalesRepository {
   }
 
   /** 스타일별 판매현황 (기간별) */
-  async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string, category?: string) {
+  async styleSalesByRange(dateFrom: string, dateTo: string, partnerCode?: string, category?: string,
+    filters?: { sub_category?: string; season?: string; fit?: string; color?: string; size?: string; search?: string; sale_status?: string }) {
     const params: any[] = [dateFrom, dateTo];
     let pcFilter = '';
-    let pcFilterSimple = '';
     let catFilter = '';
-    let catFilterSimple = '';
+    let extraFilter = '';
     let nextIdx = 3;
     if (partnerCode) {
       params.push(partnerCode);
       pcFilter = `AND s.partner_code = $${nextIdx}`;
-      pcFilterSimple = `AND partner_code = $${nextIdx}`;
       nextIdx++;
     }
     if (category) {
       params.push(category);
       catFilter = `AND p.category = $${nextIdx}`;
-      catFilterSimple = `AND variant_id IN (SELECT pv2.variant_id FROM product_variants pv2 JOIN products p2 ON pv2.product_code = p2.product_code WHERE p2.category = $${nextIdx})`;
+      nextIdx++;
+    }
+    if (filters?.sub_category) {
+      params.push(filters.sub_category);
+      extraFilter += ` AND p.sub_category = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.season) {
+      params.push(filters.season);
+      extraFilter += ` AND p.season = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.fit) {
+      params.push(filters.fit);
+      extraFilter += ` AND p.fit = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.color) {
+      params.push(filters.color);
+      extraFilter += ` AND pv.color = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.size) {
+      params.push(filters.size);
+      extraFilter += ` AND pv.size = $${nextIdx}`;
+      nextIdx++;
+    }
+    if (filters?.search) {
+      params.push(`%${filters.search}%`);
+      extraFilter += ` AND (p.product_code ILIKE $${nextIdx} OR p.product_name ILIKE $${nextIdx})`;
+      nextIdx++;
+    }
+    if (filters?.sale_status) {
+      params.push(filters.sale_status);
+      extraFilter += ` AND p.sale_status = $${nextIdx}`;
       nextIdx++;
     }
 
     // 총합
     const totalSql = `
       SELECT COUNT(*)::int AS sale_count,
-             COALESCE(SUM(qty), 0)::int AS total_qty,
-             COALESCE(SUM(total_price), 0)::bigint AS total_amount,
-             COUNT(DISTINCT variant_id)::int AS variant_count
-      FROM sales
-      WHERE sale_date >= $1::date AND sale_date <= $2::date ${pcFilterSimple} ${catFilterSimple}`;
+             COALESCE(SUM(s.qty), 0)::int AS total_qty,
+             COALESCE(SUM(s.total_price), 0)::bigint AS total_amount,
+             COUNT(DISTINCT s.variant_id)::int AS variant_count
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}`;
     const totals = (await this.pool.query(totalSql, params)).rows[0];
 
     // 카테고리별
@@ -753,7 +788,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY total_amount DESC`;
     const byCategory = (await this.pool.query(catSql, params)).rows;
@@ -768,7 +803,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY COALESCE(p.category, '미분류'), COALESCE(p.sub_category, '미분류')
       ORDER BY total_amount DESC`;
     const bySubCategory = (await this.pool.query(subCatSql, params)).rows;
@@ -791,7 +826,7 @@ export class SalesRepository {
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       LEFT JOIN full_stock fs ON p.product_code = fs.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY avg_per_style DESC`;
     const byFit = (await this.pool.query(fitSql, params)).rows;
@@ -814,7 +849,7 @@ export class SalesRepository {
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       LEFT JOIN full_stock fs ON p.product_code = fs.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY avg_per_style DESC`;
     const byLength = (await this.pool.query(lenSql, params)).rows;
@@ -827,7 +862,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY pv.size
       ORDER BY total_qty DESC`;
     const bySize = (await this.pool.query(sizeSql, params)).rows;
@@ -840,7 +875,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY pv.color
       ORDER BY total_qty DESC LIMIT 20`;
     const byColor = (await this.pool.query(colorSql, params)).rows;
@@ -854,7 +889,7 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
       ORDER BY total_amount DESC LIMIT 15`;
     const topProducts = (await this.pool.query(topSql, params)).rows;
@@ -873,12 +908,24 @@ export class SalesRepository {
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY season_type
       ORDER BY total_amount DESC`;
     const bySeason = (await this.pool.query(seasonSql, params)).rows;
 
-    return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason };
+    // 깔때기 필터용: 해당 기간 판매된 상품 조합 (기본 필터만 적용)
+    const comboParams: any[] = [dateFrom, dateTo];
+    let comboPcFilter = '';
+    if (partnerCode) { comboParams.push(partnerCode); comboPcFilter = `AND s.partner_code = $3`; }
+    const comboSql = `
+      SELECT DISTINCT p.category, p.sub_category, p.season, p.fit, pv.color, pv.size
+      FROM sales s
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${comboPcFilter}`;
+    const filterCombinations = (await this.pool.query(comboSql, comboParams)).rows;
+
+    return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason, filterCombinations };
   }
 
   /** 상품별 컬러/사이즈 판매 상세 */

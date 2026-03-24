@@ -51,9 +51,12 @@ export const salesApi = {
   },
 
   // 스타일별 판매현황 (기간별)
-  styleByRange: async (dateFrom: string, dateTo: string, category?: string) => {
+  styleByRange: async (dateFrom: string, dateTo: string, category?: string, filters?: Record<string, string>) => {
     let url = `/api/sales/style-by-range?date_from=${dateFrom}&date_to=${dateTo}`;
     if (category) url += `&category=${encodeURIComponent(category)}`;
+    if (filters) {
+      Object.entries(filters).forEach(([k, v]) => { if (v) url += `&${k}=${encodeURIComponent(v)}`; });
+    }
     return parse(await apiFetch(url));
   },
 

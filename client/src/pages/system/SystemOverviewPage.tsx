@@ -86,7 +86,7 @@ const roleMatrixData = [
   { key: '28', feature: '거래처별 매출', SYS: true, ADMIN: true, HQ: true, STORE: false, STAFF: false },
   { key: '29', feature: '생산기획 (CUD)', SYS: true, ADMIN: true, HQ: false, STORE: false, STAFF: false },
   { key: '30', feature: '생산기획 (조회)', SYS: true, ADMIN: true, HQ: true, STORE: false, STAFF: false },
-  { key: '31', feature: '부자재 관리', SYS: true, ADMIN: true, HQ: '조회만', STORE: false, STAFF: false },
+  { key: '31', feature: '원단/자재', SYS: true, ADMIN: true, HQ: '조회만', STORE: false, STAFF: false },
   { key: '32', feature: '자금계획', SYS: false, ADMIN: true, HQ: false, STORE: false, STAFF: false },
   { key: '33', feature: '직원 관리', SYS: true, ADMIN: true, HQ: true, STORE: '자기매장', STAFF: false },
   { key: '34', feature: '시스템 설정', SYS: true, ADMIN: true, HQ: false, STORE: false, STAFF: false },
@@ -112,7 +112,6 @@ const dbTableData = [
   { key: '4', group: '거래처', table: 'partners', pk: 'partner_code (VARCHAR)', fields: 'partner_name, partner_type(직영/가맹/온라인/대리점/백화점/아울렛/HQ), business_number, phone, address, is_active', relations: '← users, inventory, sales, shipments' },
   { key: '5', group: '상품', table: 'products', pk: 'product_code (VARCHAR)', fields: 'product_name, category, sub_category, brand, season, year, fit, length, base_price, cost_price, discount_price, event_price, sale_status, image_url, is_active', relations: '← product_variants' },
   { key: '6', group: '상품', table: 'product_variants', pk: 'variant_id (SERIAL)', fields: 'product_code, color, size, sku(UNIQUE), barcode(UNIQUE), stock_qty, alert_enabled, is_active', relations: '→ products ← inventory, sales' },
-  { key: '6b', group: '상품', table: 'product_materials', pk: 'product_material_id (SERIAL)', fields: 'product_code, material_id, usage_qty(NUMERIC 10,2) | UNIQUE(product_code, material_id)', relations: '→ products, materials. 원가 자동계산: SUM(usage_qty×unit_price)' },
   { key: '7', group: '상품', table: 'master_codes', pk: 'code_id (SERIAL)', fields: 'code_type(11종), code_value, code_label, sort_order, parent_code, is_active', relations: '자기참조(parent_code→code_id)' },
   { key: '8', group: '재고', table: 'inventory', pk: 'inventory_id (SERIAL)', fields: 'partner_code, variant_id, qty | UNIQUE(partner_code, variant_id)', relations: '→ partners, product_variants' },
   { key: '9', group: '재고', table: 'inventory_transactions', pk: 'tx_id (SERIAL)', fields: 'tx_type(9종), ref_id, partner_code, variant_id, qty_change, qty_after, created_by, memo', relations: '불변 로그 (UPDATE/DELETE 없음)' },
@@ -132,7 +131,7 @@ const dbTableData = [
   { key: '22', group: '자금', table: 'fund_plans', pk: 'fund_plan_id (SERIAL)', fields: 'plan_year, plan_month, category_id, plan_amount, actual_amount', relations: '→ fund_categories' },
   { key: '23', group: '시스템', table: 'audit_logs', pk: 'log_id (SERIAL)', fields: 'table_name, record_id, action(INSERT/UPDATE/DELETE), old_data(JSONB), new_data(JSONB), changed_by', relations: '삭제 데이터 복원 기반' },
 ];
-const dbGroups = ['인증','인증','인증','거래처','상품','상품','상품','상품','재고','재고','판매','판매','출고','출고','재입고','재입고','생산','생산','자재','자재','알림','알림','자금','자금','시스템'];
+const dbGroups = ['인증','인증','인증','거래처','상품','상품','상품','재고','재고','판매','판매','출고','출고','재입고','재입고','생산','생산','자재','자재','알림','알림','자금','자금','시스템'];
 const dbColumns = [
   { title: '그룹', dataIndex: 'group', width: 70,
     onCell: (_: any, index?: number) => { if (index === undefined) return {}; const prev = index > 0 ? dbGroups[index-1] : null; const cur = dbGroups[index]; if (prev === cur) return { rowSpan: 0 }; let span = 1; for (let i = index+1; i < dbGroups.length && dbGroups[i] === cur; i++) span++; return { rowSpan: span }; },
@@ -178,14 +177,14 @@ const workflows = [
     { step: '4', action: 'CANCELLED', detail: 'SHIPPED→from 복구. RECEIVED→from 복구 + to 차감. 전부 롤백' },
   ]},
   { title: '생산기획 플로우', color: '#531dab', icon: <ExperimentOutlined />, steps: [
-    { step: '1', action: '자동추천', detail: '설정기간 판매→판매율→Grade S(≥80%×1.5)/A(≥50%×1.2)/B(≥30%×1.0)→안전버퍼1.2×' },
+    { step: '1', action: '자동추천', detail: '60일판매→판매율→Grade S(≥80%×1.5)/A(≥50%×1.2)/B(≥30%×1.0)→안전버퍼1.2×' },
     { step: '2', action: 'DRAFT', detail: '수동 or 자동생성. CANCELLED 가능' },
     { step: '3', action: 'CONFIRMED', detail: 'ADMIN 전용. approved_by. 자재BOM 연결. CANCELLED 가능' },
     { step: '4', action: 'IN_PRODUCTION', detail: 'start_date 자동. produced-qty 실시간 업데이트' },
     { step: '5', action: 'COMPLETED', detail: '①자재차감(GREATEST(0)) ②HQ재고입고 ③알림' },
   ]},
   { title: '재입고 플로우', color: '#eb2f96', icon: <SyncOutlined />, steps: [
-    { step: '1', action: '자동제안', detail: '설정기간 판매속도→시즌가중치→완판예상일 산출→(현재고+생산중+진행중) 차감→×1.2 버퍼' },
+    { step: '1', action: '자동제안', detail: '60일판매→30일수요→시즌가중치→(현재고+생산중+진행중) 차감→×1.2 버퍼' },
     { step: '2', action: 'DRAFT', detail: '요청서 작성. RS+YYMMDD+###' },
     { step: '3', action: 'APPROVED', detail: 'approved_by. 취소 가능' },
     { step: '4', action: 'ORDERED', detail: '발주 완료. 이 상태에서만 수령확인 가능' },
@@ -238,11 +237,12 @@ const moduleData = [
       { method: 'PUT', path: '/variants/:id/alert', desc: '부족알림 토글' },
       { method: 'PUT', path: '/:code/event-price', desc: '행사가 설정' },
       { method: 'GET', path: '/events', desc: '행사상품 조회' },
+      { method: 'GET', path: '/events/recommendations', desc: '행사추천 (깨진사이즈+저판매)' },
       { method: 'PUT', path: '/events/bulk', desc: '행사가 일괄변경' },
       { method: 'GET', path: '/barcode-dashboard', desc: '바코드 통계' },
       { method: 'GET', path: '/excel/template', desc: '엑셀 템플릿' },
       { method: 'POST', path: '/excel/upload', desc: '엑셀 일괄등록' },
-    ], logic: '가격 3단계: base>discount>event. SKU 자동생성.' },
+    ], logic: '가격 3단계: base>discount>event. SKU 자동생성. 행사추천: 깨진사이즈+저판매 가중합.' },
   { key: 'user', icon: <UserOutlined />, title: '직원', color: '#1677ff', basePath: '/api/users',
     endpoints: [
       { method: 'GET', path: '/roles', desc: '역할 그룹 목록' },
@@ -322,7 +322,7 @@ const moduleData = [
       { method: 'DELETE', path: '/:id', desc: '삭제' }, { method: 'GET', path: '/generate-no', desc: '채번' },
       { method: 'GET', path: '/suggestions', desc: 'AI 제안' }, { method: 'GET', path: '/selling-velocity', desc: '판매속도' },
       { method: 'GET', path: '/progress-stats', desc: '진행통계' }, { method: 'PUT', path: '/:id/receive', desc: '수령+재고증가' },
-    ], logic: '이중방지: receive()에서만 재고증가. 제안: 설정기간 판매→시즌가중치→차감→×1.2. 긴급도: CRITICAL/WARNING/NORMAL.' },
+    ], logic: '이중방지: receive()에서만 재고증가. 제안: 60일판매→시즌가중치→차감→×1.2. 긴급도: CRITICAL/WARNING/NORMAL.' },
   { key: 'production', icon: <ExperimentOutlined />, title: '생산기획', color: '#531dab', basePath: '/api/productions',
     endpoints: [
       { method: 'GET', path: '/dashboard', desc: 'KPI' }, { method: 'GET', path: '/', desc: '목록' },
@@ -374,9 +374,21 @@ const moduleData = [
 const settingsData = [
   { key: '1', name: 'LOW_STOCK_THRESHOLD', default: '5', desc: '재고 부족 기준' },
   { key: '2', name: 'MEDIUM_STOCK_THRESHOLD', default: '20', desc: '재고 보통 기준' },
-  { key: '3', name: 'PRODUCTION_SALES_PERIOD_DAYS', default: '60', desc: '재입고 제안 판매 분석 기간(일)' },
-  { key: '3b', name: 'PRODUCTION_SELL_THROUGH_THRESHOLD', default: '30', desc: '재입고 제안 판매율 기준(%)' },
-  { key: '4', name: 'SEASON_WEIGHT_SA_SA~WN_WN', default: '0.00~1.00', desc: '시즌 가중치 매트릭스 (9종: 현재시즌×상품시즌)' },
+  { key: '3', name: 'PRODUCTION_SALES_PERIOD_DAYS', default: '60', desc: '생산 분석 기간(일)' },
+  { key: '3b', name: 'PRODUCTION_SELL_THROUGH_THRESHOLD', default: '30', desc: '생산 판매율 기준(%)' },
+  { key: '4', name: 'AUTO_PROD_SAFETY_BUFFER', default: '1.2', desc: '안전 버퍼 배수' },
+  { key: '5', name: 'AUTO_PROD_GRADE_S_MIN', default: '80', desc: 'S등급 최소 판매율(%)' },
+  { key: '6', name: 'AUTO_PROD_GRADE_S_MULT', default: '1.5', desc: 'S등급 배수' },
+  { key: '7', name: 'AUTO_PROD_GRADE_A_MIN', default: '50', desc: 'A등급 최소 판매율(%)' },
+  { key: '8', name: 'AUTO_PROD_GRADE_A_MULT', default: '1.2', desc: 'A등급 배수' },
+  { key: '9', name: 'AUTO_PROD_GRADE_B_MIN', default: '30', desc: 'B등급 최소 판매율(%)' },
+  { key: '10', name: 'AUTO_PROD_GRADE_B_MULT', default: '1.0', desc: 'B등급 배수' },
+  { key: '11', name: 'SEASON_WEIGHT_SA_SA~WN_WN', default: '0.00~1.00', desc: '시즌 가중치 매트릭스 (9종: 현재시즌×상품시즌)' },
+  { key: '12', name: 'EVENT_REC_BROKEN_SIZE_WEIGHT', default: '0.6', desc: '행사추천: 깨진사이즈 가중치' },
+  { key: '13', name: 'EVENT_REC_LOW_SALES_WEIGHT', default: '0.4', desc: '행사추천: 저판매 가중치' },
+  { key: '14', name: 'EVENT_REC_SALES_PERIOD_DAYS', default: '60', desc: '행사추천: 판매 분석 기간(일)' },
+  { key: '15', name: 'EVENT_REC_MIN_SALES_THRESHOLD', default: '5', desc: '행사추천: 최소 판매 기준' },
+  { key: '16', name: 'EVENT_REC_MAX_RESULTS', default: '50', desc: '행사추천: 최대 결과 수' },
 ];
 const autoNumberData = [
   { key: '1', target: '출고의뢰', pattern: 'SR+YYMMDD+###', example: 'SR260226001', table: 'shipment_requests.request_no' },
@@ -420,7 +432,7 @@ const pageMapData = [
   { key: '4', path: '/partners', page: 'PartnerListPage', category: '거래처', roles: 'ADMIN/HQ/STORE(조회)', desc: '거래처 목록/등록/수정' },
   { key: '5', path: '/products', page: 'ProductListPage', category: '상품', roles: 'ALL', desc: '상품 목록, 필터, 엑셀' },
   { key: '6', path: '/products/:code', page: 'ProductDetailPage', category: '상품', roles: 'ALL', desc: '상품 상세, 옵션, 이미지' },
-  { key: '7', path: '/products/events', page: 'EventProductsPage', category: '상품', roles: 'ADMIN/HQ/STORE', desc: '행사상품 관리, 행사가' },
+  { key: '7', path: '/products/events', page: 'EventProductsPage', category: '상품', roles: 'ADMIN/HQ/STORE', desc: '행사상품 추천, 행사가' },
   { key: '8', path: '/inventory/status', page: 'InventoryStatusPage', category: '재고', roles: 'ADMIN/HQ/STORE', desc: '전체 재고 대시보드' },
   { key: '9', path: '/inventory/my-store', page: 'MyStoreInventoryPage', category: '재고', roles: 'STORE', desc: '내 매장 재고' },
   { key: '10', path: '/inventory/warehouse', page: 'WarehouseInventoryPage', category: '재고', roles: 'STORE', desc: '창고 재고 조회' },
@@ -437,6 +449,8 @@ const pageMapData = [
   { key: '21', path: '/sales/entry', page: 'SalesEntryPage', category: '판매', roles: 'ALL', desc: '매출등록/수정/삭제/반품' },
   { key: '22', path: '/sales/product-sales', page: 'ProductSalesPage', category: '판매', roles: 'ALL', desc: '아이템별 매출' },
   { key: '23', path: '/sales/partner-sales', page: 'MonthlySalesPage', category: '판매', roles: 'ADMIN/HQ', desc: '종합매출조회' },
+  { key: '24', path: '/sales/analytics', page: 'SalesAnalyticsPage', category: '판매', roles: 'ALL', desc: '판매 분석' },
+  { key: '25', path: '/sales/sell-through', page: 'SellThroughPage', category: '판매', roles: 'ALL', desc: '판매율 분석' },
   { key: '26', path: '/production', page: 'ProductionDashboardPage', category: '생산', roles: 'ADMIN/HQ', desc: '생산 대시보드' },
   { key: '27', path: '/production/plans', page: 'ProductionPlanPage', category: '생산', roles: 'ADMIN/HQ', desc: '생산계획 관리' },
   { key: '28', path: '/production/progress', page: 'ProductionProgressPage', category: '생산', roles: 'ADMIN/HQ', desc: '생산진행 현황' },
@@ -493,7 +507,7 @@ export default function SystemOverviewPage() {
         {lastUpdated && <Text type="secondary" style={{ fontSize: 12 }}>갱신: {lastUpdated}</Text>}
         <Badge dot={loading} color="blue"><Button icon={<ReloadOutlined spin={loading} />} onClick={loadStats} loading={loading}>새로고침</Button></Badge>
       </Space>} />
-      <Alert message="60초 자동갱신. 16개 모듈, 170+ API, 25 DB 테이블, 7개 워크플로우 문서화." type="info" showIcon style={{ marginBottom: 16 }} />
+      <Alert message="60초 자동갱신. 16개 모듈, 170+ API, 24 DB 테이블, 7개 워크플로우 문서화." type="info" showIcon style={{ marginBottom: 16 }} />
 
       {/* 실시간 현황 */}
       <Card title={<><DatabaseOutlined /> 실시간 시스템 현황</>} style={{ marginBottom: 16 }} size="small">

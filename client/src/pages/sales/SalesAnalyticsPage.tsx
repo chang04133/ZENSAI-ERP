@@ -1,28 +1,28 @@
 import { useEffect, useState, useMemo } from 'react';
-import { Card, Select, Space, Tag, Table, Row, Col, Statistic, Progress, Spin, Tabs, message, DatePicker, Button, Segmented, Modal } from 'antd';
+import { Card, Select, Space, Tag, Table, Row, Col, Statistic, Progress, Spin, Tabs, message, DatePicker, Button, Segmented, Modal, Input } from 'antd';
 import {
   RiseOutlined, FallOutlined, LineChartOutlined, FireOutlined,
   SkinOutlined, ColumnHeightOutlined, TagOutlined, BgColorsOutlined,
-  LeftOutlined, RightOutlined, CalendarOutlined, FilterOutlined,
-  DollarOutlined, ShoppingCartOutlined, PercentageOutlined,
-  ArrowUpOutlined, ArrowDownOutlined,
+  LeftOutlined, RightOutlined, CalendarOutlined,
+  DollarOutlined, ShoppingCartOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import dayjs, { Dayjs } from 'dayjs';
 import isoWeek from 'dayjs/plugin/isoWeek';
-import { fmt, fmtW } from '../../utils/format';
-import { CAT_COLORS, COLORS } from '../../utils/constants';
-import { datePresets } from '../../utils/date-presets';
 dayjs.extend(isoWeek);
 
-const { RangePicker } = DatePicker;
-
+const fmt = (v: number) => Number(v).toLocaleString();
+const fmtW = (v: number) => `${fmt(v)}원`;
 const ML = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
 
+const CAT_COLORS: Record<string, string> = {
+  TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4',
+};
 const SEASON_COLORS: Record<string, string> = {
   '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8',
 };
+const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
 
 const growthTag = (cur: number, prev: number) => {
   if (!prev) return cur > 0 ? <Tag color="blue">NEW</Tag> : <Tag color="default">-</Tag>;
@@ -97,51 +97,144 @@ function moveRef(mode: ViewMode, ref: Dayjs, dir: number): Dayjs {
 /* ═══════════════════════════════════════════
    Tab 1: 기간별 현황 (from StyleSalesPage)
    ═══════════════════════════════════════════ */
+/* 시즌코드 → 라벨 */
+const fmtSeason = (code: string) => {
+  if (!code) return '기타';
+  const y = code.substring(2, 4);
+  const t = code.substring(4);
+  return `${y} ${t === 'SA' ? '봄/가을' : t === 'SM' ? '여름' : t === 'WN' ? '겨울' : t}`;
+};
+const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'];
+
 function PeriodTab() {
   const [mode, setMode] = useState<ViewMode>('monthly');
   const [refDate, setRefDate] = useState<Dayjs>(dayjs());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
+  const [search, setSearch] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [colorFilter, setColorFilter] = useState('');
+  const [sizeFilter, setSizeFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [filterCombos, setFilterCombos] = useState<any[]>([]);
   const [variantModal, setVariantModal] = useState<{ open: boolean; code: string; name: string }>({ open: false, code: '', name: '' });
   const [variantData, setVariantData] = useState<any[]>([]);
   const [variantLoading, setVariantLoading] = useState(false);
 
   const range = getRange(mode, refDate);
 
-  const load = (m: ViewMode, ref: Dayjs, cat?: string | '') => {
+  /* ── 깔때기 필터 옵션 (상위 선택 → 하위 좁혀짐) ── */
+  const dynamicCategoryOptions = useMemo(() => {
+    const cats = [...new Set(filterCombos.map(c => c.category).filter(Boolean))].sort();
+    return cats.map(c => ({ label: c, value: c }));
+  }, [filterCombos]);
+
+  const dynamicSubCategoryOptions = useMemo(() => {
+    if (!categoryFilter) return [];
+    const subs = [...new Set(
+      filterCombos.filter(c => c.category === categoryFilter).map(c => c.sub_category).filter(Boolean)
+    )].sort();
+    return subs.map(s => ({ label: s, value: s }));
+  }, [filterCombos, categoryFilter]);
+
+  const dynamicSeasonOptions = useMemo(() => {
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    if (subCategoryFilter) f = f.filter(c => c.sub_category === subCategoryFilter);
+    const seasons = [...new Set(f.map(c => c.season).filter(Boolean))].sort().reverse();
+    return seasons.map(s => ({ label: fmtSeason(s), value: s }));
+  }, [filterCombos, categoryFilter, subCategoryFilter]);
+
+  const dynamicFitOptions = useMemo(() => {
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    if (subCategoryFilter) f = f.filter(c => c.sub_category === subCategoryFilter);
+    if (seasonFilter) f = f.filter(c => c.season === seasonFilter);
+    const fits = [...new Set(f.map(c => c.fit).filter(Boolean))].sort();
+    return fits.map(v => ({ label: v, value: v }));
+  }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter]);
+
+  const dynamicColorOptions = useMemo(() => {
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    if (subCategoryFilter) f = f.filter(c => c.sub_category === subCategoryFilter);
+    if (seasonFilter) f = f.filter(c => c.season === seasonFilter);
+    if (fitFilter) f = f.filter(c => c.fit === fitFilter);
+    const colors = [...new Set(f.map(c => c.color).filter(Boolean))].sort();
+    return colors.map(v => ({ label: v, value: v }));
+  }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter, fitFilter]);
+
+  const dynamicSizeOptions = useMemo(() => {
+    let f = filterCombos;
+    if (categoryFilter) f = f.filter(c => c.category === categoryFilter);
+    if (subCategoryFilter) f = f.filter(c => c.sub_category === subCategoryFilter);
+    if (seasonFilter) f = f.filter(c => c.season === seasonFilter);
+    if (fitFilter) f = f.filter(c => c.fit === fitFilter);
+    if (colorFilter) f = f.filter(c => c.color === colorFilter);
+    const sizes = [...new Set(f.map(c => c.size).filter(Boolean))];
+    sizes.sort((a, b) => (SIZE_ORDER.indexOf(a) === -1 ? 99 : SIZE_ORDER.indexOf(a)) - (SIZE_ORDER.indexOf(b) === -1 ? 99 : SIZE_ORDER.indexOf(b)));
+    return sizes.map(v => ({ label: v, value: v }));
+  }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter]);
+
+  /* ── 데이터 로드 ── */
+  const load = () => {
     setLoading(true);
-    const r = getRange(m, ref);
-    salesApi.styleByRange(r.from, r.to, cat || undefined)
-      .then(setData)
+    const r = getRange(mode, refDate);
+    const filters: Record<string, string> = {};
+    if (subCategoryFilter) filters.sub_category = subCategoryFilter;
+    if (seasonFilter) filters.season = seasonFilter;
+    if (fitFilter) filters.fit = fitFilter;
+    if (colorFilter) filters.color = colorFilter;
+    if (sizeFilter) filters.size = sizeFilter;
+    if (search) filters.search = search;
+    if (statusFilter) filters.sale_status = statusFilter;
+    salesApi.styleByRange(r.from, r.to, categoryFilter || undefined, filters)
+      .then((d) => { setData(d); if (d?.filterCombinations) setFilterCombos(d.filterCombinations); })
       .catch((e: any) => message.error(e.message))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => {
-    // 초기 로드: 현재 달 데이터 조회 후, 데이터 없으면 이전 달로 자동 이동
-    const r = getRange(mode, refDate);
-    setLoading(true);
-    salesApi.styleByRange(r.from, r.to)
-      .then((d) => {
-        if (d?.totals?.sale_count > 0 || d?.byCategory?.length > 0) {
-          setData(d);
-        } else {
-          // 데이터 없으면 이전 달로 이동
-          const prev = moveRef(mode, refDate, -1);
-          setRefDate(prev);
-          load(mode, prev, categoryFilter);
-          return;
-        }
-      })
-      .catch((e: any) => message.error(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+  useEffect(() => { load(); }, [mode, refDate, categoryFilter, subCategoryFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, statusFilter]);
 
-  const handleModeChange = (v: string) => { const m = v as ViewMode; setMode(m); load(m, refDate, categoryFilter); };
-  const handleMove = (dir: number) => { const next = moveRef(mode, refDate, dir); setRefDate(next); load(mode, next, categoryFilter); };
-  const handleDatePick = (d: Dayjs | null) => { if (d) { setRefDate(d); load(mode, d, categoryFilter); } };
-  const handleCategoryChange = (v: string) => { setCategoryFilter(v); load(mode, refDate, v); };
+  const handleModeChange = (v: string) => { setMode(v as ViewMode); };
+  const handleMove = (dir: number) => { setRefDate(moveRef(mode, refDate, dir)); };
+  const handleDatePick = (d: Dayjs | null) => { if (d) setRefDate(d); };
+
+  /* ── 카테고리 변경 → 하위 필터 자동 리셋 ── */
+  const handleCategoryFilterChange = (value: string) => {
+    setCategoryFilter(value);
+    setSubCategoryFilter('');
+    // 하위 필터가 새 카테고리에 없으면 리셋
+    const combos = value ? filterCombos.filter(c => c.category === value) : filterCombos;
+    if (seasonFilter && !combos.some(c => c.season === seasonFilter)) setSeasonFilter('');
+    if (fitFilter && !combos.some(c => c.fit === fitFilter)) setFitFilter('');
+    if (colorFilter && !combos.some(c => c.color === colorFilter)) setColorFilter('');
+    if (sizeFilter && !combos.some(c => c.size === sizeFilter)) setSizeFilter('');
+  };
+  const handleSubCategoryChange = (value: string) => {
+    setSubCategoryFilter(value);
+    const combos = filterCombos.filter(c =>
+      (!categoryFilter || c.category === categoryFilter) && (!value || c.sub_category === value)
+    );
+    if (seasonFilter && !combos.some(c => c.season === seasonFilter)) setSeasonFilter('');
+    if (fitFilter && !combos.some(c => c.fit === fitFilter)) setFitFilter('');
+    if (colorFilter && !combos.some(c => c.color === colorFilter)) setColorFilter('');
+    if (sizeFilter && !combos.some(c => c.size === sizeFilter)) setSizeFilter('');
+  };
+  const handleSeasonChange = (value: string) => {
+    setSeasonFilter(value);
+    const combos = filterCombos.filter(c =>
+      (!categoryFilter || c.category === categoryFilter) &&
+      (!subCategoryFilter || c.sub_category === subCategoryFilter) &&
+      (!value || c.season === value)
+    );
+    if (fitFilter && !combos.some(c => c.fit === fitFilter)) setFitFilter('');
+    if (colorFilter && !combos.some(c => c.color === colorFilter)) setColorFilter('');
+    if (sizeFilter && !combos.some(c => c.size === sizeFilter)) setSizeFilter('');
+  };
 
   const handleProductClick = async (record: any) => {
     setVariantModal({ open: true, code: record.product_code, name: record.product_name });
@@ -184,7 +277,7 @@ function PeriodTab() {
   return (
     <div>
       {/* 기간 선택 */}
-      <Space wrap style={{ marginBottom: 16 }}>
+      <Space wrap style={{ marginBottom: 12 }}>
         <Segmented value={mode} onChange={handleModeChange} options={[
           { label: '일별', value: 'daily' },
           { label: '주별', value: 'weekly' },
@@ -195,14 +288,39 @@ function PeriodTab() {
           allowClear={false} style={{ width: mode === 'monthly' ? 130 : 150 }} size="small" />
         <Button size="small" icon={<RightOutlined />} onClick={() => handleMove(1)} disabled={isForwardDisabled()} />
         <Tag color="blue" style={{ fontSize: 12, padding: '1px 8px', margin: 0 }}>{range.label}</Tag>
-        <Select value={categoryFilter}
-          onChange={handleCategoryChange} style={{ width: 130 }} size="small"
-          options={[
-            { label: '전체', value: '' },
-            { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' },
-            { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' },
-          ]} />
       </Space>
+
+      {/* 검색 필터 (깔때기: 상위 선택 → 하위 옵션 자동 좁혀짐) */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={load} style={{ width: '100%' }} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicCategoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+          <Select value={subCategoryFilter} onChange={handleSubCategoryChange} style={{ width: 140 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicSubCategoryOptions]} disabled={!categoryFilter} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+          <Select value={seasonFilter} onChange={handleSeasonChange} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicSeasonOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+          <Select value={fitFilter} onChange={(v) => setFitFilter(v)} style={{ width: 130 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicFitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select showSearch optionFilterProp="label" value={colorFilter}
+            onChange={(v) => setColorFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicColorOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
+          <Select showSearch optionFilterProp="label" value={sizeFilter}
+            onChange={(v) => setSizeFilter(v)} style={{ width: 110 }}
+            options={[{ label: '전체 보기', value: '' }, ...dynamicSizeOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Select value={statusFilter} onChange={(v) => setStatusFilter(v)} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
+        <Button onClick={load}>조회</Button>
+      </div>
 
       {loading && !data ? <Spin style={{ display: 'block', margin: '60px auto' }} /> : (
         <>
@@ -815,296 +933,6 @@ function YoYTab() {
 }
 
 /* ═══════════════════════════════════════════
-   Tab 3: 연차별 판매율
-   ═══════════════════════════════════════════ */
-const AGE_COLORS: Record<string, { color: string; bg: string }> = {
-  '신상': { color: '#1890ff', bg: '#e6f7ff' },
-  '1년차': { color: '#52c41a', bg: '#f6ffed' },
-  '2년차': { color: '#fa8c16', bg: '#fff7e6' },
-  '3년차': { color: '#fa541c', bg: '#fff2e8' },
-  '4년차': { color: '#cf1322', bg: '#fff1f0' },
-  '5년차': { color: '#8c8c8c', bg: '#fafafa' },
-  '미지정': { color: '#999', bg: '#fafafa' },
-};
-const getAgeColor = (ag: string) => AGE_COLORS[ag] || { color: '#8c8c8c', bg: '#fafafa' };
-
-const SEASON_SUFFIX: Record<string, string> = {
-  SA: '봄/가을', SM: '여름', WN: '겨울', FW: '가을/겨울', SS: '봄/여름',
-};
-
-const rateColor = (rate: number) => {
-  if (rate >= 80) return '#52c41a';
-  if (rate >= 50) return '#1890ff';
-  if (rate >= 30) return '#fa8c16';
-  return '#ff4d4f';
-};
-const rateBg = (rate: number) => {
-  if (rate >= 80) return '#f6ffed';
-  if (rate >= 50) return '#e6f7ff';
-  if (rate >= 30) return '#fff7e6';
-  return '#fff1f0';
-};
-
-const rateCell = (v: number, width = 50) => {
-  const n = Number(v);
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}>
-      <div style={{
-        background: rateBg(n), border: `1px solid ${rateColor(n)}44`,
-        borderRadius: 6, padding: '2px 8px', fontWeight: 800, fontSize: 13,
-        color: rateColor(n), minWidth: 48, textAlign: 'center',
-      }}>{n}%</div>
-      <Progress percent={n} showInfo={false} size="small"
-        strokeColor={rateColor(n)} style={{ width, margin: 0 }} />
-    </div>
-  );
-};
-
-const seasonLabel = (s: string) => {
-  if (!s || s === '미지정') return '미지정';
-  const year = s.substring(0, 4);
-  const suffix = s.substring(4);
-  return `${year} ${SEASON_SUFFIX[suffix] || suffix}`;
-};
-
-const ST_QUICK_RANGES: { label: string; from: Dayjs; to: Dayjs }[] = [
-  { label: '이번달', from: dayjs().startOf('month'), to: dayjs() },
-  { label: '최근 3개월', from: dayjs().subtract(3, 'month').add(1, 'day'), to: dayjs() },
-  { label: '최근 6개월', from: dayjs().subtract(6, 'month').add(1, 'day'), to: dayjs() },
-  { label: '올해', from: dayjs().startOf('year'), to: dayjs() },
-  { label: '작년', from: dayjs().subtract(1, 'year').startOf('year'), to: dayjs().subtract(1, 'year').endOf('year') },
-];
-
-function SellThroughTab() {
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('year'), dayjs()]);
-  const [categoryFilter, setCategoryFilter] = useState<string>('');
-  const [data, setData] = useState<any>(null);
-  const [loading, setLoading] = useState(false);
-  const [showCustomRange, setShowCustomRange] = useState(false);
-
-  const load = async (from: Dayjs, to: Dayjs, cat?: string | '') => {
-    setLoading(true);
-    try { setData(await salesApi.sellThrough(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'), cat || undefined)); }
-    catch (e: any) { message.error(e.message); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(dateRange[0], dateRange[1], categoryFilter); }, []);
-
-  const handleRangeChange = (dates: any) => {
-    if (dates && dates[0] && dates[1]) {
-      setDateRange([dates[0], dates[1]]);
-      load(dates[0], dates[1], categoryFilter);
-    }
-  };
-  const handleQuickRange = (from: Dayjs, to: Dayjs) => {
-    setDateRange([from, to]);
-    setShowCustomRange(false);
-    load(from, to, categoryFilter);
-  };
-  const handleCategoryChange = (v: string) => {
-    setCategoryFilter(v);
-    load(dateRange[0], dateRange[1], v);
-  };
-
-  const totals = data?.totals || {};
-  const byCategory = data?.byCategory || [];
-  const bySeason = data?.bySeason || [];
-  const byAge = data?.byAge || [];
-
-  const newRate = byAge.find((a: any) => a.age_group === '신상')?.sell_through_rate || 0;
-  const oneYearRate = byAge.find((a: any) => a.age_group === '1년차')?.sell_through_rate || 0;
-  const yoyDelta = newRate - oneYearRate;
-
-  const rangeLabel = `${dateRange[0].format('YYYY.MM.DD')} ~ ${dateRange[1].format('YYYY.MM.DD')}`;
-
-  return (
-    <div>
-      {/* 카테고리 필터 */}
-      <Space wrap style={{ marginBottom: 12 }}>
-        <Select value={categoryFilter} onChange={handleCategoryChange} style={{ width: 110 }} size="small"
-          options={[
-            { label: '전체', value: '' },
-            { label: 'TOP', value: 'TOP' }, { label: 'BOTTOM', value: 'BOTTOM' },
-            { label: 'OUTER', value: 'OUTER' }, { label: 'DRESS', value: 'DRESS' }, { label: 'ACC', value: 'ACC' },
-          ]}
-        />
-      </Space>
-
-      {loading && !data ? <Spin style={{ display: 'block', margin: '60px auto' }} /> : (
-        <>
-          {/* 기간 선택 */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14, flexWrap: 'wrap' }}>
-            {ST_QUICK_RANGES.map((q) => {
-              const isActive = dateRange[0].format('YYYY-MM-DD') === q.from.format('YYYY-MM-DD') &&
-                dateRange[1].format('YYYY-MM-DD') === q.to.format('YYYY-MM-DD') && !showCustomRange;
-              return (
-                <Button key={q.label} size="small" type={isActive ? 'primary' : 'default'}
-                  onClick={() => handleQuickRange(q.from, q.to)}>
-                  {q.label}
-                </Button>
-              );
-            })}
-            <Button size="small" icon={<CalendarOutlined />}
-              type={showCustomRange ? 'primary' : 'default'}
-              onClick={() => setShowCustomRange(!showCustomRange)}>
-              직접입력
-            </Button>
-            {showCustomRange && (
-              <RangePicker
-                value={dateRange}
-                onChange={handleRangeChange}
-                presets={datePresets}
-                size="small"
-                style={{ width: 240 }}
-                allowClear={false}
-              />
-            )}
-            <span style={{ fontSize: 12, color: '#888', marginLeft: 4 }}>{rangeLabel}</span>
-          </div>
-
-          {/* 연차별 판매율 카드 */}
-          <Row gutter={[10, 10]} style={{ marginBottom: 16 }}>
-            <Col xs={12} sm={8} md={4}>
-              <div style={{
-                background: rateBg(totals.overall_rate || 0), borderRadius: 10,
-                padding: '12px 14px', border: `1px solid ${rateColor(totals.overall_rate || 0)}33`,
-                height: '100%',
-              }}>
-                <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>전체 판매율</div>
-                <div style={{ fontSize: 26, fontWeight: 800, color: rateColor(totals.overall_rate || 0), lineHeight: 1.2 }}>
-                  {totals.overall_rate || 0}%
-                </div>
-                <Progress percent={totals.overall_rate || 0} showInfo={false} size="small"
-                  strokeColor={rateColor(totals.overall_rate || 0)} style={{ marginTop: 4 }} />
-                <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                  {fmt(totals.total_sold || 0)}판매 / {fmt(totals.total_stock || 0)}재고
-                </div>
-              </div>
-            </Col>
-            {byAge.filter((a: any) => a.age_group !== '미지정').map((a: any) => {
-              const ac = getAgeColor(a.age_group);
-              const rate = Number(a.sell_through_rate);
-              return (
-                <Col xs={12} sm={8} md={4} key={a.age_group}>
-                  <div style={{
-                    background: ac.bg, borderRadius: 10, padding: '12px 14px',
-                    border: `1px solid ${ac.color}33`, height: '100%',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <div style={{ fontSize: 11, color: '#888' }}>{a.age_group} 판매율</div>
-                      {a.age_group === '신상' && oneYearRate > 0 && (
-                        <Tag color={yoyDelta >= 0 ? 'green' : 'red'} style={{ fontSize: 10, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
-                          {yoyDelta >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
-                          {Math.abs(yoyDelta).toFixed(1)}%p
-                        </Tag>
-                      )}
-                    </div>
-                    <div style={{ fontSize: 26, fontWeight: 800, color: ac.color, lineHeight: 1.2 }}>{rate}%</div>
-                    <Progress percent={rate} showInfo={false} size="small"
-                      strokeColor={ac.color} style={{ marginTop: 4 }} />
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 4 }}>
-                      {a.product_count}종 · {fmt(a.sold_qty)}판매 / {fmt(a.current_stock)}재고
-                    </div>
-                  </div>
-                </Col>
-              );
-            })}
-          </Row>
-
-          <div style={{ fontSize: 12, color: '#999', marginBottom: 12 }}>
-            {rangeLabel} 기준 | 판매율 = 판매수량 / (판매수량 + 현재재고) x 100
-          </div>
-
-          {/* 연차별 테이블 */}
-          <Table
-            columns={[
-              { title: '연차', dataIndex: 'age_group', key: 'age', width: 100,
-                render: (v: string) => <Tag color={getAgeColor(v).color} style={{ fontWeight: 700 }}>{v}</Tag> },
-              { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
-                render: (v: number) => `${v}종` },
-              { title: '판매수량', dataIndex: 'sold_qty', key: 'sold', width: 100, align: 'right' as const,
-                render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(v)}</strong> },
-              { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 100, align: 'right' as const,
-                render: (v: number) => fmt(v) },
-              { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 180, align: 'center' as const,
-                render: (v: number) => rateCell(v, 70),
-                sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate) },
-            ]}
-            dataSource={byAge}
-            rowKey="age_group"
-            size="small"
-            pagination={false}
-            style={{ marginBottom: 20 }}
-          />
-
-          {/* 카테고리별 판매율 */}
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>카테고리별 판매율</div>
-          <Row gutter={[8, 8]} style={{ marginBottom: 20 }}>
-            {byCategory.map((c: any) => {
-              const rate = Number(c.sell_through_rate);
-              return (
-                <Col xs={12} sm={8} md={4} key={c.category}>
-                  <div style={{
-                    background: rateBg(rate), borderRadius: 8, padding: '10px 12px',
-                    border: `1px solid ${rateColor(rate)}33`, textAlign: 'center',
-                  }}>
-                    <Tag style={CAT_COLORS[c.category] ? {
-                      color: CAT_COLORS[c.category], borderColor: CAT_COLORS[c.category],
-                      fontWeight: 600, marginBottom: 4,
-                    } : { marginBottom: 4 }}>{c.category}</Tag>
-                    <div style={{ fontSize: 20, fontWeight: 800, color: rateColor(rate), lineHeight: 1.2 }}>
-                      {rate}%
-                    </div>
-                    <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>
-                      {c.product_count}종 · {fmt(Number(c.sold_qty))}판매 / {fmt(Number(c.current_stock))}재고
-                    </div>
-                  </div>
-                </Col>
-              );
-            })}
-          </Row>
-
-          {/* 시즌별 판매율 */}
-          <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>시즌별 판매율</div>
-          <Table
-            columns={[
-              { title: '시즌', dataIndex: 'season', key: 'season', width: 140,
-                render: (v: string) => <strong>{seasonLabel(v)}</strong> },
-              { title: '연차', key: 'age', width: 80,
-                render: (_: any, r: any) => {
-                  const year = parseInt((r.season || '').substring(0, 4));
-                  const diff = new Date().getFullYear() - year;
-                  const ag = isNaN(diff) ? '미지정' : diff <= 0 ? '신상' : `${diff}년차`;
-                  const ac = getAgeColor(ag);
-                  return <Tag style={{ color: ac.color, borderColor: ac.color, fontSize: 11 }}>{ag}</Tag>;
-                } },
-              { title: '상품수', dataIndex: 'product_count', key: 'pc', width: 80, align: 'center' as const,
-                render: (v: number) => `${v}종` },
-              { title: '판매수량', dataIndex: 'sold_qty', key: 'sold', width: 100, align: 'right' as const,
-                render: (v: number) => <strong style={{ color: '#1890ff' }}>{fmt(v)}</strong>,
-                sorter: (a: any, b: any) => a.sold_qty - b.sold_qty },
-              { title: '현재재고', dataIndex: 'current_stock', key: 'stock', width: 100, align: 'right' as const,
-                render: (v: number) => fmt(v),
-                sorter: (a: any, b: any) => a.current_stock - b.current_stock },
-              { title: '판매율', dataIndex: 'sell_through_rate', key: 'rate', width: 180, align: 'center' as const,
-                render: (v: number) => rateCell(v, 70),
-                sorter: (a: any, b: any) => Number(a.sell_through_rate) - Number(b.sell_through_rate),
-                defaultSortOrder: 'descend' as const },
-            ]}
-            dataSource={bySeason}
-            rowKey="season"
-            size="small"
-            pagination={false}
-            scroll={{ x: 700 }}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════
    메인 컴포넌트: 판매분석
    ═══════════════════════════════════════════ */
 export default function SalesAnalyticsPage() {
@@ -1124,11 +952,6 @@ export default function SalesAnalyticsPage() {
             key: 'yoy',
             label: <><LineChartOutlined /> 전년대비 분석</>,
             children: <YoYTab />,
-          },
-          {
-            key: 'sell-through',
-            label: <><PercentageOutlined /> 연차별 판매율</>,
-            children: <SellThroughTab />,
           },
         ]}
       />

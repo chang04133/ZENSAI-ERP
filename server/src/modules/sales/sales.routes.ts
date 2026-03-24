@@ -60,7 +60,7 @@ router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => 
 
 // 스타일별 판매현황 (기간별)
 router.get('/style-by-range', authMiddleware, asyncHandler(async (req, res) => {
-  const { date_from, date_to, category } = req.query as { date_from?: string; date_to?: string; category?: string };
+  const { date_from, date_to, category, sub_category, season, fit, color, size, search, sale_status } = req.query as Record<string, string | undefined>;
   if (!date_from || !date_to) {
     res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
     return;
@@ -68,7 +68,8 @@ router.get('/style-by-range', authMiddleware, asyncHandler(async (req, res) => {
   const role = req.user?.role;
   const pc = req.user?.partnerCode;
   const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.styleSalesByRange(date_from, date_to, partnerCode, category || undefined);
+  const filters = { sub_category, season, fit, color, size, search, sale_status };
+  const data = await salesRepository.styleSalesByRange(date_from, date_to, partnerCode, category || undefined, filters);
   res.json({ success: true, data });
 }));
 

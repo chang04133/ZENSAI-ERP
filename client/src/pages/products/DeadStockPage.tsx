@@ -88,7 +88,7 @@ export default function DeadStockPage() {
     },
     {
       title: '남은재고', dataIndex: 'current_stock', key: 'stock', width: 90, align: 'right' as const,
-      sorter: (a: any, b: any) => a.current_stock - b.current_stock,
+      sorter: (a: any, b: any) => Number(a.current_stock) - Number(b.current_stock),
       defaultSortOrder: 'descend' as const,
       render: (v: number) => {
         const n = Number(v);
@@ -98,6 +98,7 @@ export default function DeadStockPage() {
     },
     {
       title: '판매량', dataIndex: 'sold_qty', key: 'sold', width: 70, align: 'right' as const,
+      sorter: (a: any, b: any) => Number(a.sold_qty) - Number(b.sold_qty),
       render: (v: number) => <span style={{ color: Number(v) === 0 ? '#ff4d4f' : '#888' }}>{Number(v).toLocaleString()}</span>,
     },
     {
@@ -106,7 +107,7 @@ export default function DeadStockPage() {
     },
     {
       title: '경과일', dataIndex: 'days_without_sale', key: 'days', width: 80, align: 'right' as const,
-      sorter: (a: any, b: any) => a.days_without_sale - b.days_without_sale,
+      sorter: (a: any, b: any) => Number(a.days_without_sale) - Number(b.days_without_sale),
       render: (v: number) => {
         if (v >= 9999) return <Tag color="red" style={{ fontWeight: 700 }}>-</Tag>;
         const color = v >= 180 ? '#ff4d4f' : v >= 90 ? '#fa8c16' : '#faad14';
@@ -120,7 +121,7 @@ export default function DeadStockPage() {
         const stores = Number(r.broken_store_count || 0);
         const sizes = Number(r.broken_size_count || 0);
         if (stores === 0) return <Tag color="green">정상</Tag>;
-        return <Tag color="red">{stores}매장 {sizes}건</Tag>;
+        return <Tag color="red">{stores}거래처 {sizes}건</Tag>;
       },
     },
     {
@@ -160,33 +161,29 @@ export default function DeadStockPage() {
           <Card size="small" style={{ borderRadius: 10, borderLeft: '4px solid #1890ff' }}>
             <div style={{ fontSize: 12, color: '#888' }}><PercentageOutlined style={{ marginRight: 4 }} />전체 재고 대비</div>
             <div style={{ fontSize: 24, fontWeight: 800, color: '#1890ff' }}>{ratio}<span style={{ fontSize: 14, fontWeight: 500 }}>%</span></div>
-            <div style={{ fontSize: 11, color: '#aaa' }}>판매없음 {neverSold}건</div>
+            <div style={{ fontSize: 11, color: '#aaa' }}>총 재고 {totalInv.toLocaleString()}개 · 판매없음 {neverSold}건</div>
           </Card>
         </Col>
       </Row>
 
       {/* 필터 */}
-      <Card size="small" style={{ borderRadius: 10, marginBottom: 16 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
           <div>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>제품 연차</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>제품 연차</div>
             <Segmented options={AGE_OPTIONS} value={minAgeYears} onChange={(v) => setMinAgeYears(String(v))} />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>남은 재고 (이상)</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>남은 재고 (이상)</div>
             <InputNumber min={0} value={minStock} onChange={(v) => setMinStock(v ?? 0)}
               addonAfter="개" style={{ width: 130 }} />
           </div>
           <div>
-            <div style={{ fontSize: 12, color: '#888', marginBottom: 4 }}>카테고리</div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
             <Select style={{ width: 120 }} value={categoryFilter}
               onChange={(v) => setCategoryFilter(v)} options={[{ label: '전체', value: '' }, ...categoryOptions]} />
           </div>
-          <div style={{ alignSelf: 'flex-end' }}>
-            <Button icon={<SearchOutlined />} onClick={load}>조회</Button>
-          </div>
-        </div>
-      </Card>
+        <Button icon={<SearchOutlined />} onClick={load}>조회</Button>
+      </div>
 
       {/* 테이블 */}
       <Table
@@ -195,6 +192,7 @@ export default function DeadStockPage() {
         rowKey="product_code"
         loading={loading}
         size="small"
+        sortDirections={['descend', 'ascend', 'descend']}
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
       />

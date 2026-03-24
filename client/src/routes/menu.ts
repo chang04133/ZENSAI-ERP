@@ -36,14 +36,30 @@ export const menuItems: MenuItem[] = [
       { key: '/inventory/warehouse', label: '창고재고', icon: 'HomeOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/my-store', label: '매장재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/inbound', label: '입고관리', icon: 'ImportOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
+    ],
+  },
+  {
+    key: 'sub-production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
+    children: [
+      { key: '/production', label: '생산기획 대시보드', icon: 'DashboardOutlined', roles: ADMIN_HQ },
+      { key: '/production/plans', label: '생산계획 관리', icon: 'ScheduleOutlined', roles: ADMIN_HQ },
+      { key: '/production/materials', label: '부자재 관리', icon: 'GoldOutlined', roles: ADMIN_HQ },
+      { key: '/production/payments', label: '생산정산', icon: 'DollarOutlined', roles: ADMIN_HQ },
+    ],
+  },
+  {
+    key: '/inbound', label: '입고관리', icon: 'ImportOutlined', roles: ADMIN_HQ_STORE,
+    children: [
+      { key: '/inbound/dashboard', label: '종합입고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inbound/register', label: '입고등록', icon: 'PlusCircleOutlined', roles: ADMIN_HQ },
     ],
   },
   {
     key: '/shipment', label: '출고관리', icon: 'ExportOutlined', roles: ADMIN_HQ_STORE,
     children: [
-      { key: '/shipment/request', label: '오픈출고등록', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/dashboard', label: '종합출고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/shipment/request', label: '출고등록', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/new-product', label: '신상 판매분 출고', icon: 'RocketOutlined', roles: ADMIN_HQ },
       { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
@@ -54,24 +70,20 @@ export const menuItems: MenuItem[] = [
   {
     key: '/sales', label: '판매관리', icon: 'LineChartOutlined', roles: STORE_ALL,
     children: [
-      { key: '/sales/partner-sales', label: '종합매출조회', icon: 'ShopOutlined', roles: ADMIN_HQ },
-      { key: '/sales/dashboard', label: '매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ },
+      { key: '/sales/dashboard', label: '종합매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ },
       { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: STORE_ALL },
       { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: STORE_ALL },
     ],
   },
+
   {
-    key: 'sub-production', label: '생산기획', icon: 'ExperimentOutlined', roles: ADMIN_HQ,
+    key: 'sub-fund', label: '자금관리', icon: 'FundOutlined', roles: ADMIN_ONLY,
     children: [
-      { key: '/production', label: '생산기획 대시보드', icon: 'DashboardOutlined', roles: ADMIN_HQ },
-      { key: '/production/plans', label: '생산계획 관리', icon: 'ScheduleOutlined', roles: ADMIN_HQ },
-      { key: '/production/progress', label: '생산진행 현황', icon: 'SyncOutlined', roles: ADMIN_HQ },
-      { key: '/production/materials', label: '부자재 관리', icon: 'GoldOutlined', roles: ADMIN_HQ },
+      { key: '/fund', label: '자금계획', icon: 'ScheduleOutlined', roles: ADMIN_ONLY },
+      { key: '/fund/financial-statement', label: '재무제표', icon: 'FileTextOutlined', roles: ADMIN_ONLY },
     ],
   },
-
-  { key: '/fund', label: '자금계획', icon: 'FundOutlined', roles: ADMIN_ONLY },
   { key: '/users', label: '직원 관리', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
   { key: '/codes', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_SYS },
   {

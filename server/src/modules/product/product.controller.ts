@@ -202,6 +202,18 @@ class ProductController extends BaseController<Product> {
     res.json({ success: true, data: result });
   });
 
+  eventRecommendations = asyncHandler(async (req: Request, res: Response) => {
+    const { category, limit } = req.query as Record<string, string | undefined>;
+    const data = await productService.eventRecommendations({
+      category: category || undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+    if (isStoreRole(req)) {
+      data.forEach((d: any) => { delete d.cost_price; });
+    }
+    res.json({ success: true, data });
+  });
+
   bulkUpdateEventDates = asyncHandler(async (req: Request, res: Response) => {
     const { product_codes, event_start_date, event_end_date } = req.body;
     if (!Array.isArray(product_codes) || product_codes.length === 0) {

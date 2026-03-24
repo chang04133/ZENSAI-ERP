@@ -1,8 +1,14 @@
+export type InboundStatus = 'PENDING' | 'COMPLETED';
+
 export interface InboundRecord {
   record_id: number;
   inbound_no: string;
   inbound_date: string;
   partner_code: string;
+  status: InboundStatus;
+  source_type?: string | null;
+  source_id?: number | null;
+  expected_qty?: number | null;
   memo: string | null;
   created_by: string | null;
   created_at: string;
@@ -11,6 +17,8 @@ export interface InboundRecord {
   partner_name?: string;
   total_qty?: number;
   item_count?: number;
+  // joined
+  plan_no?: string;
 }
 
 export interface InboundItem {

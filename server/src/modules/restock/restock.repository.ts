@@ -95,57 +95,6 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
     return { ...req.rows[0], items: items.rows };
   }
 
-  /** 판매 속도 조회 (7일/30일) */
-  async getSellingVelocity(partnerCode?: string): Promise<any[]> {
-    const partnerFilter = partnerCode ? 'AND t.partner_code = $1' : '';
-    const invFilter = partnerCode ? 'WHERE partner_code = $1' : '';
-    const params = partnerCode ? [partnerCode] : [];
-
-    const sql = `
-      WITH sales_7d AS (
-        SELECT t.variant_id, COALESCE(SUM(-t.qty_change), 0)::int AS sold_7d
-        FROM inventory_transactions t
-        WHERE t.tx_type = 'SALE' AND t.created_at >= NOW() - INTERVAL '7 days' ${partnerFilter}
-        GROUP BY t.variant_id
-      ),
-      sales_30d AS (
-        SELECT t.variant_id, COALESCE(SUM(-t.qty_change), 0)::int AS sold_30d
-        FROM inventory_transactions t
-        WHERE t.tx_type = 'SALE' AND t.created_at >= NOW() - INTERVAL '30 days' ${partnerFilter}
-        GROUP BY t.variant_id
-      ),
-      current_inv AS (
-        SELECT variant_id, COALESCE(SUM(qty), 0)::int AS current_qty
-        FROM inventory ${invFilter}
-        GROUP BY variant_id
-      )
-      SELECT
-        pv.variant_id, pv.sku, p.product_code, p.product_name, pv.color, pv.size,
-        p.category, p.base_price,
-        COALESCE(s7.sold_7d, 0)::int AS sold_7d,
-        COALESCE(s30.sold_30d, 0)::int AS sold_30d,
-        ROUND(COALESCE(s7.sold_7d, 0) / 7.0, 2)::float AS avg_daily_7d,
-        ROUND(COALESCE(s30.sold_30d, 0) / 30.0, 2)::float AS avg_daily_30d,
-        COALESCE(ci.current_qty, 0)::int AS current_qty,
-        (COALESCE(p.base_price, 0) * COALESCE(ci.current_qty, 0))::bigint AS stock_value,
-        CASE WHEN COALESCE(s7.sold_7d, 0) > 0
-          THEN FLOOR(COALESCE(ci.current_qty, 0) / (s7.sold_7d / 7.0))::int
-          ELSE NULL END AS days_until_out_7d,
-        CASE WHEN COALESCE(s30.sold_30d, 0) > 0
-          THEN FLOOR(COALESCE(ci.current_qty, 0) / (s30.sold_30d / 30.0))::int
-          ELSE NULL END AS days_until_out_30d
-      FROM product_variants pv
-      JOIN products p ON pv.product_code = p.product_code
-      LEFT JOIN sales_7d s7 ON pv.variant_id = s7.variant_id
-      LEFT JOIN sales_30d s30 ON pv.variant_id = s30.variant_id
-      LEFT JOIN current_inv ci ON pv.variant_id = ci.variant_id
-      WHERE p.is_active = TRUE AND pv.is_active = TRUE
-        AND (COALESCE(s7.sold_7d, 0) > 0 OR COALESCE(s30.sold_30d, 0) > 0)
-      ORDER BY stock_value DESC, sold_30d DESC
-      LIMIT 200`;
-    return (await this.pool.query(sql, params)).rows;
-  }
-
   /** 재입고 제안 목록 — 시스템 설정 기반 판매 분석, 판매율, 계절가중치 */
   async getRestockSuggestions(): Promise<{ suggestions: any[]; salesPeriodDays: number }> {
     // 설정값 로드
@@ -197,6 +146,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
+          AND p.created_at >= CURRENT_DATE - INTERVAL '365 days'
         GROUP BY pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size, p.season, p.category, p.sub_category, p.fit, p.length
       ),
       current_stock AS (
@@ -212,7 +162,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         JOIN products p ON p.category = pi.category
           AND (pi.fit IS NULL OR p.fit = pi.fit)
           AND (pi.length IS NULL OR p.length = pi.length)
-        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
+        WHERE pp.status IN ('IN_PRODUCTION')
         GROUP BY p.product_code
       ),
       pending_restocks AS (
@@ -231,6 +181,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         LEFT JOIN inventory i ON pv.variant_id = i.variant_id
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
+          AND p.created_at >= CURRENT_DATE - INTERVAL '365 days'
           AND COALESCE(i.qty, 0) = 0
           AND pv.variant_id NOT IN (SELECT variant_id FROM sales_velocity)
           AND pv.variant_id NOT IN (SELECT variant_id FROM pending_restocks WHERE pending_qty > 0)
@@ -241,6 +192,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         FROM product_variants pv
         JOIN products p ON pv.product_code = p.product_code
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
+          AND p.created_at >= CURRENT_DATE - INTERVAL '365 days'
           AND p.season IS NOT NULL AND p.season ~ '^[0-9]{4}'
           AND (EXTRACT(YEAR FROM CURRENT_DATE) - LEFT(p.season, 4)::int) * 365 < ${excludeAgeDays}
           AND (SELECT COUNT(*) FROM product_variants pv2 WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE) >= ${brokenMinSizes}

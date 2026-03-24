@@ -31,25 +31,6 @@ export interface RestockRequestItem {
   size?: string;
 }
 
-export interface SellingVelocity {
-  variant_id: number;
-  sku: string;
-  product_name: string;
-  color: string;
-  size: string;
-  product_code: string;
-  category: string;
-  base_price: number;
-  sold_7d: number;
-  sold_30d: number;
-  avg_daily_7d: number;
-  avg_daily_30d: number;
-  current_qty: number;
-  stock_value: number;
-  days_until_out_7d: number | null;
-  days_until_out_30d: number | null;
-}
-
 export interface RestockSuggestion {
   variant_id: number;
   product_code: string;

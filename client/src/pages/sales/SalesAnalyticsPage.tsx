@@ -107,6 +107,16 @@ const fmtSeason = (code: string) => {
   return `${y} ${t === 'SA' ? '봄/가을' : t === 'SM' ? '여름' : t === 'WN' ? '겨울' : t}`;
 };
 const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'];
+const MAX_CHART = 7;
+/** 배열 > max 시 상위 max + "기타" 합산 반환 */
+function capArr(arr: any[], max: number, labelKey: string, sumKeys: string[]): any[] {
+  if (arr.length <= max) return arr;
+  const top = arr.slice(0, max);
+  const rest = arr.slice(max);
+  const other: any = { [labelKey]: '기타' };
+  for (const k of sumKeys) other[k] = rest.reduce((s: number, r: any) => s + Number(r[k] || 0), 0);
+  return [...top, other];
+}
 
 function PeriodTab() {
   const [mode, setMode] = useState<ViewMode>('monthly');
@@ -303,14 +313,14 @@ function PeriodTab() {
   };
 
   const totals = data?.totals || {};
-  const byCategory = data?.byCategory || [];
+  const byCategory = capArr(data?.byCategory || [], MAX_CHART, 'category', ['total_amount', 'total_qty', 'product_count']);
   const bySubCategory = data?.bySubCategory || [];
-  const byFit = data?.byFit || [];
-  const byLength = data?.byLength || [];
-  const bySize = data?.bySize || [];
-  const byColor = data?.byColor || [];
-  const topProducts = data?.topProducts || [];
-  const bySeason = data?.bySeason || [];
+  const byFit = capArr(data?.byFit || [], MAX_CHART, 'fit', ['total_amount', 'total_qty', 'product_count', 'active_style_count']);
+  const byLength = capArr(data?.byLength || [], MAX_CHART, 'length', ['total_amount', 'total_qty', 'product_count', 'active_style_count']);
+  const bySize = capArr(data?.bySize || [], MAX_CHART, 'size', ['total_qty', 'total_amount']);
+  const byColor = capArr(data?.byColor || [], MAX_CHART, 'color', ['total_qty', 'total_amount']);
+  const topProducts = (data?.topProducts || []).slice(0, MAX_CHART);
+  const bySeason = capArr(data?.bySeason || [], MAX_CHART, 'season_type', ['total_amount', 'total_qty']);
 
   const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
   const maxCatAmt = Math.max(1, ...byCategory.map((c: any) => Number(c.total_amount)));
@@ -894,7 +904,7 @@ function YoYTab() {
                         : <Tag color="blue">NEW</Tag> },
                   ]}
                   dataSource={(data?.productGrowth || []).filter((r: any) => Number(r.cur_amount) > Number(r.prev_amount))
-                    .sort((a: any, b: any) => Number(b.cur_amount) - Number(b.prev_amount) - (Number(a.cur_amount) - Number(a.prev_amount))).slice(0, 15)}
+                    .sort((a: any, b: any) => Number(b.cur_amount) - Number(b.prev_amount) - (Number(a.cur_amount) - Number(a.prev_amount))).slice(0, MAX_CHART)}
                   rowKey="product_code" pagination={false} size="small" scroll={{ x: 500 }} />
                 </Card>
               </Col>
@@ -911,7 +921,7 @@ function YoYTab() {
                         : <Tag>-</Tag> },
                   ]}
                   dataSource={(data?.productGrowth || []).filter((r: any) => Number(r.prev_amount) > 0 && Number(r.cur_amount) < Number(r.prev_amount))
-                    .sort((a: any, b: any) => (Number(a.cur_amount) - Number(a.prev_amount)) - (Number(b.cur_amount) - Number(b.prev_amount))).slice(0, 15)}
+                    .sort((a: any, b: any) => (Number(a.cur_amount) - Number(a.prev_amount)) - (Number(b.cur_amount) - Number(b.prev_amount))).slice(0, MAX_CHART)}
                   rowKey="product_code" pagination={false} size="small" scroll={{ x: 500 }} />
                 </Card>
               </Col>
@@ -948,8 +958,9 @@ function YoYTab() {
               <Col xs={24} md={12}>
                 <Card size="small" title="사이즈별 판매 비중">
                   {(() => {
-                    const totalQty = (data?.bySize || []).reduce((s: number, r: any) => s + Number(r.total_qty), 0);
-                    return (data?.bySize || []).map((r: any) => {
+                    const sizeData = capArr(data?.bySize || [], MAX_CHART, 'size', ['total_qty', 'total_amount']);
+                    const totalQty = sizeData.reduce((s: number, r: any) => s + Number(r.total_qty), 0);
+                    return sizeData.map((r: any) => {
                       const pct = totalQty > 0 ? (Number(r.total_qty) / totalQty * 100) : 0;
                       return (
                         <div key={r.size} style={{ marginBottom: 10 }}>
@@ -967,15 +978,16 @@ function YoYTab() {
                 </Card>
               </Col>
               <Col xs={24} md={12}>
-                <Card size="small" title="컬러별 판매 TOP 15">
+                <Card size="small" title="컬러별 판매 TOP">
                   {(() => {
-                    const totalQty = (data?.byColor || []).reduce((s: number, r: any) => s + Number(r.total_qty), 0);
+                    const colorData = capArr(data?.byColor || [], MAX_CHART, 'color', ['total_qty', 'total_amount']);
+                    const totalQty = colorData.reduce((s: number, r: any) => s + Number(r.total_qty), 0);
                     const colors: Record<string, string> = {
                       BK: '#000', WH: '#ccc', NV: '#001f6b', GR: '#52c41a', BE: '#d4b896',
                       RD: '#ff4d4f', BL: '#1890ff', BR: '#8b4513', PK: '#ff69b4', GY: '#999',
                       CR: '#fffdd0', IV: '#fffff0', KH: '#546b3e', WN: '#722f37',
                     };
-                    return (data?.byColor || []).map((r: any) => {
+                    return colorData.map((r: any) => {
                       const pct = totalQty > 0 ? (Number(r.total_qty) / totalQty * 100) : 0;
                       const bg = colors[r.color] || '#1890ff';
                       return (

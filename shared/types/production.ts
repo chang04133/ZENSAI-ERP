@@ -1,4 +1,4 @@
-export type ProductionStatus = 'DRAFT' | 'CONFIRMED' | 'IN_PRODUCTION' | 'COMPLETED' | 'CANCELLED';
+export type ProductionStatus = 'DRAFT' | 'IN_PRODUCTION' | 'COMPLETED' | 'CANCELLED';
 export type MaterialType = 'FABRIC' | 'ACCESSORY' | 'PACKAGING';
 
 export interface ProductionPlan {
@@ -16,6 +16,20 @@ export interface ProductionPlan {
   approved_by: string | null;
   created_at: string;
   updated_at: string;
+  // 대금 관리
+  total_amount?: number;
+  advance_rate?: number;
+  advance_amount?: number;
+  advance_date?: string | null;
+  advance_status?: string;
+  inspect_date?: string | null;
+  inspect_qty?: number;
+  inspect_status?: string;
+  inspect_memo?: string | null;
+  balance_amount?: number;
+  balance_date?: string | null;
+  balance_status?: string;
+  settle_status?: string;
   // Joined fields
   partner_name?: string;
   created_by_name?: string;

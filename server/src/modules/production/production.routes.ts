@@ -14,9 +14,11 @@ router.get('/recommendations', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN')
 router.get('/auto-generate/preview', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), productionController.autoGeneratePreview);
 router.post('/auto-generate', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), productionController.autoGenerate);
 router.get('/product-variants/:productCode', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.productVariantDetail);
-router.put('/:id/status', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), productionController.updateStatus);
-router.put('/:id/produced-qty', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), productionController.updateProducedQty);
-router.put('/:id/materials', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN'), productionController.saveMaterials);
+router.get('/payment-summary', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.paymentSummary);
+router.put('/:id/payment', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.updatePayment);
+router.put('/:id/status', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.updateStatus);
+router.put('/:id/produced-qty', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.updateProducedQty);
+router.put('/:id/materials', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.saveMaterials);
 
 // 기본 CRUD
 productionController.registerCrudRoutes(router, {

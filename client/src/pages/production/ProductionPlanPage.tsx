@@ -1,13 +1,15 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Progress, Collapse, Divider, message, Typography } from 'antd';
+import { Card, Table, Tag, Button, Modal, Form, Input, Select, DatePicker, InputNumber, Space, Popconfirm, Collapse, Divider, Segmented, message, Typography, Row, Col, Steps } from 'antd';
 import {
   PlusOutlined, EyeOutlined, CheckOutlined, PlayCircleOutlined,
   StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
-  FileTextOutlined, CheckCircleOutlined, SearchOutlined,
-  UploadOutlined, DownloadOutlined,
+  FileTextOutlined, SearchOutlined,
+  UploadOutlined, DownloadOutlined, DollarOutlined, BankOutlined,
+  AuditOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
+import { apiFetch } from '../../core/api.client';
 import { productApi } from '../../modules/product/product.api';
 import { codeApi } from '../../modules/code/code.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -16,10 +18,10 @@ import dayjs from 'dayjs';
 import { fmtNum } from '../../utils/format';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', CONFIRMED: 'blue', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
+  DRAFT: 'default', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
+  DRAFT: '초안', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
 const CATEGORY_COLORS: Record<string, string> = {
   TOP: '#1890ff', BOTTOM: '#52c41a', OUTER: '#fa8c16', DRESS: '#eb2f96', ACC: '#722ed1',
@@ -28,7 +30,6 @@ const CATEGORY_COLORS: Record<string, string> = {
 const STEPS = [
   { key: '', label: '전체', color: '#1890ff', bg: '#e6f7ff', icon: <AppstoreOutlined /> },
   { key: 'DRAFT', label: '초안', color: '#8c8c8c', bg: '#fafafa', icon: <FileTextOutlined /> },
-  { key: 'CONFIRMED', label: '확정', color: '#1677ff', bg: '#e6f4ff', icon: <CheckCircleOutlined /> },
   { key: 'IN_PRODUCTION', label: '생산중', color: '#fa8c16', bg: '#fff7e6', icon: <PlayCircleOutlined /> },
   { key: 'COMPLETED', label: '완료', color: '#52c41a', bg: '#f6ffed', icon: <CheckOutlined /> },
   { key: 'CANCELLED', label: '취소', color: '#ff4d4f', bg: '#fff2f0', icon: <StopOutlined /> },
@@ -57,6 +58,15 @@ interface CategoryGroup {
   items: SubItem[];
 }
 
+const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
+const fmtSeason = (v: string | null) => {
+  if (!v) return '-';
+  const yr = v.substring(0, 4);
+  const tp = v.substring(4);
+  const label = SEASON_LABELS[tp];
+  return label ? `${yr.slice(-2)} ${label}` : v;
+};
+
 export default function ProductionPlanPage() {
   const location = useLocation();
   const keySeqRef = useRef(0);
@@ -68,10 +78,30 @@ export default function ProductionPlanPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [statusCounts, setStatusCounts] = useState<Record<string, { count: number; qty: number }>>({});
   const [search, setSearch] = useState('');
+  const [yearFilter, setYearFilter] = useState<string>('');
+  const [seasonTypeFilter, setSeasonTypeFilter] = useState<string>('');
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
   const [createOpen, setCreateOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<ProductionPlan | null>(null);
   const [form] = Form.useForm();
+
+  // 생산수량 입력
+  const [editItems, setEditItems] = useState<Array<{ item_id: number; produced_qty: number }>>([]);
+  const [qtySubmitting, setQtySubmitting] = useState(false);
+
+  // 선지급 모달
+  const [advanceOpen, setAdvanceOpen] = useState(false);
+  const [advancePlanId, setAdvancePlanId] = useState<number | null>(null);
+  const [advanceForm] = Form.useForm();
+  const [advanceLoading, setAdvanceLoading] = useState(false);
+
+  // 잔금+완료 모달
+  const [balanceOpen, setBalanceOpen] = useState(false);
+  const [balancePlan, setBalancePlan] = useState<ProductionPlan | null>(null);
+  const [balanceForm] = Form.useForm();
+  const [balanceLoading, setBalanceLoading] = useState(false);
 
   // 카테고리별 그룹
   const [catGroups, setCatGroups] = useState<CategoryGroup[]>([]);
@@ -96,11 +126,13 @@ export default function ProductionPlanPage() {
       const params: Record<string, string> = { page: String(page), limit: '50' };
       if (statusFilter) params.status = statusFilter;
       if (search) params.search = search;
+      if (yearFilter) params.year = yearFilter;
+      if (seasonTypeFilter) params.season_type = seasonTypeFilter;
       const result = await productionApi.list(params);
       setPlans(result.data); setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, statusFilter, search]);
+  }, [page, statusFilter, search, yearFilter, seasonTypeFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -117,7 +149,7 @@ export default function ProductionPlanPage() {
       }
       counts[''] = { count: totalCount, qty: totalQty };
       // 빠진 상태는 0으로 초기화
-      for (const s of ['DRAFT', 'CONFIRMED', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED']) {
+      for (const s of ['DRAFT', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED']) {
         if (!counts[s]) counts[s] = { count: 0, qty: 0 };
       }
       setStatusCounts(counts);
@@ -144,6 +176,11 @@ export default function ProductionPlanPage() {
         setSubCategoryMap(subMap);
         setFitOptions(toOpts(codes.FIT));
         setLengthOptions(toOpts(codes.LENGTH));
+        // 연도/시즌 코드 로드
+        const yearCodes = (codes.YEAR || []).filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value));
+        setYearOptions(yearCodes.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
+        const seasonCodes = (codes.SEASON || []).filter((c: any) => c.is_active);
+        setSeasonOptions(seasonCodes.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
       } catch (e: any) { console.error('코드 로드 실패:', e); }
     })();
     (async () => {
@@ -254,10 +291,8 @@ export default function ProductionPlanPage() {
 
   const handleExcelDownload = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const res = await fetch(productionApi.excelTemplateUrl, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const res = await apiFetch(productionApi.excelTemplateUrl);
+      if (!res.ok) { message.error('템플릿 다운로드 실패'); return; }
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement('a');
@@ -306,9 +341,10 @@ export default function ProductionPlanPage() {
       }
       if (flatItems.length === 0) { message.error('품목을 1개 이상 추가해주세요.'); return; }
 
+      const season = values.season_year && values.season_type ? `${values.season_year}${values.season_type}` : values.season_year || null;
       await productionApi.create({
         plan_name: values.plan_name,
-        season: values.season,
+        season,
         target_date: values.target_date?.format('YYYY-MM-DD'),
         partner_code: values.partner_code || null,
         memo: values.memo,
@@ -333,10 +369,124 @@ export default function ProductionPlanPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  const handleSaveQty = async () => {
+    if (!detail || qtySubmitting) return;
+    setQtySubmitting(true);
+    try {
+      const updated = await productionApi.updateProducedQty(detail.plan_id, editItems);
+      message.success('생산수량이 업데이트되었습니다.');
+      setDetail(updated);
+      setEditItems((updated.items || []).map((i: any) => ({ item_id: i.item_id, produced_qty: i.produced_qty })));
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setQtySubmitting(false); }
+  };
+
+  // ── 선지급 모달 ──
+  const openAdvanceModal = (planId: number, totalCost: number) => {
+    setAdvancePlanId(planId);
+    const rate = 30;
+    advanceForm.setFieldsValue({
+      total_amount: totalCost || 0,
+      advance_rate: rate,
+      advance_amount: Math.round((totalCost || 0) * rate / 100),
+      advance_date: dayjs(),
+    });
+    setAdvanceOpen(true);
+  };
+
+  const handleAdvanceSubmit = async () => {
+    if (!advancePlanId || advanceLoading) return;
+    setAdvanceLoading(true);
+    try {
+      const values = await advanceForm.validateFields();
+      // 1. 상태 변경 (DRAFT → IN_PRODUCTION)
+      await productionApi.updateStatus(advancePlanId, 'IN_PRODUCTION');
+      // 2. 선지급 처리
+      try {
+        await productionApi.updatePayment(advancePlanId, {
+          action: 'advance',
+          total_amount: values.total_amount,
+          advance_rate: values.advance_rate,
+          advance_amount: values.advance_amount,
+          advance_date: values.advance_date.format('YYYY-MM-DD'),
+        });
+        message.success('생산이 시작되었습니다. 선지급이 처리되었습니다.');
+      } catch (payErr: any) {
+        message.warning('생산시작은 완료되었으나 선지급 처리에 실패했습니다: ' + payErr.message);
+      }
+      setAdvanceOpen(false);
+    } catch (e: any) {
+      message.error('생산시작 실패: ' + (e.message || '알 수 없는 오류'));
+    } finally {
+      setAdvanceLoading(false);
+      load(); loadCounts();
+      if (detail?.plan_id === advancePlanId) {
+        try { const updated = await productionApi.get(advancePlanId); setDetail(updated); } catch {}
+      }
+    }
+  };
+
+  // ── 잔금 + 완료 모달 ──
+  const openBalanceModal = async (planId: number) => {
+    try {
+      const plan = await productionApi.get(planId);
+      setBalancePlan(plan);
+      balanceForm.setFieldsValue({ balance_date: dayjs() });
+      setBalanceOpen(true);
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleBalanceSubmit = async () => {
+    if (!balancePlan || balanceLoading) return;
+    const planId = balancePlan.plan_id;
+    setBalanceLoading(true);
+    try {
+      const values = await balanceForm.validateFields();
+      const balanceAmt = (Number(balancePlan.total_amount) || 0) - (Number(balancePlan.advance_amount) || 0);
+      // 1. 잔금 처리
+      await productionApi.updatePayment(planId, {
+        action: 'balance',
+        balance_amount: balanceAmt,
+        balance_date: values.balance_date.format('YYYY-MM-DD'),
+      });
+      // 2. 완료 처리
+      try {
+        await productionApi.updateStatus(planId, 'COMPLETED');
+        message.success('잔금이 지급되었습니다. 생산이 완료 처리되었습니다.');
+      } catch (statusErr: any) {
+        message.warning('잔금 지급은 완료되었으나 완료 처리에 실패했습니다: ' + statusErr.message);
+      }
+      setBalanceOpen(false);
+    } catch (e: any) {
+      message.error('잔금 지급 실패: ' + (e.message || '알 수 없는 오류'));
+    } finally {
+      setBalanceLoading(false);
+      load(); loadCounts();
+      if (detail?.plan_id === planId) {
+        try { const updated = await productionApi.get(planId); setDetail(updated); } catch {}
+      }
+    }
+  };
+
+  // ── 정산 완료 ──
+  const handleSettle = async (planId: number) => {
+    try {
+      await productionApi.updatePayment(planId, { action: 'settle' });
+      message.success('정산이 완료되었습니다.');
+      load(); loadCounts();
+      if (detail?.plan_id === planId) {
+        const updated = await productionApi.get(planId);
+        setDetail(updated);
+      }
+    } catch (e: any) { message.error(e.message); }
+  };
+
   const viewDetail = async (id: number) => {
     try {
       const d = await productionApi.get(id);
       setDetail(d); setDetailOpen(true);
+      setEditItems((d.items || []).map((i: any) => ({ item_id: i.item_id, produced_qty: i.produced_qty })));
     } catch (e: any) { message.error(e.message); }
   };
 
@@ -357,14 +507,27 @@ export default function ProductionPlanPage() {
   const columns = [
     { title: '계획번호', dataIndex: 'plan_no', key: 'no', width: 120 },
     { title: '계획명', dataIndex: 'plan_name', key: 'name', ellipsis: true },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => fmtSeason(v) },
     { title: '품목', dataIndex: 'item_count', key: 'items', width: 60, render: (v: number) => `${v}건` },
     { title: '계획수량', dataIndex: 'total_plan_qty', key: 'plan', width: 80, render: (v: number) => fmtNum(Number(v)) },
     { title: '총 비용', dataIndex: 'total_cost', key: 'cost', width: 110,
       render: (v: number) => v ? `${fmtNum(Number(v))}원` : '-' },
-    { title: '진행률', key: 'pct', width: 120, render: (_: any, r: any) => {
-      const pct = r.total_plan_qty > 0 ? Math.round((r.total_produced_qty / r.total_plan_qty) * 100) : 0;
-      return <Progress percent={pct} size="small" />;
+    { title: '결제현황', key: 'payment', width: 160, render: (_: any, r: ProductionPlan) => {
+      if (['DRAFT', 'CANCELLED'].includes(r.status)) return <span style={{ color: '#ccc' }}>-</span>;
+      if (!r.total_amount) return <span style={{ color: '#ccc', fontSize: 11 }}>미설정</span>;
+      if (r.settle_status === 'SETTLED') return <Tag color="green">정산완료</Tag>;
+      return (
+        <Space size={4} wrap>
+          <Tag color={r.advance_status === 'PAID' ? 'blue' : 'default'} style={{ fontSize: 11, margin: 0 }}>
+            선지급 {r.advance_status === 'PAID' ? '✓' : '대기'}
+          </Tag>
+          {r.advance_status === 'PAID' && (
+            <Tag color={r.balance_status === 'PAID' ? 'cyan' : 'default'} style={{ fontSize: 11, margin: 0 }}>
+              잔금 {r.balance_status === 'PAID' ? '✓' : '대기'}
+            </Tag>
+          )}
+        </Space>
+      );
     }},
     { title: '입고처', dataIndex: 'partner_name', key: 'partner', width: 100, ellipsis: true,
       render: (v: string) => v || <span style={{ color: '#aaa' }}>본사</span>,
@@ -375,21 +538,14 @@ export default function ProductionPlanPage() {
       <Space size="small">
         <Button size="small" icon={<EyeOutlined />} onClick={() => viewDetail(r.plan_id)}>상세</Button>
         {r.status === 'DRAFT' && (
-          <Popconfirm title="확정하시겠습니까?" onConfirm={() => handleStatusChange(r.plan_id, 'CONFIRMED')}>
-            <Button size="small" type="primary" icon={<CheckOutlined />}>확정</Button>
-          </Popconfirm>
-        )}
-        {r.status === 'CONFIRMED' && (
-          <Popconfirm title="생산을 시작하시겠습니까?" onConfirm={() => handleStatusChange(r.plan_id, 'IN_PRODUCTION')}>
-            <Button size="small" style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }} icon={<PlayCircleOutlined />}>생산시작</Button>
-          </Popconfirm>
+          <Button size="small" style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }} icon={<PlayCircleOutlined />}
+            onClick={() => openAdvanceModal(r.plan_id, Number(r.total_cost) || 0)}>생산시작</Button>
         )}
         {r.status === 'IN_PRODUCTION' && (
-          <Popconfirm title="생산 완료 처리하시겠습니까?" onConfirm={() => handleStatusChange(r.plan_id, 'COMPLETED')}>
-            <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }}>완료</Button>
-          </Popconfirm>
+          <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }}
+            onClick={() => openBalanceModal(r.plan_id)}>완료</Button>
         )}
-        {(r.status === 'DRAFT' || r.status === 'CONFIRMED') && (
+        {r.status === 'DRAFT' && (
           <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleStatusChange(r.plan_id, 'CANCELLED')}>
             <Button size="small" danger icon={<StopOutlined />}>취소</Button>
           </Popconfirm>
@@ -433,6 +589,24 @@ export default function ProductionPlanPage() {
       </div>
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        {yearOptions.length > 0 && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도별</div>
+            <Segmented
+              value={yearFilter || '전체'}
+              onChange={(v) => { setYearFilter(v === '전체' ? '' : String(v)); setPage(1); }}
+              options={[{ label: '전체', value: '전체' }, ...yearOptions.map(o => ({ label: o.label, value: o.value }))]}
+            />
+          </div>
+        )}
+        {seasonOptions.length > 0 && (
+          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌별</div>
+            <Segmented
+              value={seasonTypeFilter || '전체'}
+              onChange={(v) => { setSeasonTypeFilter(v === '전체' ? '' : String(v)); setPage(1); }}
+              options={[{ label: '전체', value: '전체' }, ...seasonOptions.map(o => ({ label: o.label, value: o.value }))]}
+            />
+          </div>
+        )}
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <Input placeholder="계획명/상품명 검색" prefix={<SearchOutlined />} value={search}
             onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); }} style={{ width: '100%' }} /></div>
@@ -459,19 +633,14 @@ export default function ProductionPlanPage() {
             <Input placeholder="예: 26SA 상의 1차 생산" />
           </Form.Item>
           <Space style={{ width: '100%' }} size="middle">
-            <Form.Item name="season" label="시즌" style={{ width: 150 }}>
+            <Form.Item name="season_year" label="연도" style={{ width: 110 }}>
+              <Select allowClear placeholder="연도">
+                {yearOptions.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
+              </Select>
+            </Form.Item>
+            <Form.Item name="season_type" label="시즌" style={{ width: 120 }}>
               <Select allowClear placeholder="시즌">
-                {(() => {
-                  const y = new Date().getFullYear();
-                  return [y + 1, y, y - 1].flatMap(yr => {
-                    const yy = String(yr).slice(-2);
-                    return [
-                      { value: `${yr}SA`, label: `${yy} 봄/가을` },
-                      { value: `${yr}SM`, label: `${yy} 여름` },
-                      { value: `${yr}WN`, label: `${yy} 겨울` },
-                    ];
-                  });
-                })().map(s => <Select.Option key={s.value} value={s.value}>{s.label}</Select.Option>)}
+                {seasonOptions.map(o => <Select.Option key={o.value} value={o.value}>{o.label}</Select.Option>)}
               </Select>
             </Form.Item>
             <Form.Item name="target_date" label="목표일">
@@ -655,7 +824,7 @@ export default function ProductionPlanPage() {
             <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginBottom: 16 }}>
               <Tag color={STATUS_COLORS[detail.status]}>{STATUS_LABELS[detail.status]}</Tag>
               <span><strong>계획명:</strong> {detail.plan_name}</span>
-              <span><strong>시즌:</strong> {detail.season || '-'}</span>
+              <span><strong>시즌:</strong> {fmtSeason(detail.season)}</span>
               <span><strong>목표일:</strong> {detail.target_date ? new Date(detail.target_date).toLocaleDateString('ko-KR') : '-'}</span>
               <span><strong>입고처:</strong> {detail.partner_name || '본사'}</span>
               <span><strong>등록자:</strong> {detail.created_by_name}</span>
@@ -664,11 +833,116 @@ export default function ProductionPlanPage() {
             </div>
             {detail.memo && <div style={{ marginBottom: 16, color: '#666' }}>{detail.memo}</div>}
 
+            {/* 결제 정보 섹션 (DRAFT/CANCELLED 제외) */}
+            {!['DRAFT', 'CANCELLED'].includes(detail.status) && (
+              <div style={{ marginBottom: 16, padding: 16, background: '#fafafa', borderRadius: 8, border: '1px solid #f0f0f0' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <Typography.Text strong><DollarOutlined style={{ marginRight: 6 }} />결제 정보</Typography.Text>
+                  {detail.total_amount ? (
+                    <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px' }}>
+                      총 계약금액: {fmtNum(Number(detail.total_amount))}원
+                    </Tag>
+                  ) : (
+                    <span style={{ fontSize: 12, color: '#999' }}>생산시작 시 금액이 설정됩니다</span>
+                  )}
+                </div>
+                {detail.total_amount ? (
+                  <>
+                    <Row gutter={12} style={{ marginBottom: 12 }}>
+                      <Col span={6}>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
+                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                            <DollarOutlined /> 선지급
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: detail.advance_status === 'PAID' ? '#1890ff' : '#ccc' }}>
+                            {detail.advance_status === 'PAID' ? `${fmtNum(Number(detail.advance_amount || 0))}원` : '대기'}
+                          </div>
+                          {detail.advance_status === 'PAID' && detail.advance_date && (
+                            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                              {new Date(detail.advance_date).toLocaleDateString('ko-KR')}
+                            </div>
+                          )}
+                          {detail.advance_rate != null && detail.advance_status === 'PAID' && (
+                            <Tag color="blue" style={{ fontSize: 10, marginTop: 4 }}>{detail.advance_rate}%</Tag>
+                          )}
+                        </div>
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
+                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                            <AuditOutlined /> 검수
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: detail.inspect_status === 'PASS' ? '#52c41a' : detail.inspect_status === 'FAIL' ? '#ff4d4f' : '#ccc' }}>
+                            {detail.inspect_status === 'PASS' ? '합격' : detail.inspect_status === 'FAIL' ? '불합격' : '대기'}
+                          </div>
+                          {detail.inspect_status === 'PASS' && detail.inspect_qty != null && (
+                            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtNum(detail.inspect_qty)}개</div>
+                          )}
+                          {detail.inspect_date && (
+                            <div style={{ fontSize: 11, color: '#999' }}>{new Date(detail.inspect_date).toLocaleDateString('ko-KR')}</div>
+                          )}
+                        </div>
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
+                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                            <BankOutlined /> 잔금
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: detail.balance_status === 'PAID' ? '#13c2c2' : '#ccc' }}>
+                            {detail.balance_status === 'PAID' ? `${fmtNum(Number(detail.balance_amount || 0))}원` : detail.balance_amount ? `${fmtNum(Number(detail.balance_amount))}원` : '대기'}
+                          </div>
+                          {detail.balance_status === 'PAID' && detail.balance_date && (
+                            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>
+                              {new Date(detail.balance_date).toLocaleDateString('ko-KR')}
+                            </div>
+                          )}
+                          {detail.balance_status !== 'PAID' && detail.balance_amount != null && Number(detail.balance_amount) > 0 && (
+                            <Tag color="orange" style={{ fontSize: 10, marginTop: 4 }}>미지급</Tag>
+                          )}
+                        </div>
+                      </Col>
+                      <Col span={6}>
+                        <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
+                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+                            <FileDoneOutlined /> 정산
+                          </div>
+                          <div style={{ fontWeight: 700, fontSize: 15, color: detail.settle_status === 'SETTLED' ? '#52c41a' : '#ccc' }}>
+                            {detail.settle_status === 'SETTLED' ? '완료' : '미정산'}
+                          </div>
+                        </div>
+                      </Col>
+                    </Row>
+                    <Steps
+                      size="small"
+                      current={
+                        detail.settle_status === 'SETTLED' ? 4 :
+                        detail.balance_status === 'PAID' ? 3 :
+                        detail.inspect_status === 'PASS' ? 2 :
+                        detail.advance_status === 'PAID' ? 1 : 0
+                      }
+                      items={[
+                        { title: '선지급', icon: <DollarOutlined /> },
+                        { title: '검수', icon: <AuditOutlined /> },
+                        { title: '잔금', icon: <BankOutlined /> },
+                        { title: '정산', icon: <FileDoneOutlined /> },
+                      ]}
+                    />
+                  </>
+                ) : null}
+              </div>
+            )}
+
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <Typography.Text strong>품목 목록</Typography.Text>
               <Space>
                 <Tag color="blue">총 {(detail.items || []).reduce((s, i) => s + i.plan_qty, 0).toLocaleString()}개</Tag>
                 <Tag color="gold">비용 {fmtNum(detailTotalCost)}원</Tag>
+                {detail.status === 'IN_PRODUCTION' && (
+                  <Button size="small" type="primary" icon={<CheckOutlined />}
+                    onClick={handleSaveQty} loading={qtySubmitting}>
+                    생산수량 저장
+                  </Button>
+                )}
               </Space>
             </div>
 
@@ -678,9 +952,7 @@ export default function ProductionPlanPage() {
               style={{ marginBottom: 16 }}
               items={detailGrouped.map(({ category, items }) => {
                 const catQty = items.reduce((s: number, i: any) => s + i.plan_qty, 0);
-                const catProduced = items.reduce((s: number, i: any) => s + (i.produced_qty || 0), 0);
                 const catCost = items.reduce((s: number, i: any) => s + (i.plan_qty || 0) * (i.unit_cost || 0), 0);
-                const catPct = catQty > 0 ? Math.round((catProduced / catQty) * 100) : 0;
                 return {
                   key: category,
                   label: (
@@ -692,7 +964,6 @@ export default function ProductionPlanPage() {
                         {items.length}건 | {catQty.toLocaleString()}개
                         {catCost > 0 && ` | ${catCost.toLocaleString()}원`}
                       </span>
-                      <Progress percent={catPct} size="small" style={{ width: 100 }} />
                     </Space>
                   ),
                   children: (
@@ -711,10 +982,27 @@ export default function ProductionPlanPage() {
                           const amt = (r.plan_qty || 0) * (r.unit_cost || 0);
                           return amt > 0 ? <strong>{fmtNum(amt)}원</strong> : '-';
                         }},
-                        { title: '생산량', dataIndex: 'produced_qty', key: 'prod', width: 80, render: (v: number) => fmtNum(v || 0) },
-                        { title: '진행률', key: 'pct', width: 130, render: (_: any, r: any) => {
-                          const pct = r.plan_qty > 0 ? Math.round(((r.produced_qty || 0) / r.plan_qty) * 100) : 0;
-                          return <Progress percent={pct} size="small" status={pct >= 100 ? 'success' : 'active'} />;
+                        { title: '생산량', key: 'prod', width: 110, render: (_: any, r: any) => {
+                          if (detail?.status === 'IN_PRODUCTION') {
+                            const idx = editItems.findIndex(e => e.item_id === r.item_id);
+                            return (
+                              <InputNumber
+                                min={0} max={r.plan_qty}
+                                value={idx >= 0 ? editItems[idx].produced_qty : (r.produced_qty || 0)}
+                                onChange={(v) => {
+                                  setEditItems(prev => {
+                                    const next = [...prev];
+                                    const i = next.findIndex(e => e.item_id === r.item_id);
+                                    if (i >= 0) next[i] = { ...next[i], produced_qty: v || 0 };
+                                    return next;
+                                  });
+                                }}
+                                style={{ width: '100%' }}
+                                size="small"
+                              />
+                            );
+                          }
+                          return fmtNum(r.produced_qty || 0);
                         }},
                       ]}
                       dataSource={items}
@@ -751,23 +1039,103 @@ export default function ProductionPlanPage() {
             )}
 
             <div style={{ marginTop: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              {detail.status === 'DRAFT' && (
-                <Popconfirm title="확정하시겠습니까?" onConfirm={() => handleStatusChange(detail.plan_id, 'CONFIRMED')}>
-                  <Button type="primary" icon={<CheckOutlined />}>확정</Button>
+              {detail.status === 'COMPLETED' && detail.settle_status !== 'SETTLED' && detail.balance_status === 'PAID' && (
+                <Popconfirm title="정산 완료 처리하시겠습니까?" onConfirm={() => handleSettle(detail.plan_id)}>
+                  <Button icon={<FileDoneOutlined />} type="primary">정산완료</Button>
                 </Popconfirm>
               )}
-              {detail.status === 'CONFIRMED' && (
-                <Popconfirm title="생산 시작?" onConfirm={() => handleStatusChange(detail.plan_id, 'IN_PRODUCTION')}>
-                  <Button style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }} icon={<PlayCircleOutlined />}>생산시작</Button>
-                </Popconfirm>
+              {detail.status === 'DRAFT' && (
+                <Button style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }} icon={<PlayCircleOutlined />}
+                  onClick={() => openAdvanceModal(detail.plan_id, detailTotalCost)}>생산시작</Button>
               )}
               {detail.status === 'IN_PRODUCTION' && (
-                <Popconfirm title="완료 처리?" onConfirm={() => handleStatusChange(detail.plan_id, 'COMPLETED')}>
-                  <Button type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }}>완료처리</Button>
-                </Popconfirm>
+                <Button type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }}
+                  onClick={() => openBalanceModal(detail.plan_id)}>완료처리</Button>
               )}
             </div>
           </>
+        )}
+      </Modal>
+
+      {/* 선지급 모달 */}
+      <Modal
+        title="선지급 처리 (생산시작)"
+        open={advanceOpen}
+        onCancel={() => setAdvanceOpen(false)}
+        onOk={handleAdvanceSubmit}
+        confirmLoading={advanceLoading}
+        okText="생산시작 + 선지급"
+        width={480}
+      >
+        <Form form={advanceForm} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="total_amount" label="총 계약금액 (원)" rules={[{ required: true, message: '계약금액을 입력해주세요' }]}>
+            <InputNumber style={{ width: '100%' }} min={0}
+              formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+              parser={(v: any) => Number((v || '').replace(/,/g, ''))}
+              onChange={(v) => {
+                const rate = advanceForm.getFieldValue('advance_rate') || 30;
+                advanceForm.setFieldValue('advance_amount', Math.round((Number(v) || 0) * rate / 100));
+              }}
+            />
+          </Form.Item>
+          <Row gutter={12}>
+            <Col span={12}>
+              <Form.Item name="advance_rate" label="선지급 비율 (%)" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0} max={100} addonAfter="%"
+                  onChange={(v) => {
+                    const total = advanceForm.getFieldValue('total_amount') || 0;
+                    advanceForm.setFieldValue('advance_amount', Math.round(total * (Number(v) || 0) / 100));
+                  }}
+                />
+              </Form.Item>
+            </Col>
+            <Col span={12}>
+              <Form.Item name="advance_amount" label="선지급 금액 (원)" rules={[{ required: true }]}>
+                <InputNumber style={{ width: '100%' }} min={0}
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(v: any) => Number((v || '').replace(/,/g, ''))}
+                />
+              </Form.Item>
+            </Col>
+          </Row>
+          <Form.Item name="advance_date" label="선지급일" rules={[{ required: true }]}>
+            <DatePicker style={{ width: '100%' }} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 잔금+완료 모달 */}
+      <Modal
+        title="잔금 지급 + 완료처리"
+        open={balanceOpen}
+        onCancel={() => setBalanceOpen(false)}
+        onOk={handleBalanceSubmit}
+        confirmLoading={balanceLoading}
+        okText="잔금지급 + 완료처리"
+        width={480}
+      >
+        {balancePlan && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ marginBottom: 16, padding: 12, background: '#fafafa', borderRadius: 8, border: '1px solid #f0f0f0' }}>
+              <Row gutter={[12, 8]}>
+                <Col span={12}><span style={{ color: '#888', fontSize: 12 }}>계획번호</span><div style={{ fontWeight: 600 }}>{balancePlan.plan_no}</div></Col>
+                <Col span={12}><span style={{ color: '#888', fontSize: 12 }}>계획명</span><div style={{ fontWeight: 600 }}>{balancePlan.plan_name}</div></Col>
+                <Col span={12}><span style={{ color: '#888', fontSize: 12 }}>총 계약금액</span><div style={{ fontWeight: 600, color: '#1890ff' }}>{fmtNum(Number(balancePlan.total_amount) || 0)}원</div></Col>
+                <Col span={12}><span style={{ color: '#888', fontSize: 12 }}>선지급 금액</span><div style={{ fontWeight: 600, color: '#52c41a' }}>{fmtNum(Number(balancePlan.advance_amount) || 0)}원</div></Col>
+              </Row>
+            </div>
+            <div style={{ marginBottom: 16, padding: 12, background: '#e6f7ff', borderRadius: 8, border: '1px solid #91d5ff', textAlign: 'center' }}>
+              <div style={{ fontSize: 12, color: '#1890ff', marginBottom: 4 }}>잔금 금액</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: '#1890ff' }}>
+                {fmtNum((Number(balancePlan.total_amount) || 0) - (Number(balancePlan.advance_amount) || 0))}원
+              </div>
+            </div>
+            <Form form={balanceForm} layout="vertical">
+              <Form.Item name="balance_date" label="잔금 지급일" rules={[{ required: true }]}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </Form>
+          </div>
         )}
       </Modal>
     </div>

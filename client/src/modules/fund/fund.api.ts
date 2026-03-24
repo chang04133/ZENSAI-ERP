@@ -43,4 +43,17 @@ export const fundApi = {
   remove: async (id: number) => parse(await apiFetch(`/api/funds/${id}`, { method: 'DELETE' })),
 
   productionCosts: async (year: number) => parse(await apiFetch(`/api/funds/production-costs?year=${year}`)),
+
+  // 재무제표
+  getFinancialStatementAutoData: async (year: number, period: string) =>
+    parse(await apiFetch(`/api/funds/financial-statements/auto-data?year=${year}&period=${period}`)),
+
+  getFinancialStatement: async (year: number, period: string, type: string) =>
+    parse(await apiFetch(`/api/funds/financial-statements?year=${year}&period=${period}&type=${type}`)),
+
+  saveFinancialStatement: async (body: { fiscal_year: number; period: string; statement_type: string; items: Array<{ item_code: string; amount: number }> }) =>
+    parse(await apiFetch('/api/funds/financial-statements', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })),
 };

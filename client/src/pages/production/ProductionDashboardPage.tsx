@@ -1,62 +1,109 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Col, Row, Table, Progress, Typography, Spin, message, Tag, Modal } from 'antd';
+import { Button, Card, Col, Row, Table, Progress, Typography, Spin, message, Tag } from 'antd';
 import {
-  ExperimentOutlined, BarChartOutlined, RightOutlined,
+  ExperimentOutlined, DollarOutlined, RightOutlined,
+  ArrowUpOutlined, ArrowDownOutlined, BankOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { productionApi } from '../../modules/production/production.api';
+import { codeApi } from '../../modules/code/code.api';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
 
-const CAT_LABELS: Record<string, string> = {
-  TOP: '상의', BOTTOM: '하의', OUTER: '아우터', DRESS: '원피스', ACC: '악세서리',
+const fmtNum = (v: number) => v.toLocaleString();
+const fmtWon = (v: number) => {
+  if (v >= 100_000_000) return `${(v / 100_000_000).toFixed(1)}억`;
+  if (v >= 10_000) return `${(v / 10_000).toFixed(0)}만`;
+  return v.toLocaleString();
+};
+
+const CATEGORY_COLORS: Record<string, string> = {
+  TOP: '#1890ff', BOTTOM: '#52c41a', OUTER: '#fa8c16', DRESS: '#eb2f96', ACC: '#722ed1',
 };
 
 export default function ProductionDashboardPage() {
   const navigate = useNavigate();
   const [data, setData] = useState<any>(null);
-  const [categoryStats, setCategoryStats] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [catLabelMap, setCatLabelMap] = useState<Record<string, string>>({});
 
-  // 세부 카테고리 드릴다운
-  const [subModalOpen, setSubModalOpen] = useState(false);
-  const [subCategory, setSubCategory] = useState<string>('');
-  const [subStats, setSubStats] = useState<any[]>([]);
-  const [subLoading, setSubLoading] = useState(false);
-
-  const statusColor = (s: string) =>
-    s === 'CRITICAL' ? '#ff4d4f' : s === 'WARNING' ? '#fa8c16' : '#52c41a';
-  const statusBg = (s: string) =>
-    s === 'CRITICAL' ? '#fff1f0' : s === 'WARNING' ? '#fff7e6' : '#f6ffed';
-  const statusLabel = (s: string) =>
-    s === 'CRITICAL' ? '긴급' : s === 'WARNING' ? '주의' : '양호';
-
-  const loadAll = async () => {
-    setLoading(true);
-    try {
-      const [dashboard, cats] = await Promise.all([
-        productionApi.dashboard(),
-        productionApi.categoryStats(),
-      ]);
-      setData(dashboard);
-      setCategoryStats(cats);
-    } catch (e: any) { message.error(e.message); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { loadAll(); }, []);
-
-  const handleCategoryClick = async (category: string) => {
-    setSubCategory(category);
-    setSubModalOpen(true);
-    setSubLoading(true);
-    try {
-      const stats = await productionApi.categorySubStats(category);
-      setSubStats(stats);
-    } catch (e: any) { message.error(e.message); }
-    finally { setSubLoading(false); }
-  };
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const [dashboard, codes] = await Promise.all([
+          productionApi.dashboard(),
+          codeApi.getAll(),
+        ]);
+        setData(dashboard);
+        const cats = (codes.CATEGORY || []).filter((c: any) => !c.parent_code && c.is_active);
+        const map: Record<string, string> = {};
+        for (const c of cats) map[c.code_value] = c.code_label;
+        setCatLabelMap(map);
+      } catch (e: any) { message.error(e.message); }
+      finally { setLoading(false); }
+    })();
+  }, []);
 
   if (loading && !data) return <Spin size="large" style={{ display: 'block', margin: '100px auto' }} />;
+
+  const fin = data?.financialSummary;
+  const pay = data?.paymentSummary;
+  const yearlyPlans: any[] = data?.yearlyPlanSummary || [];
+  const catProd: any[] = data?.categoryProduction || [];
+
+  const thisYear = fin?.thisYear?.year || new Date().getFullYear();
+  const lastYear = fin?.lastYear?.year || thisYear - 1;
+  const twoYearsAgo = fin?.twoYearsAgo?.year || thisYear - 2;
+
+  // 연도별 요약 데이터 조합
+  const yearMap: Record<number, any> = {};
+  for (const yr of [thisYear, lastYear, twoYearsAgo]) {
+    const plan = yearlyPlans.find((p: any) => p.yr === yr);
+    const f = yr === thisYear ? fin?.thisYear : yr === lastYear ? fin?.lastYear : fin?.twoYearsAgo;
+    yearMap[yr] = {
+      year: yr,
+      plan_count: plan?.plan_count || 0,
+      plan_qty: plan?.plan_qty || 0,
+      produced_qty: plan?.produced_qty || 0,
+      purchase_cost: f?.purchase_cost || 0,
+      material_cost: f?.material_cost || 0,
+      total_cost: (f?.purchase_cost || 0) + (f?.material_cost || 0),
+    };
+  }
+
+  const thisYearData = yearMap[thisYear];
+  const lastYearData = yearMap[lastYear];
+  const pctChange = lastYearData.total_cost > 0
+    ? ((thisYearData.total_cost - lastYearData.total_cost) / lastYearData.total_cost * 100)
+    : 0;
+
+  // 카테고리별 데이터: 올해/작년 비교
+  const allCategories = new Set(catProd.map((r: any) => r.category).filter(Boolean));
+  const catRows = Array.from(allCategories).map(cat => {
+    const thisYearCat = catProd.find((r: any) => r.yr === thisYear && r.category === cat);
+    const lastYearCat = catProd.find((r: any) => r.yr === lastYear && r.category === cat);
+    const tyQty = thisYearCat?.plan_qty || 0;
+    const lyQty = lastYearCat?.plan_qty || 0;
+    const qtyChange = lyQty > 0 ? ((tyQty - lyQty) / lyQty * 100) : tyQty > 0 ? 100 : 0;
+    return {
+      key: cat,
+      category: cat,
+      label: catLabelMap[cat] || cat,
+      ty_count: thisYearCat?.plan_count || 0,
+      ty_qty: tyQty,
+      ty_cost: Number(thisYearCat?.total_cost || 0),
+      ly_count: lastYearCat?.plan_count || 0,
+      ly_qty: lyQty,
+      ly_cost: Number(lastYearCat?.total_cost || 0),
+      qty_change: qtyChange,
+    };
+  }).sort((a, b) => b.ty_cost - a.ty_cost);
+
+  const YEAR_CARDS = [
+    { yr: thisYear, label: '올해', data: thisYearData, color: '#1890ff', bg: '#e6f7ff', border: '#91d5ff', highlight: true },
+    { yr: lastYear, label: '작년', data: lastYearData, color: '#8c8c8c', bg: '#fafafa', border: '#d9d9d9', highlight: false },
+    { yr: twoYearsAgo, label: '재작년', data: yearMap[twoYearsAgo], color: '#bfbfbf', bg: '#fafafa', border: '#e8e8e8', highlight: false },
+  ];
 
   return (
     <div>
@@ -67,177 +114,146 @@ export default function ProductionDashboardPage() {
         </Typography.Title>
       </div>
 
-      {/* 카테고리별 재고 현황 */}
-      {categoryStats.length > 0 && (
+      {/* 섹션 1: 연도별 생산 비교 (3개년) */}
+      <Card title="연도별 생산 비교" size="small" style={{ borderRadius: 10, marginBottom: 16 }}>
         <Row gutter={[16, 16]}>
-          <Col xs={24}>
-            <Card
-              title={<><BarChartOutlined style={{ marginRight: 8 }} />카테고리별 재고 현황 <span style={{ fontSize: 12, fontWeight: 400, color: '#888' }}>(90일 판매 기준, 클릭시 세부카테고리)</span></>}
-              size="small" style={{ borderRadius: 10 }}
-            >
-              <Row gutter={[12, 12]}>
-                {categoryStats.map((cat: any) => {
-                  const sc = statusColor(cat.stock_status);
-                  const sb = statusBg(cat.stock_status);
-                  return (
-                    <Col xs={24} sm={12} md={8} lg={6} key={cat.category}>
-                      <div
-                        style={{
-                          borderRadius: 8, background: sb, border: `1px solid ${sc}33`,
-                          padding: '12px 14px', cursor: 'pointer', transition: 'box-shadow 0.2s',
-                        }}
-                        onClick={() => handleCategoryClick(cat.category)}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = `0 2px 8px ${sc}44`; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'none'; }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                          <span style={{ fontWeight: 700, fontSize: 14 }}>
-                            {CAT_LABELS[cat.category] || cat.category}
-                          </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Tag color={cat.stock_status === 'CRITICAL' ? 'red' : cat.stock_status === 'WARNING' ? 'orange' : 'green'}>
-                              {statusLabel(cat.stock_status)}
-                            </Tag>
-                            <RightOutlined style={{ fontSize: 10, color: '#aaa' }} />
-                          </div>
-                        </div>
-                        <div style={{ fontSize: 11, color: '#555', lineHeight: 1.8 }}>
-                          <div>현재고: <strong>{Number(cat.current_stock).toLocaleString()}</strong>
-                            {Number(cat.in_production_qty) > 0 && <span> + 생산중 <strong>{Number(cat.in_production_qty).toLocaleString()}</strong></span>}
-                          </div>
-                          <div>완판예상: <strong>{cat.sellout_date ? cat.sellout_date.slice(5) : '-'}</strong></div>
-                          <div style={{ color: sc, fontWeight: 600 }}>
-                            재고 커버리지: {cat.stock_coverage_days >= 9999 ? '충분' : `${cat.stock_coverage_days}일`}
-                          </div>
-                        </div>
-                      </div>
-                    </Col>
-                  );
-                })}
-              </Row>
-            </Card>
-          </Col>
-        </Row>
-      )}
-
-      {/* 세부 카테고리 모달 */}
-      <Modal
-        title={<><BarChartOutlined style={{ marginRight: 8 }} />{CAT_LABELS[subCategory] || subCategory} - 세부 카테고리별 재고 현황</>}
-        open={subModalOpen}
-        onCancel={() => { setSubModalOpen(false); setSubStats([]); }}
-        footer={null}
-        width={900}
-      >
-        {subLoading ? (
-          <Spin style={{ display: 'block', margin: '40px auto' }} />
-        ) : subStats.length > 0 ? (
-          <>
-            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-              {subStats.map((sub: any) => {
-                const sc = statusColor(sub.stock_status);
-                const sb = statusBg(sub.stock_status);
-                return (
-                  <Col xs={24} sm={12} md={8} key={sub.sub_category}>
-                    <div style={{
-                      borderRadius: 8, background: sb, border: `1px solid ${sc}33`,
-                      padding: '10px 12px',
-                    }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                        <span style={{ fontWeight: 700, fontSize: 13 }}>
-                          {sub.sub_category_label || sub.sub_category}
-                        </span>
-                        <Tag color={sub.stock_status === 'CRITICAL' ? 'red' : sub.stock_status === 'WARNING' ? 'orange' : 'green'} style={{ fontSize: 11 }}>
-                          {statusLabel(sub.stock_status)}
-                        </Tag>
-                      </div>
-                      <div style={{ fontSize: 11, color: '#555', lineHeight: 1.8 }}>
-                        <div>상품수: <strong>{sub.product_count}</strong></div>
-                        <div>현재고: <strong>{Number(sub.current_stock).toLocaleString()}</strong>
-                          {Number(sub.in_production_qty) > 0 && <span> + 생산중 <strong>{Number(sub.in_production_qty).toLocaleString()}</strong></span>}
-                        </div>
-                        <div>완판예상: <strong>{sub.sellout_date ? sub.sellout_date.slice(5) : '-'}</strong></div>
-                        <div style={{ color: sc, fontWeight: 600 }}>
-                          커버리지: {sub.stock_coverage_days >= 9999 ? '충분' : `${sub.stock_coverage_days}일`}
-                        </div>
-                      </div>
-                    </div>
-                  </Col>
-                );
-              })}
-            </Row>
-            <Table
-              columns={[
-                { title: '세부카테고리', dataIndex: 'sub_category_label', key: 'sub', width: 120,
-                  render: (v: string, r: any) => <Tag color="cyan">{v || r.sub_category}</Tag> },
-                { title: '상품수', dataIndex: 'product_count', key: 'cnt', width: 70, align: 'center' as const },
-                { title: '90일 판매', dataIndex: 'total_sold_90d', key: 'sold', width: 90, align: 'right' as const,
-                  render: (v: number) => Number(v).toLocaleString() },
-                { title: '일평균', dataIndex: 'avg_daily_sales', key: 'daily', width: 70, align: 'right' as const,
-                  render: (v: number) => Number(v).toFixed(1) },
-                { title: '현재고', dataIndex: 'current_stock', key: 'stock', width: 80, align: 'right' as const,
-                  render: (v: number) => Number(v).toLocaleString() },
-                { title: '생산중', dataIndex: 'in_production_qty', key: 'prod', width: 80, align: 'right' as const,
-                  render: (v: number) => Number(v) > 0 ? <Tag color="orange">{Number(v).toLocaleString()}</Tag> : '-' },
-                { title: '완판예상', dataIndex: 'sellout_date', key: 'sellout', width: 90, align: 'center' as const,
-                  render: (v: string) => v ? <span style={{ fontSize: 12 }}>{v.slice(5)}</span> : '-' },
-                { title: '커버리지', dataIndex: 'stock_coverage_days', key: 'cover', width: 90, align: 'center' as const,
-                  render: (v: number) => {
-                    const n = Number(v);
-                    if (n >= 9999) return <Tag color="green">충분</Tag>;
-                    const c = n < 7 ? 'red' : n < 15 ? 'orange' : 'green';
-                    return <Tag color={c}>{n}일</Tag>;
-                  }},
-                { title: '상태', dataIndex: 'stock_status', key: 'status', width: 70, align: 'center' as const,
-                  render: (v: string) => (
-                    <Tag color={v === 'CRITICAL' ? 'red' : v === 'WARNING' ? 'orange' : 'green'}>
-                      {statusLabel(v)}
+          {YEAR_CARDS.map(({ yr, label, data: d, color, bg, border, highlight }) => (
+            <Col xs={24} sm={8} key={yr}>
+              <div style={{
+                borderRadius: 10, background: bg, border: `2px solid ${border}`,
+                padding: 16, position: 'relative',
+              }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color, marginBottom: 12 }}>
+                  {label} ({yr})
+                  {highlight && lastYearData.total_cost > 0 && (
+                    <Tag
+                      color={pctChange >= 0 ? 'red' : 'green'}
+                      style={{ marginLeft: 8, fontSize: 11 }}
+                    >
+                      {pctChange >= 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />}
+                      {' '}{Math.abs(pctChange).toFixed(0)}%
                     </Tag>
-                  )},
-              ]}
-              dataSource={subStats}
-              rowKey="sub_category"
-              pagination={false}
-              size="small"
-              scroll={{ x: 900 }}
-            />
-          </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: 40, color: '#aaa' }}>
-            세부 카테고리 데이터가 없습니다.
-          </div>
-        )}
-      </Modal>
+                  )}
+                </div>
+                {[
+                  { label: '생산 건수', value: `${fmtNum(d.plan_count)}건` },
+                  { label: '계획 수량', value: `${fmtNum(d.plan_qty)}개` },
+                  { label: '매입비용', value: `${fmtWon(d.purchase_cost)}원` },
+                  { label: '부자재비용', value: `${fmtWon(d.material_cost)}원` },
+                ].map(row => (
+                  <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
+                    <span style={{ color: '#666' }}>{row.label}</span>
+                    <span style={{ fontWeight: 500, color: '#333' }}>{loading ? '-' : row.value}</span>
+                  </div>
+                ))}
+                <div style={{ borderTop: '1px solid #e8e8e8', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 14 }}>
+                  <span style={{ fontWeight: 700, color }}>총 비용</span>
+                  <span style={{ fontWeight: 700, color, fontSize: 16 }}>{loading ? '-' : `${fmtWon(d.total_cost)}원`}</span>
+                </div>
+              </div>
+            </Col>
+          ))}
+        </Row>
+      </Card>
 
-      {/* 생산 미완료 품목 */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24}>
-          <Card title="생산 미완료 품목 (생산중)" size="small" style={{ borderRadius: 10 }}
-            extra={<Button type="link" style={{ padding: 0 }} onClick={() => navigate('/production/plans')}>전체보기</Button>}>
-            {(data?.progressItems || []).length > 0 ? (
-              <Table
-                columns={[
-                  { title: '계획', dataIndex: 'plan_no', key: 'plan', width: 110 },
-                  { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80, render: (v: string) => <Tag color="blue">{v}</Tag> },
-                  { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 80, render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
-                  { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
-                  { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
-                  { title: '계획', dataIndex: 'plan_qty', key: 'plan_qty', width: 60 },
-                  { title: '생산', dataIndex: 'produced_qty', key: 'prod_qty', width: 60 },
-                  { title: '진행률', key: 'pct', width: 100, render: (_: any, r: any) => {
-                    const pct = r.plan_qty > 0 ? Math.round((r.produced_qty / r.plan_qty) * 100) : 0;
-                    return <Progress percent={pct} size="small" status={pct >= 100 ? 'success' : 'active'} />;
-                  }},
-                ]}
-                dataSource={data?.progressItems || []}
-                rowKey="item_id"
-                pagination={{ pageSize: 50, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
-                size="small"
-                scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-              />
-            ) : <div style={{ textAlign: 'center', padding: 30, color: '#aaa' }}>생산중 품목이 없습니다</div>}
-          </Card>
-        </Col>
+      {/* 섹션 2: 카테고리별 생산 실적 */}
+      <Card title="카테고리별 생산 실적" size="small" style={{ borderRadius: 10, marginBottom: 16 }}>
+        <Table
+          columns={[
+            { title: '카테고리', dataIndex: 'label', key: 'cat', width: 120,
+              render: (v: string, r: any) => (
+                <Tag color={CATEGORY_COLORS[r.category] || 'default'} style={{ fontWeight: 600 }}>{v}</Tag>
+              ),
+            },
+            { title: `${thisYear} 건수`, dataIndex: 'ty_count', key: 'ty_cnt', width: 90, align: 'right' as const,
+              render: (v: number) => `${v}건` },
+            { title: `${thisYear} 수량`, dataIndex: 'ty_qty', key: 'ty_qty', width: 100, align: 'right' as const,
+              render: (v: number) => <strong>{fmtNum(v)}개</strong> },
+            { title: `${thisYear} 비용`, dataIndex: 'ty_cost', key: 'ty_cost', width: 120, align: 'right' as const,
+              render: (v: number) => v > 0 ? `${fmtWon(v)}원` : '-' },
+            { title: `${lastYear} 수량`, dataIndex: 'ly_qty', key: 'ly_qty', width: 100, align: 'right' as const,
+              render: (v: number) => <span style={{ color: '#999' }}>{fmtNum(v)}개</span> },
+            { title: `${lastYear} 비용`, dataIndex: 'ly_cost', key: 'ly_cost', width: 120, align: 'right' as const,
+              render: (v: number) => v > 0 ? <span style={{ color: '#999' }}>{fmtWon(v)}원</span> : '-' },
+            { title: '증감', dataIndex: 'qty_change', key: 'change', width: 90, align: 'right' as const,
+              render: (v: number) => {
+                if (v === 0) return <span style={{ color: '#ccc' }}>-</span>;
+                return (
+                  <span style={{ color: v > 0 ? '#cf1322' : '#3f8600', fontWeight: 600 }}>
+                    {v > 0 ? <ArrowUpOutlined /> : <ArrowDownOutlined />} {Math.abs(v).toFixed(0)}%
+                  </span>
+                );
+              },
+            },
+          ]}
+          dataSource={catRows}
+          rowKey="key"
+          pagination={false}
+          size="small"
+          locale={{ emptyText: '생산 실적이 없습니다' }}
+        />
+      </Card>
+
+      {/* 섹션 3: 생산정산 */}
+      <Card title="생산정산" size="small" style={{ borderRadius: 10, marginBottom: 16 }}>
+      <Row gutter={[12, 12]}>
+        {[
+          { label: '선지급 대기', count: pay?.advance_pending_count || 0, amount: Number(pay?.advance_pending_amount || 0),
+            color: '#cf1322', bg: '#fff1f0', border: '#ffa39e', icon: <DollarOutlined /> },
+          { label: '선지급 완료', count: pay?.advance_paid_count || 0, amount: Number(pay?.advance_paid_amount || 0),
+            color: '#52c41a', bg: '#f6ffed', border: '#b7eb8f', icon: <DollarOutlined /> },
+          { label: '잔금 대기', count: pay?.balance_pending_count || 0, amount: Number(pay?.balance_pending_amount || 0),
+            color: '#fa8c16', bg: '#fff7e6', border: '#ffd591', icon: <BankOutlined /> },
+          { label: '정산 완료', count: pay?.settled_count || 0, amount: Number(pay?.settled_amount || 0),
+            color: '#52c41a', bg: '#f6ffed', border: '#b7eb8f', icon: <FileDoneOutlined /> },
+        ].map(card => (
+          <Col xs={12} sm={6} key={card.label}>
+            <div style={{
+              borderRadius: 8, background: card.bg, border: `1px solid ${card.border}`,
+              padding: '12px 14px', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: 11, color: card.color, opacity: 0.8, marginBottom: 2 }}>
+                {card.icon} {card.label}
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 700, color: card.color }}>
+                {loading ? '-' : `${fmtWon(card.amount)}원`}
+              </div>
+              <div style={{ fontSize: 11, color: card.color, opacity: 0.6 }}>
+                {card.count}건
+              </div>
+            </div>
+          </Col>
+        ))}
       </Row>
+      </Card>
+
+      {/* 섹션 4: 생산 미완료 품목 */}
+      <Card title="생산 미완료 품목 (생산중)" size="small" style={{ borderRadius: 10 }}
+        extra={<Button type="link" style={{ padding: 0 }} onClick={() => navigate('/production/plans')}>전체보기 <RightOutlined /></Button>}>
+        {(data?.progressItems || []).length > 0 ? (
+          <Table
+            columns={[
+              { title: '계획', dataIndex: 'plan_no', key: 'plan', width: 110 },
+              { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
+                render: (v: string) => <Tag color={CATEGORY_COLORS[v] || 'blue'}>{catLabelMap[v] || v}</Tag> },
+              { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 80, render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
+              { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
+              { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
+              { title: '계획', dataIndex: 'plan_qty', key: 'plan_qty', width: 60 },
+              { title: '생산', dataIndex: 'produced_qty', key: 'prod_qty', width: 60 },
+              { title: '진행률', key: 'pct', width: 100, render: (_: any, r: any) => {
+                const pct = r.plan_qty > 0 ? Math.round((r.produced_qty / r.plan_qty) * 100) : 0;
+                return <Progress percent={pct} size="small" status={pct >= 100 ? 'success' : 'active'} />;
+              }},
+            ]}
+            dataSource={data?.progressItems || []}
+            rowKey="item_id"
+            pagination={{ pageSize: 50, size: 'small', showTotal: (t: number) => `총 ${t}건` }}
+            size="small"
+            scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+          />
+        ) : <div style={{ textAlign: 'center', padding: 30, color: '#aaa' }}>생산중 품목이 없습니다</div>}
+      </Card>
     </div>
   );
 }

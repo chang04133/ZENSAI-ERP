@@ -6,10 +6,10 @@ import type { ProductionPlan, ProductionPlanItem } from '../../../../shared/type
 import { fmtNum } from '../../utils/format';
 
 const STATUS_COLORS: Record<string, string> = {
-  DRAFT: 'default', CONFIRMED: 'blue', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
+  DRAFT: 'default', IN_PRODUCTION: 'orange', COMPLETED: 'green', CANCELLED: 'red',
 };
 const STATUS_LABELS: Record<string, string> = {
-  DRAFT: '초안', CONFIRMED: '확정', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
+  DRAFT: '초안', IN_PRODUCTION: '생산중', COMPLETED: '완료', CANCELLED: '취소',
 };
 
 export default function ProductionProgressPage() {

@@ -5,6 +5,7 @@ import {
 } from 'antd';
 import {
   SearchOutlined, ExclamationCircleOutlined, CalendarOutlined,
+  BulbOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
@@ -57,6 +58,12 @@ export default function StoreEventPricePage() {
   const [dateModalOpen, setDateModalOpen] = useState(false);
   const [bulkDateRange, setBulkDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
   const [dateSubmitting, setDateSubmitting] = useState(false);
+
+  // 행사추천 모달
+  const [recModalOpen, setRecModalOpen] = useState(false);
+  const [recData, setRecData] = useState<any[]>([]);
+  const [recLoading, setRecLoading] = useState(false);
+  const [recCategory, setRecCategory] = useState('');
 
   // 단건 행사가 수정 모달
   const [singleModalOpen, setSingleModalOpen] = useState(false);
@@ -214,6 +221,33 @@ export default function StoreEventPricePage() {
     finally { setDateSubmitting(false); }
   };
 
+  // ── 행사추천 ──
+  const loadRecommendations = async (cat?: string) => {
+    setRecLoading(true);
+    try {
+      const data = await productApi.eventRecommendations(cat || undefined);
+      setRecData(data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setRecLoading(false); }
+  };
+
+  const openRecModal = () => {
+    setRecCategory('');
+    setRecData([]);
+    setRecModalOpen(true);
+    loadRecommendations();
+  };
+
+  const handleRecToggle = async (rec: any) => {
+    try {
+      const price = rec.base_price || 0;
+      await productApi.updateEventPrice(rec.product_code, price);
+      message.success(`${rec.product_name} 행사 등록`);
+      setRecData(prev => prev.filter(r => r.product_code !== rec.product_code));
+      loadAll();
+    } catch (e: any) { message.error(e.message); }
+  };
+
   // ── 단건 행사가 수정 모달 ──
   const openSingleModal = (record: any) => {
     setSingleRecord(record);
@@ -327,6 +361,9 @@ export default function StoreEventPricePage() {
     <div>
       <PageHeader title="행사관리" extra={
         <Space>
+          <Button icon={<BulbOutlined />} onClick={openRecModal}>
+            행사추천
+          </Button>
           <Button icon={<CalendarOutlined />} onClick={openDateModal} disabled={selectedRowKeys.length === 0}>
             날짜 변경 ({selectedRowKeys.length})
           </Button>
@@ -533,6 +570,76 @@ export default function StoreEventPricePage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* 행사추천 모달 */}
+      <Modal
+        title="행사추천"
+        open={recModalOpen}
+        onCancel={() => setRecModalOpen(false)}
+        footer={<Button onClick={() => setRecModalOpen(false)}>닫기</Button>}
+        width={900}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Select
+              value={recCategory} onChange={(v) => { setRecCategory(v); loadRecommendations(v); }}
+              style={{ width: 140 }}
+              options={[{ label: '전체 카테고리', value: '' }, ...categoryOptions]}
+            />
+            <span style={{ fontSize: 12, color: '#888' }}>
+              깨진사이즈 + 저판매 기반 행사 추천 (마스터관리 &gt; 시스템설정에서 가중치 조정)
+            </span>
+          </div>
+          <Table
+            dataSource={recData}
+            rowKey="product_code"
+            loading={recLoading}
+            size="small"
+            scroll={{ y: 420 }}
+            pagination={false}
+            locale={{ emptyText: <Empty description="추천 상품이 없습니다" /> }}
+            columns={[
+              { title: '상품코드', dataIndex: 'product_code', width: 110 },
+              { title: '상품명', dataIndex: 'product_name', ellipsis: true },
+              { title: '카테고리', dataIndex: 'category', width: 75 },
+              { title: '시즌', dataIndex: 'season', width: 80, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
+              { title: '정상가', dataIndex: 'base_price', width: 85, render: (v: number) => Number(v).toLocaleString() },
+              { title: '재고', dataIndex: 'total_stock', width: 55, render: (v: number) => <span style={{ color: v > 0 ? undefined : '#ccc' }}>{v}</span> },
+              {
+                title: '사이즈', dataIndex: 'size_detail', width: 150,
+                render: (sizes: any[]) => sizes ? (
+                  <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+                    {sizes.map((s: any) => (
+                      <Tag key={s.size} color={s.stock > 0 ? 'default' : 'red'} style={{ fontSize: 11, margin: 0, padding: '0 4px', lineHeight: '18px' }}>
+                        {s.size}:{s.stock}
+                      </Tag>
+                    ))}
+                  </div>
+                ) : '-',
+              },
+              {
+                title: '추천점수', dataIndex: 'recommendation_score', width: 80, sorter: (a: any, b: any) => a.recommendation_score - b.recommendation_score,
+                render: (v: number) => <span style={{ fontWeight: 600, color: v >= 60 ? '#cf1322' : v >= 30 ? '#fa8c16' : '#999' }}>{v}점</span>,
+              },
+              {
+                title: '사유', key: 'reason', width: 110,
+                render: (_: any, r: any) => (
+                  <span style={{ fontSize: 11 }}>
+                    {r.broken_count > 0 && <Tag color="volcano" style={{ fontSize: 11, margin: 0 }}>깨진사이즈 {r.broken_count}</Tag>}
+                    {r.low_sales_score > 0 && <Tag color="orange" style={{ fontSize: 11, margin: 0 }}>저판매</Tag>}
+                  </span>
+                ),
+              },
+              {
+                title: '', key: 'action', width: 70,
+                render: (_: any, r: any) => (
+                  <Button size="small" type="primary" onClick={() => handleRecToggle(r)}>행사등록</Button>
+                ),
+              },
+            ]}
+          />
+        </div>
       </Modal>
     </div>
   );

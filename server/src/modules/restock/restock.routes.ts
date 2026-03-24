@@ -7,7 +7,6 @@ const router = Router();
 
 // Custom routes (before CRUD to avoid /:id catch)
 router.get('/generate-no', authMiddleware, restockController.generateNo);
-router.get('/selling-velocity', authMiddleware, restockController.getSellingVelocity);
 router.get('/suggestions', authMiddleware, restockController.getRestockSuggestions);
 router.get('/progress-stats', authMiddleware, restockController.getProgressStats);
 router.put('/:id/receive', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), restockController.receive);

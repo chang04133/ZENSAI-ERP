@@ -12,6 +12,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
 
   async generateNo() { return shipmentRepository.generateNo(); }
   async getWithItems(id: number) { return shipmentRepository.getWithItems(id); }
+  async summary(options: { partner?: string } = {}) { return shipmentRepository.summary(options); }
 
   async createWithItems(headerData: Record<string, any>, items: Array<{ variant_id: number; request_qty: number }>) {
     const pool = getPool();

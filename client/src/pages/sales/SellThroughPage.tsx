@@ -152,7 +152,7 @@ export default function SellThroughPage() {
         <div style={{ marginBottom: 16 }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#333' }}>카테고리별 판매율 <span style={{ fontSize: 11, color: '#999', fontWeight: 400 }}>(클릭하면 해당 상품 목록)</span></div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {categoryData.map((c: any) => {
+            {categoryData.slice(0, 7).map((c: any) => {
               const color = rateColor(c.sell_through_rate);
               return (
                 <Card key={c.category} size="small" hoverable style={{ width: 130, textAlign: 'center', cursor: 'pointer' }} onClick={() => openCatDetail(c.category)}>
@@ -174,7 +174,7 @@ export default function SellThroughPage() {
             <Col span={12}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#333' }}>시즌별 판매율</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {seasonData.map((s: any) => (
+                {seasonData.slice(0, 7).map((s: any) => (
                   <Tag key={s.season} style={{ padding: '4px 10px' }}>
                     {formatCode('SEASON', s.season) || s.season}
                     <span style={{ fontWeight: 700, color: rateColor(s.sell_through_rate), marginLeft: 6 }}>{s.sell_through_rate}%</span>
@@ -188,7 +188,7 @@ export default function SellThroughPage() {
             <Col span={12}>
               <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 8, color: '#333' }}>입고 연차별 판매율</div>
               <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                {ageData.map((a: any) => (
+                {ageData.slice(0, 7).map((a: any) => (
                   <Tag key={a.age_group} style={{ padding: '4px 10px' }}>
                     {a.age_group}
                     <span style={{ fontWeight: 700, color: rateColor(a.sell_through_rate), marginLeft: 6 }}>{a.sell_through_rate}%</span>

@@ -1,20 +1,59 @@
 import { useEffect, useState } from 'react';
-import { Card, Col, Row, Table, Tag, Progress, Select, message } from 'antd';
+import { Card, Col, Row, Table, Tag, Progress, Button, DatePicker, Space, message } from 'antd';
 import {
   DollarOutlined, RiseOutlined, ShoppingCartOutlined,
   CalendarOutlined, TagsOutlined, ShopOutlined, TrophyOutlined,
-  CrownOutlined,
+  CrownOutlined, SearchOutlined,
 } from '@ant-design/icons';
-import { useNavigate } from 'react-router-dom';
+import dayjs, { Dayjs } from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 
 import { salesApi } from '../../modules/sales/sales.api';
 import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
-import { COLORS, CAT_COLORS } from '../../utils/constants';
+import { CAT_COLORS } from '../../utils/constants';
 import { fmtWon } from '../../utils/format';
 import StatCard from '../../components/StatCard';
+import { datePresets } from '../../utils/date-presets';
+
+const { RangePicker } = DatePicker;
+
+/* ── PartnerRow (from MonthlySalesPage) ── */
+interface PartnerRow {
+  partner_code: string;
+  partner_name: string;
+  prev_year_amount: number;
+  prev_month_amount: number;
+  normal_amount: number;
+  discount_amount: number;
+  event_amount: number;
+  cur_amount: number;
+  cur_qty: number;
+  mtd_amount: number;
+  mtd_qty: number;
+}
+
+const fmt = (v: number) => v.toLocaleString();
+
+/* 증감 표시 */
+function Change({ cur, prev }: { cur: number; prev: number }) {
+  const diff = cur - prev;
+  const pct = prev > 0 ? ((diff / prev) * 100).toFixed(0) : cur > 0 ? '∞' : '0';
+  const color = diff > 0 ? '#1677ff' : diff < 0 ? '#ff4d4f' : '#999';
+  return (
+    <span style={{ color, fontSize: 11 }}>
+      {diff > 0 ? '+' : ''}{fmt(diff)}
+      <span style={{ marginLeft: 2 }}>({diff > 0 ? '+' : ''}{pct}%)</span>
+    </span>
+  );
+}
+
+const ZERO_ROW = {
+  prev_year_amount: 0, prev_month_amount: 0,
+  normal_amount: 0, discount_amount: 0, event_amount: 0,
+  cur_amount: 0, cur_qty: 0, mtd_amount: 0, mtd_qty: 0,
+};
 
 /* ── Mini Bar Chart (일별 추이) ── */
 function DailyChart({ data }: { data: Array<{ date: string; revenue: number; qty: number }> }) {
@@ -41,83 +80,6 @@ function DailyChart({ data }: { data: Array<{ date: string; revenue: number; qty
           </div>
         );
       })}
-    </div>
-  );
-}
-
-/* ── Horizontal Bar ── */
-function HBar({ data, colorKey, history, onItemClick, maxItems = 7 }: {
-  data: Array<{ label: string; value: number; sub?: string }>;
-  colorKey?: Record<string, string>;
-  history?: Array<{ year: number; label: string; total_amount: number }>;
-  onItemClick?: (label: string) => void;
-  maxItems?: number;
-}) {
-  const [expanded, setExpanded] = useState(false);
-  if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
-  const hasMore = data.length > maxItems;
-  const visibleData = hasMore && !expanded ? data.slice(0, maxItems) : data;
-  const max = Math.max(...data.map(d => d.value), 1);
-  const curYear = new Date().getFullYear();
-  const prevYears = history ? [...new Set(history.map(h => h.year))].filter(y => y < curYear).sort((a, b) => b - a) : [];
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {visibleData.map((d, i) => {
-        const pct = (d.value / max) * 100;
-        const c = colorKey?.[d.label] || COLORS[i % COLORS.length];
-        const prevData = prevYears.map(y => {
-          const h = history?.find(h => h.year === y && h.label === d.label);
-          return { year: y, amount: h ? h.total_amount : 0 };
-        });
-        return (
-          <div key={d.label} onClick={() => onItemClick?.(d.label)}
-            style={{ cursor: onItemClick ? 'pointer' : 'default', borderRadius: 8, padding: '6px 8px', margin: '-6px -8px', transition: 'all 0.2s', borderLeft: '3px solid transparent' }}
-            onMouseEnter={(e) => { if (!onItemClick) return; e.currentTarget.style.background = '#eef2ff'; e.currentTarget.style.borderLeftColor = c; e.currentTarget.style.boxShadow = '0 2px 8px rgba(99,102,241,0.12)'; }}
-            onMouseLeave={(e) => { if (!onItemClick) return; e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderLeftColor = 'transparent'; e.currentTarget.style.boxShadow = 'none'; }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-              <span style={{ fontSize: 13, fontWeight: 500 }}>{d.label}</span>
-              <span style={{ fontSize: 13, fontWeight: 600, color: c }}>
-                {fmtWon(d.value)}
-                {d.sub && <span style={{ fontWeight: 400, color: '#999', marginLeft: 6 }}>{d.sub}</span>}
-              </span>
-            </div>
-            <div style={{ background: '#f3f4f6', borderRadius: 6, height: 18, overflow: 'hidden' }}>
-              <div style={{
-                width: `${pct}%`, height: '100%', background: `linear-gradient(90deg, ${c}, ${c}aa)`,
-                borderRadius: 6, transition: 'width 0.5s ease',
-              }} />
-            </div>
-            {prevData.length > 0 && (
-              <div style={{ display: 'flex', gap: 12, marginTop: 3, paddingLeft: 2 }}>
-                {prevData.map(pd => {
-                  const diff = d.value - pd.amount;
-                  const pctChange = pd.amount > 0 ? ((diff / pd.amount) * 100).toFixed(0) : null;
-                  const diffColor = diff > 0 ? '#1677ff' : diff < 0 ? '#ff4d4f' : '#999';
-                  return (
-                    <span key={pd.year} style={{ fontSize: 11, color: '#999' }}>
-                      {pd.year}.{new Date().getMonth() + 1}월{' '}
-                      <span style={{ color: pd.amount > 0 ? '#666' : '#ccc' }}>
-                        {pd.amount > 0 ? fmtWon(pd.amount) : '-'}
-                      </span>
-                      {pctChange !== null && (
-                        <span style={{ color: diffColor, marginLeft: 3, fontSize: 10 }}>
-                          ({diff > 0 ? '+' : ''}{pctChange}%)
-                        </span>
-                      )}
-                    </span>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        );
-      })}
-      {hasMore && (
-        <div onClick={() => setExpanded(!expanded)}
-          style={{ textAlign: 'center', padding: '4px 0', cursor: 'pointer', fontSize: 12, color: '#1677ff', userSelect: 'none' }}>
-          {expanded ? '접기 ▲' : `기타 ${data.length - maxItems}개 더보기 ▼`}
-        </div>
-      )}
     </div>
   );
 }
@@ -217,31 +179,46 @@ function SameMonthChart({ data, currentMonth }: {
   );
 }
 
-const PERIOD_OPTIONS = [
-  { label: '이번달', value: 'month' },
-  ...Array.from({ length: 6 }, (_, i) => {
-    const y = new Date().getFullYear() - i;
-    return { label: `${y}년`, value: String(y) };
-  }),
-];
-
 export default function SalesDashboardPage() {
-  const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
+  // ── Comprehensive (메인) ──
+  const [compData, setCompData] = useState<PartnerRow[]>([]);
+  const [compLoading, setCompLoading] = useState(false);
+  const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
+
+  // ── Dashboard charts (배경) ──
   const [stats, setStats] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [period, setPeriod] = useState('month');
+  const [chartLoading, setChartLoading] = useState(true);
   const [storeComparison, setStoreComparison] = useState<any[]>([]);
   const [yearlyData, setYearlyData] = useState<any>(null);
-  const loadStats = async (p: string) => {
-    setLoading(true);
+
+  const loadComprehensive = async (from: Dayjs, to: Dayjs) => {
+    setCompLoading(true);
     try {
-      const year = p === 'month' ? undefined : Number(p);
-      const data = await salesApi.dashboardStats(year);
+      const result = await salesApi.comprehensive(from.format('YYYY-MM-DD'), to.format('YYYY-MM-DD'));
+      setCompData(result.map((r: any) => ({
+        ...r,
+        prev_year_amount: Number(r.prev_year_amount),
+        prev_month_amount: Number(r.prev_month_amount),
+        normal_amount: Number(r.normal_amount),
+        discount_amount: Number(r.discount_amount),
+        event_amount: Number(r.event_amount),
+        cur_amount: Number(r.cur_amount), cur_qty: Number(r.cur_qty),
+        mtd_amount: Number(r.mtd_amount), mtd_qty: Number(r.mtd_qty),
+      })));
+    } catch (e: any) { message.error(e.message); }
+    finally { setCompLoading(false); }
+  };
+
+  const loadStats = async () => {
+    setChartLoading(true);
+    try {
+      const data = await salesApi.dashboardStats();
       setStats(data);
     } catch (e: any) { message.error(e.message); }
-    finally { setLoading(false); }
+    finally { setChartLoading(false); }
   };
 
   const loadYearlyOverview = async () => {
@@ -260,136 +237,260 @@ export default function SalesDashboardPage() {
   };
 
   useEffect(() => {
-    loadStats(period);
+    loadComprehensive(range[0], range[1]);
+    loadStats();
     loadYearlyOverview();
     if (!isStore) loadStoreComparison();
   }, []);
 
-  const handlePeriodChange = (v: string) => {
-    setPeriod(v);
-    loadStats(v);
-  };
+  const handleSearch = () => loadComprehensive(range[0], range[1]);
 
-  const periodLabel = period === 'month' ? '이번달' : `${period}년`;
+  const quickRange = (from: Dayjs, to: Dayjs) => {
+    setRange([from, to]);
+    loadComprehensive(from, to);
+  };
+  const today = dayjs();
+
+  /* 합계 계산 */
+  const totals = compData.reduce((acc, r) => ({
+    prev_year_amount: acc.prev_year_amount + r.prev_year_amount,
+    prev_month_amount: acc.prev_month_amount + r.prev_month_amount,
+    normal_amount: acc.normal_amount + r.normal_amount,
+    discount_amount: acc.discount_amount + r.discount_amount,
+    event_amount: acc.event_amount + r.event_amount,
+    cur_amount: acc.cur_amount + r.cur_amount,
+    cur_qty: acc.cur_qty + r.cur_qty,
+    mtd_amount: acc.mtd_amount + r.mtd_amount,
+    mtd_qty: acc.mtd_qty + r.mtd_qty,
+  }), { ...ZERO_ROW });
+
+  /* 증감율 계산 */
+  const prevYearPct = totals.prev_year_amount > 0
+    ? (((totals.cur_amount - totals.prev_year_amount) / totals.prev_year_amount) * 100).toFixed(0) : null;
+  const prevMonthPct = totals.prev_month_amount > 0
+    ? (((totals.cur_amount - totals.prev_month_amount) / totals.prev_month_amount) * 100).toFixed(0) : null;
+
   const storePrefix = isStore ? '내 매장 ' : '';
 
-  const p = stats?.periods || {};
-  const monthGrowth = Number(p.prev_month_revenue) > 0
-    ? (((Number(p.month_revenue) - Number(p.prev_month_revenue)) / Number(p.prev_month_revenue)) * 100).toFixed(0)
-    : null;
+  /* ── 거래처 테이블 스타일 ── */
+  const thStyle: React.CSSProperties = {
+    padding: '6px 8px', fontSize: 11, fontWeight: 600, textAlign: 'center',
+    borderBottom: '2px solid #1a3a6a', color: '#1a3a6a', whiteSpace: 'nowrap',
+    background: '#e8edf5',
+  };
+  const tdStyle: React.CSSProperties = {
+    padding: '4px 8px', fontSize: 12, textAlign: 'right',
+    borderBottom: '1px solid #e0e0e0', whiteSpace: 'nowrap',
+  };
+  const tdBold: React.CSSProperties = {
+    ...tdStyle, fontWeight: 700, borderBottom: '2px solid #ccc',
+  };
+  const tdLabel: React.CSSProperties = {
+    ...tdStyle, textAlign: 'left', fontWeight: 500,
+  };
+  const tdLabelBold: React.CSSProperties = {
+    ...tdLabel, fontWeight: 700, borderBottom: '2px solid #ccc',
+  };
+
+  /* 행 렌더 (2줄: 금액 + 증감) */
+  const renderRow = (r: PartnerRow | typeof totals & { partner_code?: string; partner_name?: string }, idx: number, isTotal = false) => {
+    const bg1 = isTotal ? '#f0f4ff' : idx % 2 === 0 ? '#fff' : '#fafbfe';
+    const bg2 = isTotal ? '#e6ecf8' : idx % 2 === 0 ? '#f7f8fc' : '#f2f3f9';
+    const sAmt = isTotal ? tdBold : tdStyle;
+    const sLbl = isTotal ? tdLabelBold : tdLabel;
+    const label = isTotal ? '합계' : `${(r as PartnerRow).partner_name}`;
+    const code = isTotal ? '' : `(${(r as PartnerRow).partner_code})`;
+    const pctOfTotal = totals.cur_amount > 0 ? ((r.cur_amount / totals.cur_amount) * 100).toFixed(0) : '0';
+
+    return (
+      <>
+        {/* 금액 행 */}
+        <tr key={`${idx}-amt`} style={{ background: bg1 }}>
+          <td rowSpan={2} style={{ ...sLbl, textAlign: 'center', verticalAlign: 'middle', width: 32 }}>
+            {isTotal ? '' : idx}
+          </td>
+          <td rowSpan={2} style={{ ...sLbl, verticalAlign: 'middle', minWidth: 120 }}>
+            <div style={{ fontWeight: isTotal ? 700 : 600, fontSize: 12 }}>{label}</div>
+            {code && <div style={{ fontSize: 10, color: '#888' }}>{code}</div>}
+          </td>
+          <td style={sAmt}>{fmt(r.prev_year_amount)}</td>
+          <td style={sAmt}>{fmt(r.prev_month_amount)}</td>
+          <td style={sAmt}>{fmt(r.normal_amount)}</td>
+          <td style={{ ...sAmt, color: r.discount_amount > 0 ? '#f5222d' : undefined }}>{fmt(r.discount_amount)}</td>
+          <td style={{ ...sAmt, color: r.event_amount > 0 ? '#fa8c16' : undefined }}>{fmt(r.event_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</td>
+          <td style={{ ...sAmt, color: '#1677ff' }}>{fmt(r.mtd_amount)}</td>
+          <td style={sAmt}>{fmt(r.cur_qty)}</td>
+          <td rowSpan={2} style={{ ...sAmt, textAlign: 'center', verticalAlign: 'middle', color: '#666' }}>
+            {pctOfTotal}%
+          </td>
+        </tr>
+        {/* 증감 행 */}
+        <tr key={`${idx}-chg`} style={{ background: bg2 }}>
+          <td style={sAmt}><Change cur={r.cur_amount} prev={r.prev_year_amount} /></td>
+          <td style={sAmt}><Change cur={r.cur_amount} prev={r.prev_month_amount} /></td>
+          <td style={{ ...sAmt, fontWeight: 700 }}>{fmt(r.normal_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: r.discount_amount > 0 ? '#f5222d' : undefined }}>{fmt(r.discount_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: r.event_amount > 0 ? '#fa8c16' : undefined }}>{fmt(r.event_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1a3a6a' }}>{fmt(r.cur_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700, color: '#1677ff' }}>{fmt(r.mtd_amount)}</td>
+          <td style={{ ...sAmt, fontWeight: 700 }}>{fmt(r.mtd_qty)}</td>
+        </tr>
+      </>
+    );
+  };
 
   return (
     <div>
-      <PageHeader title={isStore ? '내 매장 매출현황' : '매출현황'} extra={
-        <Select value={period} onChange={handlePeriodChange} style={{ width: 110 }}
-          options={PERIOD_OPTIONS} />
+      <PageHeader title={isStore ? '내 매장 종합매출현황' : '종합매출현황'} extra={
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, alignItems: 'center' }}>
+          <RangePicker
+            value={range}
+            onChange={(v) => v && setRange(v as [Dayjs, Dayjs])}
+            presets={datePresets}
+            format="YYYY-MM-DD"
+            style={{ width: 260 }}
+          />
+          <Space size={4} wrap>
+            <Button size="small" onClick={() => quickRange(today, today)}>오늘</Button>
+            <Button size="small" onClick={() => quickRange(today.subtract(2, 'day'), today)}>3일</Button>
+            <Button size="small" onClick={() => quickRange(today.subtract(6, 'day'), today)}>7일</Button>
+            <Button size="small" onClick={() => quickRange(today.subtract(29, 'day'), today)}>30일</Button>
+            <Button size="small" onClick={() => quickRange(today.subtract(1, 'month').startOf('month'), today.subtract(1, 'month').endOf('month'))}>전월</Button>
+            <Button size="small" type="primary" ghost onClick={() => quickRange(today.startOf('month'), today)}>당월</Button>
+          </Space>
+          <Button icon={<SearchOutlined />} onClick={handleSearch}>조회</Button>
+        </div>
       } />
 
-      {/* ── 통계 카드 ── */}
+      {/* ── Stat Cards (comprehensive 기반) ── */}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}이틀전 매출`} value={fmtWon(Number(p.two_days_ago_revenue || 0))}
-            icon={<CalendarOutlined />} bg="linear-gradient(135deg, #a8b8d8 0%, #7b8ea8 100%)" color="#fff"
-            sub={`${Number(p.two_days_ago_qty || 0).toLocaleString()}개 판매`} />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}어제 매출`} value={fmtWon(Number(p.yesterday_revenue || 0))}
-            icon={<CalendarOutlined />} bg="linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)" color="#fff"
-            sub={`${Number(p.yesterday_qty || 0).toLocaleString()}개 판매`} />
-        </Col>
-        <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}오늘 매출`} value={fmtWon(Number(p.today_revenue || 0))}
+          <StatCard title={`${storePrefix}조회기간 매출`} value={fmtWon(totals.cur_amount)}
             icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
-            sub={`${Number(p.today_qty || 0).toLocaleString()}개 판매`} />
+            sub={`${range[0].format('MM.DD')} ~ ${range[1].format('MM.DD')}`} />
         </Col>
         <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}이번주 매출`} value={fmtWon(Number(p.week_revenue || 0))}
+          <StatCard title="전년동기" value={fmtWon(totals.prev_year_amount)}
+            icon={<CalendarOutlined />} bg="linear-gradient(135deg, #a18cd1 0%, #fbc2eb 100%)" color="#fff"
+            sub={prevYearPct !== null ? `${Number(prevYearPct) >= 0 ? '+' : ''}${prevYearPct}% 증감` : '-'} />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard title="전월동기" value={fmtWon(totals.prev_month_amount)}
             icon={<CalendarOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
-            sub={`${Number(p.week_qty || 0).toLocaleString()}개 판매`} />
+            sub={prevMonthPct !== null ? `${Number(prevMonthPct) >= 0 ? '+' : ''}${prevMonthPct}% 증감` : '-'} />
         </Col>
         <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}이번달 매출`} value={fmtWon(Number(p.month_revenue || 0))}
-            icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
-            sub={monthGrowth !== null ? `전월 대비 ${Number(monthGrowth) >= 0 ? '+' : ''}${monthGrowth}%` : `${Number(p.month_qty || 0).toLocaleString()}개 판매`} />
+          <StatCard title="정상 매출" value={fmtWon(totals.normal_amount)}
+            icon={<RiseOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff" />
         </Col>
         <Col xs={24} sm={12} lg={4}>
-          <StatCard title={`${storePrefix}전월 매출`} value={fmtWon(Number(p.prev_month_revenue || 0))}
-            icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
-            sub={`${Number(p.prev_month_qty || 0).toLocaleString()}개 판매`} />
+          <StatCard title="기획/할인" value={fmtWon(totals.discount_amount)}
+            icon={<TagsOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff" />
+        </Col>
+        <Col xs={24} sm={12} lg={4}>
+          <StatCard title="행사 매출" value={fmtWon(totals.event_amount)}
+            icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)" color="#fff" />
         </Col>
       </Row>
 
       {/* ── 서브 통계 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={12} sm={8}>
-          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={compLoading}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShopOutlined style={{ fontSize: 24, color: '#6366f1' }} />
               <div>
                 <div style={{ fontSize: 12, color: '#888' }}>거래처 수</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{Number(p.total_partners || 0)}</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{compData.length}</div>
               </div>
             </div>
           </Card>
         </Col>
         <Col xs={12} sm={8}>
-          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={compLoading}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <ShoppingCartOutlined style={{ fontSize: 24, color: '#ec4899' }} />
               <div>
-                <div style={{ fontSize: 12, color: '#888' }}>총 매출건수</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{Number(p.total_sales || 0).toLocaleString()}</div>
+                <div style={{ fontSize: 12, color: '#888' }}>판매수량</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{totals.cur_qty.toLocaleString()}개</div>
               </div>
             </div>
           </Card>
         </Col>
         <Col xs={24} sm={8}>
-          <Card size="small" style={{ borderRadius: 10 }} loading={loading}>
+          <Card size="small" style={{ borderRadius: 10 }} loading={compLoading}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <DollarOutlined style={{ fontSize: 24, color: '#10b981' }} />
               <div>
-                <div style={{ fontSize: 12, color: '#888' }}>이번달 판매량</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{Number(p.month_qty || 0).toLocaleString()}개</div>
+                <div style={{ fontSize: 12, color: '#888' }}>당월누계</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{fmtWon(totals.mtd_amount)}</div>
               </div>
             </div>
           </Card>
         </Col>
       </Row>
 
+      {/* ── 거래처별 종합매출 테이블 ── */}
+      <Card title="거래처별 종합매출" size="small" style={{ borderRadius: 10, marginTop: 16 }}
+        extra={<span style={{ fontSize: 12, color: '#666' }}>
+          {range[0].format('YYYY-MM-DD')} ~ {range[1].format('YYYY-MM-DD')} | 거래처 {compData.length}개
+        </span>}>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 950 }}>
+            <thead>
+              <tr>
+                <th style={thStyle}>No</th>
+                <th style={{ ...thStyle, textAlign: 'left' }}>거래처</th>
+                <th style={thStyle}>전년동기</th>
+                <th style={thStyle}>전월동기</th>
+                <th style={thStyle}>정상</th>
+                <th style={{ ...thStyle, color: '#f5222d' }}>기획/할인</th>
+                <th style={{ ...thStyle, color: '#fa8c16' }}>행사</th>
+                <th style={thStyle}>합계</th>
+                <th style={thStyle}>당월누계</th>
+                <th style={thStyle}>수량</th>
+                <th style={thStyle}>비율</th>
+              </tr>
+            </thead>
+            <tbody>
+              {compLoading ? (
+                <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#999' }}>로딩 중...</td></tr>
+              ) : (
+                <>
+                  {renderRow(totals, 0, true)}
+                  {compData.map((r, i) => renderRow(r, i + 1))}
+                  {compData.length === 0 && (
+                    <tr><td colSpan={11} style={{ textAlign: 'center', padding: 40, color: '#999' }}>매출 데이터가 없습니다</td></tr>
+                  )}
+                </>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
       {/* ── 일별 추이 + 월별 추이 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} md={14}>
-          <Card title="일별 매출 추이 (최근 30일)" size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
+          <Card title="일별 매출 추이 (최근 30일)" size="small" style={{ borderRadius: 10, height: '100%' }} loading={chartLoading}>
             <DailyChart data={stats?.dailyTrend || []} />
           </Card>
         </Col>
         <Col xs={24} md={10}>
-          <Card title="월별 매출 추이 (최근 6개월)" size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}>
+          <Card title="월별 매출 추이 (최근 6개월)" size="small" style={{ borderRadius: 10, height: '100%' }} loading={chartLoading}>
             <MonthlyChart data={stats?.monthlyTrend || []} />
           </Card>
         </Col>
       </Row>
 
-      {/* ── 거래처별 매출 + 2월 매출 비교 ── */}
-      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={12}>
-          <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />거래처별 매출 TOP 7 ({periodLabel})</span>}
-            size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate('/sales/partner-sales')}>상세보기</a>}>
-            <HBar
-              data={(stats?.byPartner || []).map((p: any) => ({
-                label: p.partner_name,
-                value: Number(p.total_amount),
-                sub: `${Number(p.total_qty).toLocaleString()}개`,
-              }))}
-            />
-          </Card>
-        </Col>
-        {period === 'month' && stats?.sameMonthHistory && (
-          <Col xs={24} md={12}>
+      {/* ── 동월 연도별 비교 ── */}
+      {stats?.sameMonthHistory && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
             <Card
               title={<span><CalendarOutlined style={{ marginRight: 8 }} />{new Date().getMonth() + 1}월 매출 — 연도별 비교</span>}
-              size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
+              size="small" style={{ borderRadius: 10 }} loading={chartLoading}
             >
               <SameMonthChart
                 data={(stats.sameMonthHistory.yearly || []).map((r: any) => ({
@@ -401,8 +502,8 @@ export default function SalesDashboardPage() {
               />
             </Card>
           </Col>
-        )}
-      </Row>
+        </Row>
+      )}
 
       {/* ── 연도별 매출현황 + 매장별 성과 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
@@ -469,7 +570,7 @@ export default function SalesDashboardPage() {
             <Card title={<span><ShopOutlined style={{ marginRight: 8 }} />매장별 성과 비교 (이번달)</span>}
               size="small" style={{ borderRadius: 10, height: '100%' }}>
               <Table
-                dataSource={storeComparison}
+                dataSource={storeComparison.slice(0, 7)}
                 rowKey="partner_code"
                 size="small"
                 pagination={false}
@@ -507,7 +608,6 @@ export default function SalesDashboardPage() {
                 const allYears = [...new Set(yearlyData.monthlyByYear.map((r: any) => Number(r.year)))] as number[];
                 allYears.sort((a, b) => a - b);
                 const months = Array.from({ length: 12 }, (_, i) => i + 1);
-                // 월별로 각 연도의 데이터를 찾기
                 const dataMap: Record<string, number> = {};
                 for (const r of yearlyData.monthlyByYear) {
                   dataMap[`${r.year}-${r.month}`] = Number(r.total_amount);

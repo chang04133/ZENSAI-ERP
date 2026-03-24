@@ -18,7 +18,7 @@ router.get('/excel/template', authMiddleware, (_req, res) => {
     { 'SKU': 'TS-001-BK-L', '수량': 30, '단가': 20000, '메모': '' },
     { 'SKU': 'TS-002-WH-FREE', '수량': 20, '단가': 30000, '메모': '추가 입고' },
   ];
-  const ws = XLSX.utils.json_to_sheet(templateData);
+  const ws = XLSX.utils.json_to_sheet(templateData, { header: ['SKU', '수량', '단가', '메모'] });
   ws['!cols'] = [{ wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, ws, '입고등록');
 
@@ -30,7 +30,7 @@ router.get('/excel/template', authMiddleware, (_req, res) => {
     { '항목': '', '설명': '', '예시': '' },
     { '항목': '※ 참고', '설명': 'SKU는 상품 상세에서 확인 가능합니다. 존재하지 않는 SKU는 건너뜁니다.', '예시': '' },
   ];
-  const guideWs = XLSX.utils.json_to_sheet(guideData);
+  const guideWs = XLSX.utils.json_to_sheet(guideData, { header: ['항목', '설명', '예시'] });
   guideWs['!cols'] = [{ wch: 10 }, { wch: 50 }, { wch: 20 }];
   XLSX.utils.book_append_sheet(wb, guideWs, '작성가이드');
 
@@ -93,12 +93,14 @@ router.post('/excel/upload',
       const row = rows[i];
       const rowNum = i + 2; // 엑셀 행 번호 (헤더=1)
       const sku = String(row['SKU'] || '').trim();
-      const qty = Number(row['수량']);
-      const unitPrice = row['단가'] ? Number(row['단가']) : undefined;
+      const parseNum = (v: any) => Number(String(v || '').replace(/,/g, ''));
+      const qty = Math.floor(parseNum(row['수량']));
+      const rawPrice = row['단가'] != null && String(row['단가']).trim() !== '' ? parseNum(row['단가']) : undefined;
+      const unitPrice = rawPrice != null && !isNaN(rawPrice) ? rawPrice : undefined;
       const itemMemo = row['메모'] ? String(row['메모']).trim() : undefined;
 
       if (!sku) { skipped++; continue; }
-      if (!qty || qty < 1) { errors.push(`${rowNum}행: 수량이 올바르지 않습니다 (${sku})`); continue; }
+      if (isNaN(qty) || qty < 1) { errors.push(`${rowNum}행: 수량이 올바르지 않습니다 (${sku})`); continue; }
 
       const variantId = skuToVariant.get(sku);
       if (!variantId) { errors.push(`${rowNum}행: SKU를 찾을 수 없습니다 (${sku})`); continue; }

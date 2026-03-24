@@ -94,11 +94,23 @@ class ProductionController extends BaseController<ProductionPlan> {
     res.status(201).json({ success: true, data });
   });
 
+  paymentSummary = asyncHandler(async (_req: Request, res: Response) => {
+    const data = await productionService.paymentSummary();
+    res.json({ success: true, data });
+  });
+
+  updatePayment = asyncHandler(async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
+    const result = await productionService.updatePayment(id, req.body, req.user!.userId);
+    res.json({ success: true, data: result });
+  });
+
   updateStatus = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
     const { status } = req.body;
-    const validStatuses = ['DRAFT', 'CONFIRMED', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED'];
+    const validStatuses = ['DRAFT', 'IN_PRODUCTION', 'COMPLETED', 'CANCELLED'];
     if (!status || !validStatuses.includes(status)) {
       res.status(400).json({ success: false, error: '유효하지 않은 상태값입니다.' }); return;
     }
@@ -129,6 +141,7 @@ class ProductionController extends BaseController<ProductionPlan> {
     const result = await productionService.getWithItems(id);
     res.json({ success: true, data: result });
   });
+
 }
 
 export const productionController = new ProductionController();

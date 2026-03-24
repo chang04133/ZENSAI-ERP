@@ -6,6 +6,7 @@ export interface Product {
   category: string | null;
   sub_category: string | null;
   brand: string | null;
+  year: string | null;
   season: string | null;
   fit: string | null;
   length: string | null;
@@ -13,11 +14,15 @@ export interface Product {
   cost_price: number;
   discount_price: number | null;
   event_price: number | null;
+  event_start_date: string | null;
+  event_end_date: string | null;
+  event_store_codes: string[] | null;
   sale_status: SaleStatus;
   low_stock_alert: boolean;
   low_stock_threshold: number | null;
   medium_stock_threshold: number | null;
   image_url: string | null;
+  warehouse_location: string | null;
   is_reorder: boolean;
   is_active: boolean;
   created_at: string;
@@ -32,9 +37,11 @@ export interface ProductVariant {
   size: string;
   sku: string;
   barcode: string | null;
+  custom_barcode: string | null;
   warehouse_location: string | null;
   stock_qty: number;
   price: number | null;
+  low_stock_alert: boolean;
   is_active: boolean;
   created_at: string;
 }

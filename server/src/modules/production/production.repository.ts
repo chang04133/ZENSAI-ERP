@@ -16,7 +16,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
   async list(options: any = {}) {
     const pool = getPool();
-    const { status, season, partner_code, search } = options;
+    const { status, season, partner_code, search, year, season_type, payment_step } = options;
     const page = Math.max(Number(options.page) || 1, 1);
     const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
     const offset = (page - 1) * limit;
@@ -26,10 +26,32 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
     if (status) { conditions.push(`pp.status = $${idx++}`); params.push(status); }
     if (season) { conditions.push(`pp.season = $${idx++}`); params.push(season); }
+    if (year) { conditions.push(`LEFT(pp.season, 4) = $${idx++}`); params.push(year); }
+    if (season_type) { conditions.push(`RIGHT(pp.season, 2) = $${idx++}`); params.push(season_type); }
     if (partner_code) { conditions.push(`pp.partner_code = $${idx++}`); params.push(partner_code); }
     if (search) {
       conditions.push(`(pp.plan_no ILIKE $${idx} OR pp.plan_name ILIKE $${idx})`);
       params.push(`%${search}%`); idx++;
+    }
+
+    // 대금 단계 필터
+    if (payment_step === 'advance_pending') {
+      conditions.push(`pp.advance_status = 'PENDING'`);
+      conditions.push(`pp.status NOT IN ('DRAFT', 'CANCELLED')`);
+    } else if (payment_step === 'advance_paid') {
+      conditions.push(`pp.advance_status = 'PAID'`);
+      conditions.push(`pp.inspect_status != 'PENDING'`);
+    } else if (payment_step === 'inspect_pending') {
+      conditions.push(`pp.advance_status = 'PAID'`);
+      conditions.push(`pp.inspect_status = 'PENDING'`);
+    } else if (payment_step === 'balance_pending') {
+      conditions.push(`pp.inspect_status = 'PASS'`);
+      conditions.push(`pp.balance_status = 'PENDING'`);
+    } else if (payment_step === 'settled') {
+      conditions.push(`pp.settle_status = 'SETTLED'`);
+    } else if (payment_step === 'all_payment') {
+      // 대금관리 대상: 초안/취소 제외
+      conditions.push(`pp.status NOT IN ('DRAFT', 'CANCELLED')`);
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -139,7 +161,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
   async dashboardStats(): Promise<any> {
     const pool = getPool();
-    const [statusCounts, recentPlans, seasonSummary, progressItems] = await Promise.all([
+    const thisYear = new Date().getFullYear();
+    const lastYear = thisYear - 1;
+    const twoYearsAgo = thisYear - 2;
+
+    const [statusCounts, progressItems, purchaseCosts, materialCosts, paymentStats, yearlyPlanSummary, categoryProduction] = await Promise.all([
       pool.query(`
         SELECT status, COUNT(*)::int as count,
                COALESCE(SUM(sub.total_qty), 0)::int as total_qty
@@ -148,31 +174,8 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           SELECT SUM(plan_qty) as total_qty FROM production_plan_items WHERE plan_id = pp.plan_id
         ) sub ON TRUE
         GROUP BY status ORDER BY
-          CASE status WHEN 'DRAFT' THEN 1 WHEN 'CONFIRMED' THEN 2
-          WHEN 'IN_PRODUCTION' THEN 3 WHEN 'COMPLETED' THEN 4 ELSE 5 END
-      `),
-      pool.query(`
-        SELECT pp.plan_id, pp.plan_no, pp.plan_name, pp.status, pp.target_date, pp.season,
-               pt.partner_name,
-               COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
-               COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty
-        FROM production_plans pp
-        LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
-        LEFT JOIN production_plan_items pi ON pp.plan_id = pi.plan_id
-        WHERE pp.status NOT IN ('COMPLETED', 'CANCELLED')
-        GROUP BY pp.plan_id, pt.partner_name
-        ORDER BY pp.target_date ASC NULLS LAST, pp.created_at DESC
-        LIMIT 7
-      `),
-      pool.query(`
-        SELECT pp.season,
-               COUNT(DISTINCT pp.plan_id)::int as plan_count,
-               COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
-               COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty
-        FROM production_plans pp
-        LEFT JOIN production_plan_items pi ON pp.plan_id = pi.plan_id
-        WHERE pp.status NOT IN ('CANCELLED') AND pp.season IS NOT NULL
-        GROUP BY pp.season ORDER BY pp.season DESC
+          CASE status WHEN 'DRAFT' THEN 1
+          WHEN 'IN_PRODUCTION' THEN 2 WHEN 'COMPLETED' THEN 3 ELSE 4 END
       `),
       pool.query(`
         SELECT pi.item_id, pi.plan_id, pi.category, pi.sub_category, pi.fit, pi.length,
@@ -182,15 +185,89 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
         WHERE pp.status = 'IN_PRODUCTION' AND pi.produced_qty < pi.plan_qty
         ORDER BY (pi.produced_qty::float / NULLIF(pi.plan_qty, 0)) ASC
-        LIMIT 15
+        LIMIT 30
       `),
+      // 연도별 매입비용 (3개년)
+      pool.query(`
+        SELECT EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date))::int AS yr,
+               COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0)::bigint AS purchase_cost
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status IN ('IN_PRODUCTION','COMPLETED')
+          AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
+        GROUP BY yr
+      `, [thisYear, lastYear, twoYearsAgo]),
+      // 연도별 부자재비용 (3개년)
+      pool.query(`
+        SELECT EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date))::int AS yr,
+               COALESCE(SUM(pmu.required_qty * COALESCE(m.unit_price, 0)), 0)::bigint AS material_cost
+        FROM production_material_usage pmu
+        JOIN production_plans pp ON pmu.plan_id = pp.plan_id
+        JOIN materials m ON pmu.material_id = m.material_id
+        WHERE pp.status IN ('IN_PRODUCTION','COMPLETED')
+          AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
+        GROUP BY yr
+      `, [thisYear, lastYear, twoYearsAgo]),
+      // 대금 현황
+      pool.query(`
+        SELECT
+          COUNT(*) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED'))::int as advance_pending_count,
+          COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED')), 0)::bigint as advance_pending_amount,
+          COUNT(*) FILTER (WHERE pp.advance_status = 'PAID')::int as advance_paid_count,
+          COALESCE(SUM(pp.advance_amount) FILTER (WHERE pp.advance_status = 'PAID'), 0)::bigint as advance_paid_amount,
+          COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.balance_status = 'PENDING')::int as balance_pending_count,
+          COALESCE(SUM(pp.balance_amount) FILTER (WHERE pp.advance_status = 'PAID' AND pp.balance_status = 'PENDING'), 0)::bigint as balance_pending_amount,
+          COUNT(*) FILTER (WHERE pp.settle_status = 'SETTLED')::int as settled_count,
+          COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.settle_status = 'SETTLED'), 0)::bigint as settled_amount
+        FROM production_plans pp
+        WHERE pp.status NOT IN ('DRAFT', 'CANCELLED')
+      `),
+      // 연도별 생산 건수/수량 (3개년)
+      pool.query(`
+        SELECT EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date))::int AS yr,
+               COUNT(DISTINCT pp.plan_id)::int AS plan_count,
+               COALESCE(SUM(pi.plan_qty), 0)::int AS plan_qty,
+               COALESCE(SUM(pi.produced_qty), 0)::int AS produced_qty
+        FROM production_plans pp
+        LEFT JOIN production_plan_items pi ON pi.plan_id = pp.plan_id
+        WHERE pp.status NOT IN ('CANCELLED')
+          AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
+        GROUP BY yr ORDER BY yr DESC
+      `, [thisYear, lastYear, twoYearsAgo]),
+      // 카테고리별 생산 실적 (3개년)
+      pool.query(`
+        SELECT EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date))::int AS yr,
+               pi.category,
+               COUNT(DISTINCT pp.plan_id)::int AS plan_count,
+               COALESCE(SUM(pi.plan_qty), 0)::int AS plan_qty,
+               COALESCE(SUM(pi.produced_qty), 0)::int AS produced_qty,
+               COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0)::bigint AS total_cost
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status NOT IN ('CANCELLED')
+          AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
+        GROUP BY yr, pi.category
+        ORDER BY yr DESC, total_cost DESC
+      `, [thisYear, lastYear, twoYearsAgo]),
     ]);
+
+    // 연도별 비용 조합
+    const purchaseMap: Record<number, number> = {};
+    for (const r of purchaseCosts.rows) purchaseMap[r.yr] = Number(r.purchase_cost);
+    const materialMap: Record<number, number> = {};
+    for (const r of materialCosts.rows) materialMap[r.yr] = Number(r.material_cost);
 
     return {
       statusCounts: statusCounts.rows,
-      recentPlans: recentPlans.rows,
-      seasonSummary: seasonSummary.rows,
       progressItems: progressItems.rows,
+      financialSummary: {
+        thisYear: { year: thisYear, purchase_cost: purchaseMap[thisYear] || 0, material_cost: materialMap[thisYear] || 0 },
+        lastYear: { year: lastYear, purchase_cost: purchaseMap[lastYear] || 0, material_cost: materialMap[lastYear] || 0 },
+        twoYearsAgo: { year: twoYearsAgo, purchase_cost: purchaseMap[twoYearsAgo] || 0, material_cost: materialMap[twoYearsAgo] || 0 },
+      },
+      yearlyPlanSummary: yearlyPlanSummary.rows,
+      categoryProduction: categoryProduction.rows,
+      paymentSummary: paymentStats.rows[0],
     };
   }
 
@@ -266,7 +343,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         JOIN products p ON p.category = pi.category
           AND (pi.fit IS NULL OR p.fit = pi.fit)
           AND (pi.length IS NULL OR p.length = pi.length)
-        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
+        WHERE pp.status IN ('IN_PRODUCTION')
         GROUP BY p.product_code
       )
       SELECT
@@ -398,7 +475,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
         FROM production_plan_items pi
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
-        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category IS NOT NULL
+        WHERE pp.status IN ('IN_PRODUCTION') AND pi.category IS NOT NULL
         GROUP BY pi.category
       )
       SELECT
@@ -475,7 +552,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
         FROM production_plan_items pi
         JOIN production_plans pp ON pi.plan_id = pp.plan_id
-        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category = $1
+        WHERE pp.status IN ('IN_PRODUCTION') AND pi.category = $1
         GROUP BY COALESCE(pi.sub_category, '미분류')
       ),
       all_subs AS (
@@ -626,11 +703,10 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
 
       if (Object.keys(categoryGroups).length === 0) return [];
 
-      // 4) 현재 시즌 결정
+      // 4) 현재 시즌 결정 (4자리 연도 사용: 2026SA, 2026SM, 2026WN)
       const m = new Date().getMonth() + 1;
       const y = new Date().getFullYear();
-      const yy = String(y).slice(-2);
-      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? `${yy}SA` : [6, 7, 8].includes(m) ? `${yy}SM` : `${yy}WN`);
+      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? `${y}SA` : [6, 7, 8].includes(m) ? `${y}SM` : `${y}WN`);
 
       // 5) 카테고리별 생산계획 자동 생성
       await client.query('BEGIN');
@@ -734,6 +810,96 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     return { settings, categories, totalProducts, totalQty };
   }
 
+  async paymentSummary() {
+    const pool = getPool();
+    const sql = `
+      SELECT
+        COUNT(*) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED'))::int as advance_pending_count,
+        COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED')), 0)::bigint as advance_pending_amount,
+        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.inspect_status = 'PENDING')::int as inspect_pending_count,
+        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.inspect_status != 'PENDING')::int as advance_paid_count,
+        COALESCE(SUM(pp.advance_amount) FILTER (WHERE pp.advance_status = 'PAID'), 0)::bigint as advance_paid_amount,
+        COUNT(*) FILTER (WHERE pp.inspect_status = 'PASS' AND pp.balance_status = 'PENDING')::int as balance_pending_count,
+        COALESCE(SUM(pp.balance_amount) FILTER (WHERE pp.inspect_status = 'PASS' AND pp.balance_status = 'PENDING'), 0)::bigint as balance_pending_amount,
+        COUNT(*) FILTER (WHERE pp.settle_status = 'SETTLED')::int as settled_count,
+        COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.settle_status = 'SETTLED'), 0)::bigint as settled_amount
+      FROM production_plans pp
+      WHERE pp.status NOT IN ('DRAFT', 'CANCELLED')`;
+    return (await pool.query(sql)).rows[0];
+  }
+
+  async updatePayment(planId: number, data: Record<string, any>, userId: string) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1 FOR UPDATE', [planId]);
+      if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다.');
+      const plan = current.rows[0];
+      if (['DRAFT', 'CANCELLED'].includes(plan.status)) throw new Error('초안/취소 상태에서는 대금 처리할 수 없습니다.');
+
+      const { action } = data;
+
+      if (action === 'advance') {
+        // 선지급 처리
+        if (plan.advance_status === 'PAID') throw new Error('이미 선지급 완료되었습니다.');
+        const totalAmount = Number(data.total_amount) || 0;
+        const advanceRate = Number(data.advance_rate) || 30;
+        const advanceAmount = Number(data.advance_amount) || Math.round(totalAmount * advanceRate / 100);
+        const balanceAmount = totalAmount - advanceAmount;
+        await client.query(
+          `UPDATE production_plans SET
+            total_amount = $1, advance_rate = $2, advance_amount = $3,
+            advance_date = COALESCE($4::date, CURRENT_DATE), advance_status = 'PAID',
+            balance_amount = $5, updated_at = NOW()
+          WHERE plan_id = $6`,
+          [totalAmount, advanceRate, advanceAmount, data.advance_date || null, balanceAmount, planId],
+        );
+      } else if (action === 'inspect') {
+        // 검수 처리
+        if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 검수 가능합니다.');
+        if (plan.inspect_status !== 'PENDING') throw new Error('이미 검수 처리되었습니다.');
+        const inspectStatus = data.inspect_status; // 'PASS' or 'FAIL'
+        if (!['PASS', 'FAIL'].includes(inspectStatus)) throw new Error('검수 결과는 PASS 또는 FAIL이어야 합니다.');
+        await client.query(
+          `UPDATE production_plans SET
+            inspect_date = COALESCE($1::date, CURRENT_DATE), inspect_qty = $2,
+            inspect_status = $3, inspect_memo = $4, updated_at = NOW()
+          WHERE plan_id = $5`,
+          [data.inspect_date || null, data.inspect_qty || 0, inspectStatus, data.inspect_memo || null, planId],
+        );
+      } else if (action === 'balance') {
+        // 잔금 지급
+        if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 잔금 지급 가능합니다.');
+        if (plan.balance_status === 'PAID') throw new Error('이미 잔금 지급 완료되었습니다.');
+        await client.query(
+          `UPDATE production_plans SET
+            balance_date = COALESCE($1::date, CURRENT_DATE), balance_status = 'PAID', updated_at = NOW()
+          WHERE plan_id = $2`,
+          [data.balance_date || null, planId],
+        );
+      } else if (action === 'settle') {
+        // 정산 완료
+        if (plan.balance_status !== 'PAID') throw new Error('잔금 지급 완료 후 정산 가능합니다.');
+        if (plan.settle_status === 'SETTLED') throw new Error('이미 정산 완료되었습니다.');
+        await client.query(
+          `UPDATE production_plans SET settle_status = 'SETTLED', updated_at = NOW() WHERE plan_id = $1`,
+          [planId],
+        );
+      } else {
+        throw new Error('유효하지 않은 액션입니다.');
+      }
+
+      await client.query('COMMIT');
+      return this.getWithItems(planId);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
   async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {
     const pool = getPool();
     const client = await pool.connect();
@@ -786,6 +952,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       client.release();
     }
   }
+
 }
 
 export const productionRepository = new ProductionRepository();

@@ -121,6 +121,37 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
        WHERE si.request_id = $1`, [id]);
     return { ...req.rows[0], items: items.rows };
   }
+
+  async summary(options: { partner?: string } = {}) {
+    const { partner } = options;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (partner) {
+      conditions.push(`(sr.from_partner = $${idx} OR sr.to_partner = $${idx + 1})`);
+      params.push(partner, partner);
+      idx += 2;
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+    const sql = `
+      SELECT sr.status, sr.request_type,
+        COUNT(*)::int as count,
+        COALESCE(SUM(agg.total_request_qty), 0)::int as total_request_qty,
+        COALESCE(SUM(agg.total_shipped_qty), 0)::int as total_shipped_qty
+      FROM shipment_requests sr
+      LEFT JOIN (
+        SELECT request_id,
+          SUM(request_qty) as total_request_qty,
+          SUM(shipped_qty) as total_shipped_qty
+        FROM shipment_request_items
+        GROUP BY request_id
+      ) agg ON agg.request_id = sr.request_id
+      ${whereClause}
+      GROUP BY sr.status, sr.request_type
+      ORDER BY sr.status, sr.request_type`;
+    const result = await this.pool.query(sql, params);
+    return result.rows;
+  }
 }
 
 export const shipmentRepository = new ShipmentRepository();

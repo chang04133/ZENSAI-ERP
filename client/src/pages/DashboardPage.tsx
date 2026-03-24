@@ -638,7 +638,7 @@ export default function DashboardPage() {
                   </div>
                 </Col>
                 {/* 카테고리별 판매율 */}
-                {(sellThrough.byCategory || []).map((c: any) => {
+                {(sellThrough.byCategory || []).slice(0, 7).map((c: any) => {
                   const rate = Number(c.sell_through_rate);
                   const CAT_C: Record<string, string> = { TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4' };
                   const color = CAT_C[c.category] || '#888';

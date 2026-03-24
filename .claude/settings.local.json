@@ -171,7 +171,19 @@
       "Bash(\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/tmp_check_inv_dates2.js\":*)",
       "Bash(powershell -Command:*)",
       "Bash(git reset:*)",
-      "Bash(start:*)"
+      "Bash(start:*)",
+      "Bash(git stash pop:*)",
+      "Bash(git stash drop:*)",
+      "Bash(# Check what ports are listening netstat -ano | grep -E \"\"LISTEN.*:\\(3001|5172|5173\\)\"\" | head -10 || ss -tlnp)",
+      "Bash(# Use the dev client''s auto-login mechanism to get a token # The dev server at 5172 auto-logs in as admin # Let''s try fetching from the Vite proxy curl -s http://localhost:5172/api/auth/me)",
+      "Bash(# Check the server''s running process stderr - maybe DB connection issue # The dev server is likely the one at 5172 \\(vite dev + proxy to backend\\) # Check what .env says about PORT cat \"\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/server/.env\"\")",
+      "Bash(# Check server error logs - the dev process # Find the running server process ps aux)",
+      "Bash(__NEW_LINE_48fd5111fec0f397__ echo \"\")",
+      "Bash(__NEW_LINE_313b9267938a56a9__ echo \"\")",
+      "Bash(__NEW_LINE_c44041e9b6d8d9b5__ echo \"\")",
+      "Bash(__NEW_LINE_5a9aaeacda4e1252__ echo \"\")",
+      "Bash(fi:*)",
+      "Bash(PGPASSWORD=postgres psql:*)"
     ]
   }
 }

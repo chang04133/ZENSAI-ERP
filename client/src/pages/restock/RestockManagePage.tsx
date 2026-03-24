@@ -4,16 +4,17 @@ import {
   Input, Space, Row, Col, Popconfirm, message,
 } from 'antd';
 import {
-  PlusOutlined, ReloadOutlined, AlertOutlined, FireOutlined,
+  PlusOutlined, ReloadOutlined, AlertOutlined,
   WarningOutlined, ExclamationCircleOutlined, FileTextOutlined,
   CheckCircleOutlined, ShoppingCartOutlined, InboxOutlined, DownloadOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { exportToExcel } from '../../utils/export-excel';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
-import type { RestockSuggestion, SellingVelocity, RestockRequest } from '../../../../shared/types/restock';
+import type { RestockSuggestion, RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
 const URGENCY_COLORS: Record<string, string> = { CRITICAL: 'red', WARNING: 'orange', NORMAL: 'blue' };
@@ -21,15 +22,16 @@ const URGENCY_LABELS: Record<string, string> = { CRITICAL: '위험', WARNING: '�
 const STATUS_COLORS: Record<string, string> = { DRAFT: 'default', APPROVED: 'blue', ORDERED: 'cyan', RECEIVED: 'green', CANCELLED: 'red' };
 const STATUS_LABELS: Record<string, string> = { DRAFT: '작성중', APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소' };
 
-function SummaryCard({ title, count, icon, bg, color, sub }: {
-  title: string; count: number; icon: React.ReactNode; bg: string; color: string; sub?: string;
+function SummaryCard({ title, count, icon, bg, color, sub, onClick }: {
+  title: string; count: number; icon: React.ReactNode; bg: string; color: string; sub?: string; onClick?: () => void;
 }) {
   const style: CSSProperties = {
     background: bg, borderRadius: 12, padding: '14px 18px',
     display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: 80, border: 'none',
+    cursor: onClick ? 'pointer' : undefined, transition: 'transform 0.15s',
   };
   return (
-    <div style={style}>
+    <div style={style} onClick={onClick}>
       <div>
         <div style={{ fontSize: 11, color: color + 'cc' }}>{title}</div>
         <div style={{ fontSize: 22, fontWeight: 700, color, lineHeight: 1.3 }}>{count}건</div>
@@ -49,23 +51,21 @@ export default function RestockManagePage() {
 
   // ── 제안 탭 ──
   const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
+  const [salesPeriodDays, setSalesPeriodDays] = useState(60);
   const [sugLoading, setSugLoading] = useState(false);
-
-  // ── 판매속도 탭 ──
-  const [velocity, setVelocity] = useState<SellingVelocity[]>([]);
-  const [velLoading, setVelLoading] = useState(false);
+  const [sugCategoryFilter, setSugCategoryFilter] = useState<string | undefined>();
+  const [sugUrgencyFilter, setSugUrgencyFilter] = useState<string | undefined>();
 
   // ── 의뢰 목록 탭 ──
   const { data: requests, total, loading: reqLoading, fetchList } = useRestockStore();
   const [reqPage, setReqPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
 
-  // ── 진행관리 탭 (from RestockProgressPage) ──
+  // ── 진행관리 탭 ──
   const [progressPartnerFilter, setProgressPartnerFilter] = useState<string | undefined>();
   const [progressStatusFilter, setProgressStatusFilter] = useState<string | undefined>();
   const [progressStats, setProgressStats] = useState<any[]>([]);
   const [progressPage, setProgressPage] = useState(1);
-  // 진행관리 전용 store (별도 인스턴스가 필요 → 직접 state 관리)
   const [progressData, setProgressData] = useState<any[]>([]);
   const [progressTotal, setProgressTotal] = useState(0);
   const [progressLoading, setProgressLoading] = useState(false);
@@ -81,7 +81,7 @@ export default function RestockManagePage() {
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailData, setDetailData] = useState<RestockRequest | null>(null);
 
-  // ── 수령 모달 (진행관리) ──
+  // ── 수령 모달 ──
   const [receiveOpen, setReceiveOpen] = useState(false);
   const [receiveItems, setReceiveItems] = useState<any[]>([]);
 
@@ -94,16 +94,12 @@ export default function RestockManagePage() {
   /* ── 데이터 로드 함수들 ── */
   const loadSuggestions = async () => {
     setSugLoading(true);
-    try { setSuggestions(await restockApi.getRestockSuggestions()); }
-    catch (e: any) { message.error(e.message); }
+    try {
+      const result = await restockApi.getRestockSuggestions();
+      setSuggestions(result.suggestions);
+      setSalesPeriodDays(result.salesPeriodDays);
+    } catch (e: any) { message.error(e.message); }
     finally { setSugLoading(false); }
-  };
-
-  const loadVelocity = async () => {
-    setVelLoading(true);
-    try { setVelocity(await restockApi.getSellingVelocity(partnerFilter)); }
-    catch (e: any) { message.error(e.message); }
-    finally { setVelLoading(false); }
   };
 
   const loadRequests = () => {
@@ -136,14 +132,12 @@ export default function RestockManagePage() {
 
   useEffect(() => {
     if (tab === 'suggestions') loadSuggestions();
-    else if (tab === 'velocity') loadVelocity();
     else if (tab === 'requests') loadRequests();
     else if (tab === 'progress') { loadProgressStats(); loadProgressList(); }
   }, [tab]);
 
   useEffect(() => {
-    if (tab === 'velocity') loadVelocity();
-    else if (tab === 'requests') loadRequests();
+    if (tab === 'requests') loadRequests();
   }, [partnerFilter]);
 
   useEffect(() => { if (tab === 'requests') loadRequests(); }, [reqPage, statusFilter]);
@@ -180,6 +174,19 @@ export default function RestockManagePage() {
       loadRequests();
     } catch (e: any) { message.error(e.message); }
     finally { setCreating(false); }
+  };
+
+  /* ── 생산계획으로 보내기 ── */
+  const sendToProduction = () => {
+    if (selectedItems.length === 0) { message.warning('품목을 선택해주세요.'); return; }
+    navigate('/production/plan', {
+      state: {
+        restockItems: selectedItems.map(s => ({
+          variant_id: s.variant_id,
+          suggested_qty: itemQtys[s.variant_id] || s.suggested_qty,
+        })),
+      },
+    });
   };
 
   /* ── 상세 ── */
@@ -223,10 +230,20 @@ export default function RestockManagePage() {
     } catch (e: any) { message.error(e.message); }
   };
 
+  /* ── 제안 데이터: 필터 적용 ── */
+  const filteredSuggestions = suggestions.filter(s => {
+    if (sugCategoryFilter && s.category !== sugCategoryFilter) return false;
+    if (sugUrgencyFilter && s.urgency !== sugUrgencyFilter) return false;
+    return true;
+  });
+
   /* ── 제안 통계 ── */
   const criticalCount = suggestions.filter(s => s.urgency === 'CRITICAL').length;
   const warningCount = suggestions.filter(s => s.urgency === 'WARNING').length;
-  const totalCount = suggestions.length;
+  const totalSugQty = suggestions.reduce((s, i) => s + (i.suggested_qty || 0), 0);
+
+  /* ── 제안 카테고리 목록 ── */
+  const sugCategories = [...new Set(suggestions.map(s => s.category).filter(Boolean))].sort();
 
   /* ── 진행관리 통계 ── */
   const getStat = (status: string) => {
@@ -238,12 +255,25 @@ export default function RestockManagePage() {
   const ordered = getStat('ORDERED');
   const received = getStat('RECEIVED');
 
+  /* ── 제안 엑셀 내보내기 ── */
+  const exportSuggestions = () => {
+    exportToExcel(filteredSuggestions, [
+      { title: '긴급도', key: 'urgency' }, { title: '상품코드', key: 'product_code' },
+      { title: '상품명', key: 'product_name' }, { title: 'SKU', key: 'sku' },
+      { title: '컬러', key: 'color' }, { title: '사이즈', key: 'size' },
+      { title: '카테고리', key: 'category' }, { title: '시즌', key: 'season' },
+      { title: '판매율(%)', key: 'sell_through_rate' },
+      { title: `${salesPeriodDays}일판매`, key: 'total_sold' },
+      { title: '현재고', key: 'current_stock' }, { title: '생산중', key: 'in_production_qty' },
+      { title: '부족량', key: 'shortage_qty' }, { title: '소진일', key: 'days_of_stock' },
+      { title: '권장수량', key: 'suggested_qty' },
+    ], `재입고제안_${dayjs().format('YYYYMMDD')}`);
+  };
+
   /* ── 컬럼 정의 ── */
   const sugColumns = [
     { title: '긴급도', dataIndex: 'urgency', key: 'urgency', width: 70,
       render: (v: string) => <Tag color={URGENCY_COLORS[v]}>{URGENCY_LABELS[v]}</Tag>,
-      filters: [{ text: '위험', value: 'CRITICAL' }, { text: '주의', value: 'WARNING' }, { text: '보통', value: 'NORMAL' }],
-      onFilter: (value: any, record: RestockSuggestion) => record.urgency === value,
     },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120,
       render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
@@ -251,16 +281,19 @@ export default function RestockManagePage() {
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
     { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
     { title: 'Size', dataIndex: 'size', key: 'size', width: 55, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 80,
+      render: (v: string) => <Tag color="cyan">{v}</Tag>,
+    },
     { title: '판매율', dataIndex: 'sell_through_rate', key: 'sell_through_rate', width: 70,
       sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.sell_through_rate - b.sell_through_rate,
       render: (v: number) => <span style={{ fontWeight: 600, color: v >= 70 ? '#f5222d' : v >= 50 ? '#fa8c16' : '#1890ff' }}>{v}%</span>,
     },
-    { title: '60일판매', dataIndex: 'total_sold', key: 'total_sold', width: 75,
+    { title: `${salesPeriodDays}일판매`, dataIndex: 'total_sold', key: 'total_sold', width: 80,
       sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.total_sold - b.total_sold,
       render: (v: number) => v > 0 ? <span style={{ fontWeight: 600 }}>{v}</span> : '-',
     },
-    { title: '30일수요', dataIndex: 'demand_30d', key: 'demand_30d', width: 75, render: (v: number) => v > 0 ? v : '-' },
     { title: '현재고', dataIndex: 'current_stock', key: 'current_stock', width: 70,
+      sorter: (a: RestockSuggestion, b: RestockSuggestion) => a.current_stock - b.current_stock,
       render: (v: number) => <Tag color={v === 0 ? 'red' : v <= 5 ? 'orange' : 'default'}>{v}</Tag>,
     },
     { title: '생산중', dataIndex: 'in_production_qty', key: 'in_production_qty', width: 65,
@@ -276,32 +309,6 @@ export default function RestockManagePage() {
     },
     { title: '권장수량', dataIndex: 'suggested_qty', key: 'suggested_qty', width: 80,
       render: (v: number) => v > 0 ? <Tag color="blue">{v}</Tag> : '-',
-    },
-  ];
-
-  const velColumns = [
-    { title: '상품', dataIndex: 'product_name', key: 'product_name', width: 140, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 160 },
-    { title: 'Color', dataIndex: 'color', key: 'color', width: 60 },
-    { title: 'Size', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '현재재고', dataIndex: 'current_qty', key: 'current_qty', width: 80 },
-    { title: '7일판매', dataIndex: 'sold_7d', key: 'sold_7d', width: 80,
-      render: (v: number) => v > 0 ? <span style={{ color: '#f5222d', fontWeight: 600 }}>{v}</span> : '-',
-    },
-    { title: '30일판매', dataIndex: 'sold_30d', key: 'sold_30d', width: 80,
-      render: (v: number) => v > 0 ? <span style={{ fontWeight: 600 }}>{v}</span> : '-',
-    },
-    { title: '일평균(7일)', dataIndex: 'avg_daily_7d', key: 'avg_daily_7d', width: 90,
-      render: (v: number) => v > 0 ? v.toFixed(2) : '-',
-    },
-    { title: '일평균(30일)', dataIndex: 'avg_daily_30d', key: 'avg_daily_30d', width: 90,
-      render: (v: number) => v > 0 ? v.toFixed(2) : '-',
-    },
-    { title: '소진예상(7일)', dataIndex: 'days_until_out_7d', key: 'days_until_out_7d', width: 120,
-      render: (v: number | null) => v != null ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag> : '-',
-    },
-    { title: '소진예상(30일)', dataIndex: 'days_until_out_30d', key: 'days_until_out_30d', width: 120,
-      render: (v: number | null) => v != null ? <Tag color={v <= 7 ? 'red' : v <= 14 ? 'orange' : 'default'}>{v}일</Tag> : '-',
     },
   ];
 
@@ -361,15 +368,29 @@ export default function RestockManagePage() {
 
   return (
     <div>
+      {/* ── 탭 상단 액션바 ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
-        {tab === 'velocity' && (
-          <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
-            <Select value={partnerFilter} onChange={setPartnerFilter} style={{ width: 150 }}
-              options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} />
-          </div>
-        )}
-        {tab === 'suggestions' && selectedItems.length > 0 && (
-          <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>재입고 의뢰 ({selectedItems.length}건)</Button>
+        {tab === 'suggestions' && (
+          <>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
+              <Select value={sugCategoryFilter} onChange={setSugCategoryFilter} placeholder="전체" allowClear style={{ width: 120 }}
+                options={sugCategories.map(c => ({ label: c, value: c }))} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>긴급도</div>
+              <Select value={sugUrgencyFilter} onChange={setSugUrgencyFilter} placeholder="전체" allowClear style={{ width: 100 }}
+                options={[{ label: '위험', value: 'CRITICAL' }, { label: '주의', value: 'WARNING' }, { label: '보통', value: 'NORMAL' }]} /></div>
+            <div style={{ flex: 1 }} />
+            {selectedItems.length > 0 && (
+              <>
+                <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>재입고 의뢰 ({selectedItems.length}건)</Button>
+                <Button icon={<ThunderboltOutlined />} onClick={sendToProduction}
+                  style={{ background: '#fa8c16', borderColor: '#fa8c16', color: '#fff' }}>
+                  생산계획으로 ({selectedItems.length}건)
+                </Button>
+              </>
+            )}
+            <Button icon={<DownloadOutlined />} onClick={exportSuggestions}>엑셀</Button>
+            <Button icon={<ReloadOutlined />} onClick={loadSuggestions}>새로고침</Button>
+          </>
         )}
         {tab === 'progress' && (
           <>
@@ -377,12 +398,13 @@ export default function RestockManagePage() {
               <Select placeholder="거래처" allowClear value={progressPartnerFilter}
                 onChange={setProgressPartnerFilter} style={{ width: 150 }}
                 options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} /></div>
+            <div style={{ flex: 1 }} />
             <Button icon={<DownloadOutlined />} onClick={() => exportToExcel(progressData, [
               { title: '의뢰번호', key: 'request_no' }, { title: '거래처', key: 'partner_name' },
               { title: '상태', key: 'status' }, { title: '의뢰일', key: 'request_date' },
               { title: '입고예정', key: 'expected_date' }, { title: '품목수', key: 'item_count' },
               { title: '총수량', key: 'total_qty' },
-            ], `재입고진행_${new Date().toISOString().slice(0, 10)}`)}>엑셀</Button>
+            ], `재입고진행_${dayjs().format('YYYYMMDD')}`)}>엑셀</Button>
             <Button icon={<ReloadOutlined />} onClick={() => { loadProgressStats(); loadProgressList(); }}>새로고침</Button>
           </>
         )}
@@ -391,49 +413,38 @@ export default function RestockManagePage() {
       <Tabs activeKey={tab} onChange={setTab} items={[
         /* ── Tab: 재입고 제안 ── */
         {
-          key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안</span>,
+          key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안{suggestions.length > 0 ? ` (${suggestions.length})` : ''}</span>,
           children: (
             <>
               <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={8}>
                   <SummaryCard title="긴급 보충 (7일 미만)" count={criticalCount}
-                    icon={<ExclamationCircleOutlined />} bg="linear-gradient(135deg, #ff4d4f22 0%, #ff4d4f11 100%)" color="#cf1322" />
+                    icon={<ExclamationCircleOutlined />} bg="linear-gradient(135deg, #ff4d4f22 0%, #ff4d4f11 100%)" color="#cf1322"
+                    sub={`소진 임박 품목`}
+                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter === 'CRITICAL' ? undefined : 'CRITICAL'); }} />
                 </Col>
                 <Col xs={24} sm={8}>
                   <SummaryCard title="주의 품목 (14일 미만)" count={warningCount}
-                    icon={<WarningOutlined />} bg="linear-gradient(135deg, #fa8c1622 0%, #fa8c1611 100%)" color="#d46b08" />
+                    icon={<WarningOutlined />} bg="linear-gradient(135deg, #fa8c1622 0%, #fa8c1611 100%)" color="#d46b08"
+                    sub={`조기 발주 권장`}
+                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter === 'WARNING' ? undefined : 'WARNING'); }} />
                 </Col>
                 <Col xs={24} sm={8}>
-                  <SummaryCard title="전체 보충 필요" count={totalCount}
-                    icon={<AlertOutlined />} bg="linear-gradient(135deg, #1890ff22 0%, #1890ff11 100%)" color="#096dd9" />
+                  <SummaryCard title="전체 보충 필요" count={suggestions.length}
+                    icon={<AlertOutlined />} bg="linear-gradient(135deg, #1890ff22 0%, #1890ff11 100%)" color="#096dd9"
+                    sub={`총 권장수량 ${totalSugQty.toLocaleString()}개`}
+                    onClick={() => { setSugUrgencyFilter(undefined); }} />
                 </Col>
               </Row>
-              <Table dataSource={suggestions} columns={sugColumns} rowKey="variant_id"
+              <Table dataSource={filteredSuggestions} columns={sugColumns} rowKey="variant_id"
                 loading={sugLoading} size="small" scroll={{ x: 1200, y: 'calc(100vh - 380px)' }}
                 pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
                 rowSelection={{ selectedRowKeys: selectedItems.map(i => i.variant_id), onChange: (_keys, rows) => setSelectedItems(rows) }}
-                title={() => (
-                  <Space>
-                    <span style={{ color: '#888', fontSize: 12 }}>60일 판매 기반 · 판매율 &ge;40% · 계절가중치 적용 · 소진일 오름차순</span>
-                    <Button size="small" icon={<ReloadOutlined />} onClick={loadSuggestions}>새로고침</Button>
-                  </Space>
-                )} />
+              />
+              <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
+                {salesPeriodDays}일 판매 기반 분석 · 판매율 &ge;40% · 계절가중치 적용 · 소진일 오름차순
+              </div>
             </>
-          ),
-        },
-        /* ── Tab: 판매속도 ── */
-        {
-          key: 'velocity', label: <span><FireOutlined /> 판매속도</span>,
-          children: (
-            <Table dataSource={velocity} columns={velColumns} rowKey="variant_id"
-              loading={velLoading} size="small" scroll={{ x: 1200, y: 'calc(100vh - 280px)' }}
-              pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-              title={() => (
-                <Space>
-                  <span style={{ color: '#888' }}>판매 실적이 있는 품목 ({velocity.length}건)</span>
-                  <Button size="small" icon={<ReloadOutlined />} onClick={loadVelocity}>새로고침</Button>
-                </Space>
-              )} />
           ),
         },
         /* ── Tab: 의뢰 목록 ── */
@@ -455,7 +466,7 @@ export default function RestockManagePage() {
             </>
           ),
         },
-        /* ── Tab: 진행관리 (from RestockProgressPage) ── */
+        /* ── Tab: 진행관리 ── */
         {
           key: 'progress', label: '진행관리',
           children: (
@@ -463,26 +474,25 @@ export default function RestockManagePage() {
               <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={12} lg={6}>
                   <SummaryCard title="작성중" count={draft.count} sub={`${draft.qty.toLocaleString()}개`}
-                    icon={<FileTextOutlined />} bg="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" color="#333" />
+                    icon={<FileTextOutlined />} bg="linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%)" color="#333"
+                    onClick={() => setProgressStatusFilter(progressStatusFilter === 'DRAFT' ? undefined : 'DRAFT')} />
                 </Col>
                 <Col xs={24} sm={12} lg={6}>
                   <SummaryCard title="승인완료" count={approved.count} sub={`${approved.qty.toLocaleString()}개`}
-                    icon={<CheckCircleOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff" />
+                    icon={<CheckCircleOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
+                    onClick={() => setProgressStatusFilter(progressStatusFilter === 'APPROVED' ? undefined : 'APPROVED')} />
                 </Col>
                 <Col xs={24} sm={12} lg={6}>
                   <SummaryCard title="발주진행" count={ordered.count} sub={`${ordered.qty.toLocaleString()}개`}
-                    icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff" />
+                    icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
+                    onClick={() => setProgressStatusFilter(progressStatusFilter === 'ORDERED' ? undefined : 'ORDERED')} />
                 </Col>
                 <Col xs={24} sm={12} lg={6}>
                   <SummaryCard title="입고완료" count={received.count} sub={`${received.qty.toLocaleString()}개`}
-                    icon={<InboxOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff" />
+                    icon={<InboxOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
+                    onClick={() => setProgressStatusFilter(progressStatusFilter === 'RECEIVED' ? undefined : 'RECEIVED')} />
                 </Col>
               </Row>
-              <Space style={{ marginBottom: 12 }}>
-                <Select placeholder="상태" allowClear value={progressStatusFilter}
-                  onChange={(v) => { setProgressStatusFilter(v); setProgressPage(1); }} style={{ width: 120 }}
-                  options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} />
-              </Space>
               <Table dataSource={progressData} columns={progressColumns} rowKey="request_id"
                 loading={progressLoading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
                 pagination={{ current: progressPage, total: progressTotal, pageSize: 50, onChange: setProgressPage, showTotal: (t) => `총 ${t}건` }} />

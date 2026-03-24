@@ -48,5 +48,11 @@ import m050 from './050_activity_logs';
 import m051 from './051_custom_barcode';
 import m052 from './052_claim_fields';
 import m053 from './053_inventory_fixes';
+import m055 from './055_financial_statements';
+import m061 from './061_financial_accounts';
+import m062 from './062_production_payments';
+import m063 from './063_fund_expense_subcategories';
+import m064 from './064_inbound_status';
+import m065 from './065_remove_confirmed_status';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051, m052, m053];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051, m052, m053, m055, m061, m062, m063, m064, m065];

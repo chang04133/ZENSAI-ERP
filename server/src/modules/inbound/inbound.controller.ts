@@ -11,6 +11,14 @@ class InboundController extends BaseController<InboundRecord> {
     super(inboundService);
   }
 
+  summary = asyncHandler(async (req: Request, res: Response) => {
+    const query: any = {};
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner_code = pc;
+    const result = await inboundService.summary(query);
+    res.json({ success: true, data: result });
+  });
+
   list = asyncHandler(async (req: Request, res: Response) => {
     const query: any = { ...req.query };
     const pc = getStorePartnerCode(req);
@@ -80,6 +88,30 @@ class InboundController extends BaseController<InboundRecord> {
     const id = parseInt(req.params.id as string, 10);
     await inboundService.deleteWithRollback(id, req.user!.userId);
     res.json({ success: true, message: '입고가 삭제되었습니다.' });
+  });
+
+  confirm = asyncHandler(async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    const { items } = req.body;
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: '품목을 1개 이상 추가해주세요.' });
+      return;
+    }
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
+      if (!item.variant_id || typeof item.variant_id !== 'number') {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: variant_id가 유효하지 않습니다.` });
+        return;
+      }
+      if (!item.qty || typeof item.qty !== 'number' || item.qty <= 0) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 수량은 1 이상이어야 합니다.` });
+        return;
+      }
+    }
+
+    const result = await inboundService.confirmInbound(id, items, req.user!.userId);
+    res.json({ success: true, data: result });
   });
 }
 

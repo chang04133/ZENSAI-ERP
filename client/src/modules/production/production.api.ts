@@ -89,6 +89,25 @@ export const productionApi = {
     return d.data as ProductionPlan;
   },
 
+  /** 대금 요약 */
+  paymentSummary: async () => {
+    const res = await apiFetch('/api/productions/payment-summary');
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
+
+  /** 대금 처리 (선지급/검수/잔금/정산) */
+  updatePayment: async (id: number, data: Record<string, any>) => {
+    const res = await apiFetch(`/api/productions/${id}/payment`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data as ProductionPlan;
+  },
+
   // 엑셀 템플릿 다운로드 URL
   excelTemplateUrl: '/api/productions/excel/template',
 

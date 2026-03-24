@@ -23,16 +23,21 @@ router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, 
   const year = Number(req.query.year) || new Date().getFullYear();
   const pool = getPool();
 
-  // 매입 비용: 생산계획 품목 × 단가
-  // target_date가 없으면 created_at 기준 (자동생성 계획 호환)
+  // 매입 비용: 실제 결제된 선지급 + 잔금 (결제일 기준 월별 집계)
   const purchaseResult = await pool.query(
-    `SELECT EXTRACT(MONTH FROM COALESCE(pp.target_date, pp.created_at::date))::int AS plan_month,
-            SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0))::bigint AS cost
-     FROM production_plan_items pi
-     JOIN production_plans pp ON pi.plan_id = pp.plan_id
-     WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
-       AND pp.status IN ('CONFIRMED', 'IN_PRODUCTION', 'COMPLETED')
-     GROUP BY plan_month`,
+    `SELECT plan_month, SUM(cost)::bigint AS cost FROM (
+       SELECT EXTRACT(MONTH FROM advance_date)::int AS plan_month,
+              COALESCE(advance_amount, 0) AS cost
+       FROM production_plans
+       WHERE EXTRACT(YEAR FROM advance_date) = $1
+         AND advance_status = 'PAID' AND advance_date IS NOT NULL
+       UNION ALL
+       SELECT EXTRACT(MONTH FROM balance_date)::int AS plan_month,
+              COALESCE(balance_amount, 0) AS cost
+       FROM production_plans
+       WHERE EXTRACT(YEAR FROM balance_date) = $1
+         AND balance_status = 'PAID' AND balance_date IS NOT NULL
+     ) sub GROUP BY plan_month`,
     [year],
   );
 
@@ -44,7 +49,7 @@ router.get('/production-costs', ...adminOnly, asyncHandler(async (req: Request, 
      JOIN production_plans pp ON pmu.plan_id = pp.plan_id
      JOIN materials m ON pmu.material_id = m.material_id
      WHERE EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) = $1
-       AND pp.status IN ('CONFIRMED', 'IN_PRODUCTION', 'COMPLETED')
+       AND pp.status IN ('IN_PRODUCTION', 'COMPLETED')
      GROUP BY plan_month`,
     [year],
   );
@@ -240,6 +245,120 @@ router.delete('/:id', ...adminOnly, asyncHandler(async (req: Request, res: Respo
   const pool = getPool();
   await pool.query('DELETE FROM fund_plans WHERE fund_plan_id = $1', [req.params.id]);
   res.json({ success: true });
+}));
+
+// ══════════════════════════════════════════
+// 재무제표 (Financial Statements)
+// ══════════════════════════════════════════
+
+// ── 재무제표 자동 데이터 (매출 + 자금계획 연동) ──
+router.get('/financial-statements/auto-data', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const period = (req.query.period as string) || 'ANNUAL';
+  const pool = getPool();
+
+  // 기간에 따른 날짜/월 범위
+  let monthFrom = 1, monthTo = 12;
+  let dateFrom = `${year}-01-01`, dateTo = `${year}-12-31`;
+  if (period === 'Q1') { monthFrom = 1; monthTo = 3; dateFrom = `${year}-01-01`; dateTo = `${year}-03-31`; }
+  else if (period === 'Q2') { monthFrom = 4; monthTo = 6; dateFrom = `${year}-04-01`; dateTo = `${year}-06-30`; }
+  else if (period === 'Q3') { monthFrom = 7; monthTo = 9; dateFrom = `${year}-07-01`; dateTo = `${year}-09-30`; }
+  else if (period === 'Q4') { monthFrom = 10; monthTo = 12; dateFrom = `${year}-10-01`; dateTo = `${year}-12-31`; }
+
+  // 1) 매출 데이터 (sales 테이블에서)
+  const salesResult = await pool.query(
+    `SELECT COALESCE(SUM(total_amount), 0)::bigint AS total_revenue
+     FROM sales
+     WHERE sale_date >= $1 AND sale_date <= $2
+       AND is_deleted = FALSE`,
+    [dateFrom, dateTo],
+  );
+  const totalRevenue = Number(salesResult.rows[0]?.total_revenue || 0);
+
+  // 2) 자금계획 실적 (fund_plans EXPENSE 실적)
+  const fundResult = await pool.query(
+    `SELECT fc.category_name, fc.parent_id, fc.category_id,
+            COALESCE(SUM(fp.actual_amount), 0)::bigint AS actual_total
+     FROM fund_categories fc
+     LEFT JOIN fund_plans fp ON fc.category_id = fp.category_id
+       AND fp.plan_year = $1
+       AND fp.plan_month >= $2 AND fp.plan_month <= $3
+     WHERE fc.plan_type = 'EXPENSE' AND fc.is_active = TRUE
+     GROUP BY fc.category_id, fc.category_name, fc.parent_id
+     ORDER BY fc.sort_order`,
+    [year, monthFrom, monthTo],
+  );
+
+  // 자금계획 합계 (리프 항목의 합 = 판관비 총액)
+  const sgaTotal = fundResult.rows
+    .filter((r: any) => r.parent_id !== null) // 리프만
+    .reduce((s: number, r: any) => s + Number(r.actual_total), 0);
+
+  // 자금계획 항목별 내역 (사용자에게 참고 표시용)
+  const fundBreakdown = fundResult.rows
+    .filter((r: any) => Number(r.actual_total) > 0)
+    .map((r: any) => ({ name: r.category_name, amount: Number(r.actual_total), isChild: r.parent_id !== null }));
+
+  res.json({
+    success: true,
+    data: {
+      REVENUE_PRODUCT: totalRevenue,
+      SGA_TOTAL: sgaTotal,
+      fund_breakdown: fundBreakdown,
+    },
+  });
+}));
+
+// ── 재무제표 조회 ──
+router.get('/financial-statements', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const year = Number(req.query.year) || new Date().getFullYear();
+  const period = (req.query.period as string) || 'ANNUAL';
+  const type = (req.query.type as string) || 'IS';
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT item_code, amount FROM financial_statements
+     WHERE fiscal_year = $1 AND period = $2 AND statement_type = $3`,
+    [year, period, type],
+  );
+  const data: Record<string, number> = {};
+  for (const row of result.rows) {
+    data[row.item_code] = Number(row.amount);
+  }
+  res.json({ success: true, data });
+}));
+
+// ── 재무제표 저장 (일괄 UPSERT) ──
+router.post('/financial-statements', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
+  const { fiscal_year, period, statement_type, items } = req.body;
+  if (!fiscal_year || !period || !statement_type) {
+    res.status(400).json({ success: false, error: 'fiscal_year, period, statement_type 필수' }); return;
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    res.status(400).json({ success: false, error: 'items 배열 필수' }); return;
+  }
+  const userId = (req as any).user?.user_id || null;
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const item of items) {
+      if (!item.item_code) continue;
+      await client.query(
+        `INSERT INTO financial_statements (fiscal_year, period, statement_type, item_code, amount, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (fiscal_year, period, statement_type, item_code)
+         DO UPDATE SET amount = $5, updated_at = NOW()`,
+        [fiscal_year, period, statement_type, item.item_code, item.amount || 0, userId],
+      );
+    }
+    await client.query('COMMIT');
+    res.json({ success: true });
+  } catch (e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
 }));
 
 export default router;

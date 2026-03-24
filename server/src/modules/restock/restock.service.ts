@@ -14,9 +14,6 @@ class RestockService extends BaseService<RestockRequest> {
   async createWithItems(headerData: Record<string, any>, items: any[]) {
     return restockRepository.createWithItems(headerData, items);
   }
-  async getSellingVelocity(partnerCode?: string) {
-    return restockRepository.getSellingVelocity(partnerCode);
-  }
   async getRestockSuggestions() {
     return restockRepository.getRestockSuggestions();
   }

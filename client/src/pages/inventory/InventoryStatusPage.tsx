@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, CSSProperties } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo, CSSProperties, Suspense, lazy } from 'react';
 import {
   Card, Col, Row, Table, Tag, Input, Spin, Button, AutoComplete, DatePicker,
   InputNumber, Select, Space, Modal, Form, Segmented, message,
@@ -8,7 +8,7 @@ import { datePresets } from '../../utils/date-presets';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
   StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
-  SendOutlined, AlertOutlined, ThunderboltOutlined,
+  SendOutlined, AlertOutlined, ThunderboltOutlined, CalendarOutlined,
   ReloadOutlined, PlusOutlined, EditOutlined, HistoryOutlined,
   ArrowLeftOutlined,
 } from '@ant-design/icons';
@@ -22,7 +22,7 @@ import { codeApi } from '../../modules/code/code.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { apiFetch } from '../../core/api.client';
-import RestockManagePage from '../restock/RestockManagePage';
+const RestockManagePage = lazy(() => import('../restock/RestockManagePage'));
 import { sizeSort } from '../../utils/size-order';
 import HBar from '../../components/HBar';
 
@@ -316,6 +316,7 @@ function DashboardTab() {
   const bySeason = (stats?.bySeason || []) as Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
   const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
   const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
+  const byYear = (stats?.byYear || []) as Array<{ year: string; product_count: number; variant_count: number; total_qty: number }>;
   const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
       render: (v: string, r: any) => <a onClick={() => navigate(`/products/${r.product_code}`)}>{v}</a>,
@@ -625,6 +626,17 @@ function DashboardTab() {
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
               <HBar data={byLength.map(l => ({ label: l.length, value: Number(l.total_qty), sub: `${l.product_count}상품 / ${l.variant_count}옵션` }))}
                 maxItems={7} onBarClick={(label) => openDrillDown(`기장: ${label}`, { length: label === '미지정' ? '' : label })} />
+            </Card>
+          </Col>
+        </Row>
+      )}
+      {!effectiveStore && byYear.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col xs={24}>
+            <Card title={<span><CalendarOutlined style={{ marginRight: 8 }} />생산연도별 재고현황</span>}
+              size="small" style={{ borderRadius: 10 }} loading={statsLoading}>
+              <HBar data={byYear.map(y => ({ label: y.year || '미지정', value: Number(y.total_qty), sub: `${y.product_count}상품 / ${y.variant_count}옵션` }))}
+                maxItems={7} onBarClick={(label) => openDrillDown(`연도: ${label}`, { year: label === '미지정' ? '' : label })} />
             </Card>
           </Col>
         </Row>
@@ -1559,7 +1571,7 @@ export default function InventoryStatusPage() {
       <PageHeader title={title} />
       {page === '/inventory/store' ? <StoreInventoryTab />
         : page === '/inventory/adjust' ? <AdjustTab />
-        : page === '/inventory/restock' ? <RestockManagePage />
+        : page === '/inventory/restock' ? <Suspense fallback={<Spin />}><RestockManagePage /></Suspense>
         : <DashboardTab />}
     </div>
   );

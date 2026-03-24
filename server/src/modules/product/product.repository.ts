@@ -15,7 +15,7 @@ export class ProductRepository extends BaseRepository<Product> {
 
   /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20, color, size, partner_code } = options;
+    const { page = 1, limit = 20, color, size, partner_code, issue, orderBy, orderDir } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
     if (options.year_from) qb.raw('p.year >= ?', options.year_from);
@@ -55,24 +55,71 @@ export class ProductRepository extends BaseRepository<Product> {
       nextIdx++;
     }
 
-    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${partnerJoin} ${whereClause}${variantFilter}`;
+    // 하자(issue) 필터
+    let issueJoin = '';
+    if (issue === 'broken1' || issue === 'broken2') {
+      const minBroken = issue === 'broken1' ? 1 : 2;
+      issueJoin = `JOIN (
+        SELECT pv_br.product_code
+        FROM product_variants pv_br
+        LEFT JOIN inventory i_br ON pv_br.variant_id = i_br.variant_id
+        WHERE pv_br.is_active = TRUE AND pv_br.size != 'FREE'
+        GROUP BY pv_br.product_code
+        HAVING COUNT(DISTINCT pv_br.size) >= 3
+          AND COUNT(DISTINCT pv_br.size) FILTER (WHERE COALESCE(i_br.qty, 0) = 0) >= ${minBroken}
+      ) issue_filter ON p.product_code = issue_filter.product_code`;
+    } else if (issue === 'low10') {
+      issueJoin = `JOIN (
+        SELECT pv_lw.product_code
+        FROM product_variants pv_lw
+        LEFT JOIN inventory i_lw ON pv_lw.variant_id = i_lw.variant_id
+        WHERE pv_lw.is_active = TRUE
+        GROUP BY pv_lw.product_code
+        HAVING COALESCE(SUM(i_lw.qty), 0) > 0 AND COALESCE(SUM(i_lw.qty), 0) < 10
+      ) issue_filter ON p.product_code = issue_filter.product_code`;
+    }
+
+    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${partnerJoin} ${issueJoin} ${whereClause}${variantFilter}`;
     const countResult = await this.pool.query(countSql, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
+    // 정렬
+    const allowedOrder: Record<string, string> = {
+      created_at: 'p.created_at', base_price: 'p.base_price', product_name: 'p.product_name',
+      year: 'p.year', total_inv_qty: 'total_inv_qty',
+    };
+    const orderCol = allowedOrder[orderBy as string] || 'p.created_at';
+    const direction = orderDir === 'ASC' ? 'ASC' : 'DESC';
+
     const dataSql = `
       SELECT DISTINCT p.*,
-        COALESCE(inv.total_inv_qty, 0)::int AS total_inv_qty
+        COALESCE(inv.total_inv_qty, 0)::int AS total_inv_qty,
+        COALESCE(mat.material_count, 0)::int AS material_count,
+        COALESCE(prod.in_production_qty, 0)::int AS in_production_qty
       FROM products p
       ${variantJoin}
       ${partnerJoin}
+      ${issueJoin}
       LEFT JOIN (
         SELECT pv.product_code, SUM(i.qty) AS total_inv_qty
         FROM inventory i
         JOIN product_variants pv ON i.variant_id = pv.variant_id
         GROUP BY pv.product_code
       ) inv ON p.product_code = inv.product_code
+      LEFT JOIN (
+        SELECT product_code, COUNT(*)::int AS material_count
+        FROM product_materials
+        GROUP BY product_code
+      ) mat ON p.product_code = mat.product_code
+      LEFT JOIN (
+        SELECT pi.product_code, SUM(GREATEST(pi.plan_qty - COALESCE(pi.produced_qty, 0), 0))::int AS in_production_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status IN ('DRAFT', 'IN_PRODUCTION')
+        GROUP BY pi.product_code
+      ) prod ON p.product_code = prod.product_code
       ${whereClause}${variantFilter}
-      ORDER BY p.created_at DESC
+      ORDER BY ${orderCol} ${direction}
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const dataResult = await this.pool.query(dataSql, [...params, limit, offset]);
 
@@ -104,15 +151,15 @@ export class ProductRepository extends BaseRepository<Product> {
     try {
       await client.query('BEGIN');
       const result = await client.query(
-        `INSERT INTO products (product_code, product_name, category, sub_category, brand, season, fit, length, base_price, cost_price, discount_price, event_price, sale_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+        `INSERT INTO products (product_code, product_name, category, sub_category, brand, year, season, fit, length, base_price, cost_price, discount_price, event_price, sale_status, warehouse_location)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
         [
           data.product_code, data.product_name, data.category, data.sub_category || null,
-          data.brand, data.season,
+          data.brand, data.year || null, data.season,
           data.fit || null, data.length || null,
           data.base_price || 0, data.cost_price || 0,
           data.discount_price || null, data.event_price || null,
-          data.sale_status || '판매중',
+          data.sale_status || '판매중', data.warehouse_location || null,
         ],
       );
       if (data.variants && Array.isArray(data.variants)) {
@@ -484,6 +531,75 @@ export class ProductRepository extends BaseRepository<Product> {
 
     const result = await pool.query(sql, params);
     return result.rows;
+  }
+
+  /** 상품에 연결된 부자재 목록 조회 */
+  async getProductMaterials(productCode: string): Promise<any[]> {
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT pm.product_material_id, pm.material_id, pm.usage_qty,
+              m.material_code, m.material_name, m.material_type, m.unit, m.unit_price
+       FROM product_materials pm
+       JOIN materials m ON pm.material_id = m.material_id
+       WHERE pm.product_code = $1
+       ORDER BY pm.product_material_id`,
+      [productCode],
+    );
+    return result.rows;
+  }
+
+  /** 상품 부자재 저장 (전체 교체) + cost_price 자동 계산 */
+  async saveProductMaterials(productCode: string, materials: Array<{ material_id: number; usage_qty: number }>): Promise<{ materials: any[]; cost_price: number }> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      await client.query('DELETE FROM product_materials WHERE product_code = $1', [productCode]);
+      for (const m of materials) {
+        await client.query(
+          'INSERT INTO product_materials (product_code, material_id, usage_qty) VALUES ($1, $2, $3)',
+          [productCode, m.material_id, m.usage_qty || 1],
+        );
+      }
+      const costResult = await client.query(
+        `SELECT COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS cost_price
+         FROM product_materials pm
+         JOIN materials m ON pm.material_id = m.material_id
+         WHERE pm.product_code = $1`,
+        [productCode],
+      );
+      const costPrice = Number(costResult.rows[0].cost_price);
+      await client.query(
+        'UPDATE products SET cost_price = $1, updated_at = NOW() WHERE product_code = $2',
+        [costPrice, productCode],
+      );
+      await client.query('COMMIT');
+      const saved = await this.getProductMaterials(productCode);
+      return { materials: saved, cost_price: costPrice };
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 특정 자재를 사용하는 모든 상품의 cost_price 재계산 */
+  async recalculateCostPriceByMaterial(materialId: number): Promise<void> {
+    const pool = getPool();
+    await pool.query(
+      `UPDATE products p
+       SET cost_price = sub.new_cost, updated_at = NOW()
+       FROM (
+         SELECT pm.product_code, COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS new_cost
+         FROM product_materials pm
+         JOIN materials m ON pm.material_id = m.material_id
+         WHERE pm.product_code IN (SELECT product_code FROM product_materials WHERE material_id = $1)
+         GROUP BY pm.product_code
+       ) sub
+       WHERE p.product_code = sub.product_code`,
+      [materialId],
+    );
   }
 }
 

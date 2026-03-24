@@ -111,7 +111,7 @@ function DashboardView() {
             <Card title="매장별 고객수" size="small" style={{ borderRadius: 10, height: '100%' }}>
               <HBar data={(stats.storeDistribution || []).map((s: any) => ({
                 label: s.partner_name, value: Number(s.count),
-              }))} maxItems={8} />
+              }))} maxItems={7} />
             </Card>
           ) : (
             <Card title="최근 등록 고객" size="small" style={{ borderRadius: 10, height: '100%' }}>

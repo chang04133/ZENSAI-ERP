@@ -1,6 +1,6 @@
 import { createCrudApi } from '../../core/crud.api';
 import { apiFetch } from '../../core/api.client';
-import type { RestockRequest, SellingVelocity, RestockSuggestion } from '../../../../shared/types/restock';
+import type { RestockRequest, RestockSuggestion } from '../../../../shared/types/restock';
 
 const crud = createCrudApi<RestockRequest>('/api/restocks');
 
@@ -12,14 +12,6 @@ export const restockApi = {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as string;
-  },
-
-  getSellingVelocity: async (partnerCode?: string) => {
-    const q = partnerCode ? `?partner_code=${encodeURIComponent(partnerCode)}` : '';
-    const res = await apiFetch(`/api/restocks/selling-velocity${q}`);
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
-    return data.data as SellingVelocity[];
   },
 
   getRestockSuggestions: async (): Promise<{ suggestions: RestockSuggestion[]; salesPeriodDays: number }> => {

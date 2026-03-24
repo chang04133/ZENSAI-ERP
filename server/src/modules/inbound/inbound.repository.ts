@@ -18,11 +18,12 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
   }
 
   async list(options: any = {}) {
-    const { page = 1, limit = 20, search, partner_code, date_from, date_to } = options;
+    const { page = 1, limit = 20, search, partner_code, date_from, date_to, status } = options;
     const offset = (Number(page) - 1) * Number(limit);
     const qb = new QueryBuilder('ir');
     if (search) qb.search(['inbound_no'], search);
     if (partner_code) qb.eq('partner_code', partner_code);
+    if (status) qb.eq('status', status);
     if (date_from) qb.raw('ir.inbound_date >= ?', date_from);
     if (date_to) qb.raw('ir.inbound_date <= ?', date_to);
     const { whereClause, params, nextIdx } = qb.build();
@@ -32,10 +33,12 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
 
     const dataSql = `
       SELECT ir.*, p.partner_name,
+        pp.plan_no,
         (SELECT COALESCE(SUM(ii.qty),0)::int FROM inbound_items ii WHERE ii.record_id = ir.record_id) AS total_qty,
         (SELECT COUNT(*)::int FROM inbound_items ii WHERE ii.record_id = ir.record_id) AS item_count
       FROM inbound_records ir
       LEFT JOIN partners p ON ir.partner_code = p.partner_code
+      LEFT JOIN production_plans pp ON ir.source_type = 'PRODUCTION' AND ir.source_id = pp.plan_id
       ${whereClause} ORDER BY ir.created_at DESC LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
     return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
@@ -74,8 +77,8 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       const inboundNo = await this.generateNo();
       const header = await client.query(
         `INSERT INTO inbound_records
-         (inbound_no, inbound_date, partner_code, memo, created_by)
-         VALUES ($1, $2, $3, $4, $5)
+         (inbound_no, inbound_date, partner_code, memo, created_by, status)
+         VALUES ($1, $2, $3, $4, $5, 'COMPLETED')
          RETURNING *`,
         [inboundNo, headerData.inbound_date || new Date().toISOString().slice(0, 10),
          headerData.partner_code, headerData.memo || null, headerData.created_by],
@@ -96,6 +99,132 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       }
 
       await client.query('COMMIT');
+      return this.getWithItems(recordId);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async summary(options: { partner_code?: string } = {}) {
+    const { partner_code } = options;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (partner_code) {
+      conditions.push(`ir.partner_code = $${idx}`);
+      params.push(partner_code);
+      idx++;
+    }
+    const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const sql = `
+      SELECT
+        COUNT(*)::int as total_count,
+        COALESCE(SUM(agg.total_qty), 0)::int as total_qty,
+        COUNT(*) FILTER (WHERE ir.status = 'PENDING')::int as pending_count,
+        COALESCE(SUM(ir.expected_qty) FILTER (WHERE ir.status = 'PENDING'), 0)::int as pending_qty,
+        COUNT(*) FILTER (WHERE ir.inbound_date = CURRENT_DATE)::int as today_count,
+        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date = CURRENT_DATE), 0)::int as today_qty,
+        COUNT(*) FILTER (WHERE ir.inbound_date >= date_trunc('week', CURRENT_DATE))::int as week_count,
+        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date >= date_trunc('week', CURRENT_DATE)), 0)::int as week_qty,
+        COUNT(*) FILTER (WHERE ir.inbound_date >= date_trunc('month', CURRENT_DATE))::int as month_count,
+        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date >= date_trunc('month', CURRENT_DATE)), 0)::int as month_qty
+      FROM inbound_records ir
+      LEFT JOIN (
+        SELECT record_id, SUM(qty) as total_qty
+        FROM inbound_items GROUP BY record_id
+      ) agg ON agg.record_id = ir.record_id
+      ${whereClause}`;
+    const totals = (await this.pool.query(sql, params)).rows[0];
+
+    const partnerSql = `
+      SELECT ir.partner_code, p.partner_name,
+        COUNT(*)::int as count,
+        COALESCE(SUM(agg.total_qty), 0)::int as total_qty
+      FROM inbound_records ir
+      LEFT JOIN partners p ON ir.partner_code = p.partner_code
+      LEFT JOIN (
+        SELECT record_id, SUM(qty) as total_qty
+        FROM inbound_items GROUP BY record_id
+      ) agg ON agg.record_id = ir.record_id
+      ${whereClause}
+      GROUP BY ir.partner_code, p.partner_name
+      ORDER BY total_qty DESC
+      LIMIT 10`;
+    const byPartner = (await this.pool.query(partnerSql, params)).rows;
+
+    return { ...totals, by_partner: byPartner };
+  }
+
+  /** 생산완료 시 입고대기 레코드 생성 (items 없이 헤더만) */
+  async createPending(data: {
+    inbound_date: string;
+    partner_code: string;
+    source_type: string;
+    source_id: number;
+    expected_qty: number;
+    memo?: string;
+    created_by: string;
+  }, client?: any): Promise<InboundRecord> {
+    const db = client || this.pool;
+    const inboundNo = await this.generateNo();
+    const result = await db.query(
+      `INSERT INTO inbound_records
+       (inbound_no, inbound_date, partner_code, status, source_type, source_id, expected_qty, memo, created_by)
+       VALUES ($1, $2, $3, 'PENDING', $4, $5, $6, $7, $8)
+       RETURNING *`,
+      [inboundNo, data.inbound_date, data.partner_code,
+       data.source_type, data.source_id, data.expected_qty,
+       data.memo || null, data.created_by],
+    );
+    return result.rows[0];
+  }
+
+  /** 입고확정: PENDING → COMPLETED (items 추가 + 재고 반영) */
+  async confirmInbound(
+    recordId: number,
+    items: Array<{ variant_id: number; qty: number; unit_price?: number; memo?: string }>,
+    userId: string,
+  ): Promise<InboundRecord | null> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      const rec = await client.query(
+        'SELECT * FROM inbound_records WHERE record_id = $1 FOR UPDATE', [recordId],
+      );
+      if (rec.rows.length === 0) throw new Error('입고 기록을 찾을 수 없습니다');
+      if (rec.rows[0].status !== 'PENDING') throw new Error('대기중 상태의 입고만 확정할 수 있습니다');
+      const record = rec.rows[0];
+
+      // items 추가 + 재고 반영
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO inbound_items (record_id, variant_id, qty, unit_price, memo)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [recordId, item.variant_id, item.qty, item.unit_price || null, item.memo || null],
+        );
+        await inventoryRepository.applyChange(
+          record.partner_code, item.variant_id, item.qty,
+          'INBOUND', recordId, userId, client,
+        );
+      }
+
+      // 상태 업데이트
+      await client.query(
+        `UPDATE inbound_records SET status = 'COMPLETED', updated_at = NOW() WHERE record_id = $1`,
+        [recordId],
+      );
+
+      await client.query('COMMIT');
+
+      audit('inbound', String(recordId), 'UPDATE', userId,
+        { inbound_no: record.inbound_no, action: 'CONFIRM', item_count: items.length }, null);
+
       return this.getWithItems(recordId);
     } catch (e) {
       await client.query('ROLLBACK');

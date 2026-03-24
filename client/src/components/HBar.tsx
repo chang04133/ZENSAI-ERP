@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { COLORS } from '../utils/constants';
 
 interface HBarItem {
@@ -15,17 +14,22 @@ interface HBarProps {
   /** 값 포맷 함수 (기본: toLocaleString() + '개') */
   formatValue?: (v: number) => string;
   onBarClick?: (key: string) => void;
-  /** 최대 표시 개수 (초과분은 접힘, 펼쳐서 볼 수 있음) */
+  /** 최대 표시 개수 (초과분은 "기타"로 합산) */
   maxItems?: number;
 }
 
 export default function HBar({ data, colorKey, formatValue, onBarClick, maxItems }: HBarProps) {
-  const [expanded, setExpanded] = useState(false);
   if (!data.length) return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>데이터 없음</div>;
 
-  const hasMore = maxItems && data.length > maxItems;
-  const visibleData = hasMore && !expanded ? data.slice(0, maxItems) : data;
-  const restCount = hasMore ? data.length - maxItems : 0;
+  // maxItems 초과 시 "기타"로 합산
+  let visibleData = data;
+  if (maxItems && data.length > maxItems) {
+    const top = data.slice(0, maxItems);
+    const rest = data.slice(maxItems);
+    const otherValue = rest.reduce((s, d) => s + d.value, 0);
+    const otherSub = rest.length + '개 항목 합산';
+    visibleData = [...top, { label: '기타', value: otherValue, sub: otherSub }];
+  }
 
   const max = Math.max(...data.map(d => d.value), 1);
   const fmtVal = formatValue || ((v: number) => `${v.toLocaleString()}개`);
@@ -60,14 +64,6 @@ export default function HBar({ data, colorKey, formatValue, onBarClick, maxItems
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
       {visibleData.map((d, i) => renderBar(d, i))}
-      {hasMore && (
-        <div
-          onClick={() => setExpanded(!expanded)}
-          style={{ textAlign: 'center', padding: '4px 0', cursor: 'pointer', fontSize: 12, color: '#1677ff', userSelect: 'none' }}
-        >
-          {expanded ? '접기 ▲' : `기타 ${restCount}개 더보기 ▼`}
-        </div>
-      )}
     </div>
   );
 }

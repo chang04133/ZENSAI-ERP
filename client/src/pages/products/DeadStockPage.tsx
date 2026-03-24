@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { Button, Card, Col, Row, Table, Tag, Select, Segmented, InputNumber, message, Typography } from 'antd';
+import { Button, Card, Col, Row, Table, Tag, Select, Segmented, InputNumber, message } from 'antd';
 import { WarningOutlined, DollarOutlined, InboxOutlined, PercentageOutlined, SearchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { codeApi } from '../../modules/code/code.api';
 import { apiFetch } from '../../core/api.client';
@@ -133,9 +134,7 @@ export default function DeadStockPage() {
 
   return (
     <div>
-      <Typography.Title level={4} style={{ marginBottom: 20 }}>
-        <WarningOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />악성재고
-      </Typography.Title>
+      <PageHeader title="악성재고" />
 
       {/* 요약 카드 */}
       <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>

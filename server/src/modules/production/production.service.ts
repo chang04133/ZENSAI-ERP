@@ -1,9 +1,9 @@
 import { BaseService } from '../../core/base.service';
 import { ProductionPlan } from '../../../../shared/types/production';
 import { productionRepository } from './production.repository';
-import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
 import { createNotification } from '../../core/notify';
+import { inboundRepository } from '../inbound/inbound.repository';
 
 class ProductionService extends BaseService<ProductionPlan> {
   constructor() {
@@ -25,8 +25,7 @@ class ProductionService extends BaseService<ProductionPlan> {
 
   /** 허용되는 상태 전환 정의 */
   private static ALLOWED_TRANSITIONS: Record<string, string[]> = {
-    DRAFT: ['CONFIRMED', 'CANCELLED'],
-    CONFIRMED: ['IN_PRODUCTION', 'CANCELLED'],
+    DRAFT: ['IN_PRODUCTION', 'CANCELLED'],
     IN_PRODUCTION: ['COMPLETED', 'CANCELLED'],
     COMPLETED: [],
     CANCELLED: [],
@@ -53,7 +52,7 @@ class ProductionService extends BaseService<ProductionPlan> {
       const vals: any[] = [status];
       let idx = 2;
 
-      if (status === 'CONFIRMED') {
+      if (status === 'IN_PRODUCTION') {
         sets.push(`approved_by = $${idx++}`);
         vals.push(userId);
       }
@@ -85,29 +84,29 @@ class ProductionService extends BaseService<ProductionPlan> {
           );
         }
 
-        // 2) 완제품 재고 입고: variant_id가 있는 plan_item의 produced_qty만큼 본사(HQ) 재고 증가
-        const planItems = await client.query(
-          `SELECT ppi.variant_id, ppi.produced_qty
-           FROM production_plan_items ppi
-           WHERE ppi.plan_id = $1 AND ppi.produced_qty > 0 AND ppi.variant_id IS NOT NULL`,
+        // 2) 입고대기 레코드 생성 (재고는 입고확정 시 반영)
+        const totalProduced = await client.query(
+          `SELECT COALESCE(SUM(produced_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
           [id],
         );
-        if (planItems.rows.length > 0) {
-          // 입고 거래처: plan에 지정된 partner_code 사용, 없으면 본사 자동 조회
-          let targetPartner = plan.partner_code;
-          if (!targetPartner) {
-            const hqResult = await client.query(
-              `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
-            );
-            targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
-          }
-          for (const item of planItems.rows) {
-            await inventoryRepository.applyChange(
-              targetPartner, item.variant_id, item.produced_qty,
-              'PRODUCTION', id, userId, client,
-            );
-          }
+
+        let targetPartner = plan.partner_code;
+        if (!targetPartner) {
+          const hqResult = await client.query(
+            `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
+          );
+          targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
         }
+
+        await inboundRepository.createPending({
+          inbound_date: new Date().toISOString().slice(0, 10),
+          partner_code: targetPartner,
+          source_type: 'PRODUCTION',
+          source_id: id,
+          expected_qty: totalProduced.rows[0].total,
+          memo: `생산계획 ${plan.plan_no || id} 완료 — 입고 대기`,
+          created_by: userId,
+        }, client);
       }
 
       await client.query('COMMIT');
@@ -116,7 +115,7 @@ class ProductionService extends BaseService<ProductionPlan> {
       if (status === 'COMPLETED') {
         createNotification(
           'PRODUCTION', '생산완료',
-          `생산계획 #${plan.plan_no || id}이(가) 완료되었습니다. 완제품 재고가 입고 처리되었습니다.`,
+          `생산계획 #${plan.plan_no || id}이(가) 완료되었습니다. 입고관리에서 입고확정을 진행해주세요.`,
           id, undefined, userId,
         );
       }
@@ -135,6 +134,11 @@ class ProductionService extends BaseService<ProductionPlan> {
   }
   async autoGeneratePlans(userId: string, season?: string) {
     return productionRepository.autoGeneratePlans(userId, season);
+  }
+
+  async paymentSummary() { return productionRepository.paymentSummary(); }
+  async updatePayment(planId: number, data: Record<string, any>, userId: string) {
+    return productionRepository.updatePayment(planId, data, userId);
   }
 
   async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {

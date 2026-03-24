@@ -5,9 +5,11 @@ import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { sizeSort } from '../../utils/size-order';
 import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 type ViewMode = 'product' | 'color' | 'size';
 
 export default function WarehouseInventoryPage() {
+  const { formatCode } = useCodeLabels();
   const [rawData, setRawData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [sumQty, setSumQty] = useState(0);
@@ -28,7 +30,7 @@ export default function WarehouseInventoryPage() {
   useEffect(() => {
     inventoryApi.summaryBySeason().then((d: any) => {
       const seasons = (Array.isArray(d) ? d : d?.data || []).filter((s: any) => s.season);
-      setSeasonOptions(seasons.map((s: any) => ({ label: s.season, value: s.season })));
+      setSeasonOptions(seasons.map((s: any) => ({ label: `${s.season} (${s.total_qty}개)`, value: s.season })));
     }).catch(() => {});
   }, []);
 
@@ -127,7 +129,7 @@ export default function WarehouseInventoryPage() {
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90, render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
     { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, render: (v: number) => renderQty(v) },
   ];
@@ -143,7 +145,7 @@ export default function WarehouseInventoryPage() {
     { title: 'Color', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
     { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100, render: (v: number) => renderQty(v) },
   ];
 

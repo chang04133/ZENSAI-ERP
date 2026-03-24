@@ -101,6 +101,22 @@ export const productApi = {
     return data.data;
   },
 
+  eventRecommendations: async (category?: string, limit?: number) => {
+    const params = new URLSearchParams();
+    if (category) params.set('category', category);
+    if (limit) params.set('limit', String(limit));
+    const qs = params.toString();
+    const res = await apiFetch(`/api/products/events/recommendations${qs ? '?' + qs : ''}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{
+      product_code: string; product_name: string; category: string; season: string;
+      base_price: number; total_stock: number; broken_count: number; total_sizes: number;
+      sizes_with_stock: number; total_sold: number; size_detail: Array<{ size: string; stock: number }>;
+      broken_score: number; low_sales_score: number; recommendation_score: number;
+    }>;
+  },
+
   // 바코드 대시보드
   barcodeDashboard: async () => {
     const res = await apiFetch('/api/products/barcode-dashboard');

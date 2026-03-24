@@ -7,6 +7,14 @@ const crud = createCrudApi<ShipmentRequest>('/api/shipments');
 export const shipmentApi = {
   ...crud,
 
+  /** 상태별 요약 */
+  summary: async () => {
+    const res = await apiFetch('/api/shipments/summary');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{ status: string; request_type: string; count: number; total_request_qty: number; total_shipped_qty: number }>;
+  },
+
   /** 출고수량 일괄 업데이트 */
   updateShippedQty: async (id: number, items: Array<{ variant_id: number; shipped_qty: number }>) => {
     const res = await apiFetch(`/api/shipments/${id}/shipped-qty`, {

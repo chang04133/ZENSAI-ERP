@@ -1,10 +1,11 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Table, Button, Select, Tabs, Modal, Form, InputNumber, DatePicker,
-  Input, Space, message, Popconfirm, Tag,
+  Input, Space, message, Popconfirm, Tag, Card, Row, Col, Segmented,
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, ImportOutlined, UploadOutlined, DownloadOutlined,
+  InboxOutlined, SearchOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload';
 import Upload from 'antd/es/upload';
@@ -44,8 +45,18 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   const [excelUploading, setExcelUploading] = useState(false);
   const [excelResult, setExcelResult] = useState<any>(null);
 
-  const handleTemplateDownload = () => {
-    window.open('/api/inbounds/excel/template', '_blank');
+  const handleTemplateDownload = async () => {
+    try {
+      const res = await apiFetch('/api/inbounds/excel/template');
+      if (!res.ok) { message.error('템플릿 다운로드 실패'); return; }
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'inbound_template.xlsx';
+      link.click();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) { message.error('템플릿 다운로드 실패'); }
   };
 
   const handleExcelUpload = async () => {
@@ -88,25 +99,29 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     excelForm.resetFields();
   };
 
-  // 상품 검색 (Select 자동완성)
+  // 상품 검색
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const handleSearch = async (value: string) => {
+  const handleSearch = (value: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if (!value || value.length < 1) { setVariantOptions([]); return; }
-    setSearchLoading(true);
-    try {
-      const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
-      const d = await res.json();
-      if (d.success) {
-        setVariantOptions((d.data || []).map((v: any) => ({
-          label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
-          value: v.variant_id,
-          raw: v,
-        })));
-      }
-    } catch { /* ignore */ }
-    finally { setSearchLoading(false); }
+    searchTimerRef.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
+        const d = await res.json();
+        if (d.success) {
+          setVariantOptions((d.data || []).map((v: any) => ({
+            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
+            value: v.variant_id,
+            raw: v,
+          })));
+        }
+      } catch { /* ignore */ }
+      finally { setSearchLoading(false); }
+    }, 250);
   };
 
   const handleSelect = (_value: number, option: any) => {
@@ -165,6 +180,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       });
       message.success('입고가 등록되었습니다.');
       form.resetFields();
+      form.setFieldsValue({ inbound_date: dayjs() });
       setItems([]);
       setVariantOptions([]);
       onCreated();
@@ -179,12 +195,15 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>입고 등록 권한이 없습니다.</div>;
   }
 
+  const totalQty = items.reduce((s, i) => s + i.qty, 0);
+  const totalAmount = items.reduce((s, i) => s + i.qty * i.unit_price, 0);
+
   const itemColumns = [
     { title: '품번', dataIndex: 'product_code', width: 120 },
     { title: '상품명', dataIndex: 'product_name', width: 180, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', width: 130 },
-    { title: '컬러', dataIndex: 'color', width: 80 },
-    { title: '사이즈', dataIndex: 'size', width: 70 },
+    { title: 'SKU', dataIndex: 'sku', width: 160 },
+    { title: '컬러', dataIndex: 'color', width: 70 },
+    { title: '사이즈', dataIndex: 'size', width: 65 },
     {
       title: '수량', dataIndex: 'qty', width: 90,
       render: (_: number, r: VariantRow) => (
@@ -202,7 +221,13 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       ),
     },
     {
-      title: '', width: 50,
+      title: '금액', width: 100,
+      render: (_: unknown, r: VariantRow) => (
+        <span style={{ fontWeight: 600, fontSize: 12 }}>{fmt(r.qty * r.unit_price)}원</span>
+      ),
+    },
+    {
+      title: '', width: 40,
       render: (_: unknown, r: VariantRow) => (
         <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeItem(r.key)} />
       ),
@@ -212,25 +237,23 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   return (
     <div>
       {/* 입고 정보 */}
-      <Form form={form} layout="inline" style={{ marginBottom: 16, flexWrap: 'wrap', gap: 8 }}
-        initialValues={{ inbound_date: dayjs(), partner_code: undefined }}>
-        <Form.Item name="partner_code" label="거래처" rules={[{ required: true, message: '거래처 선택' }]}>
-          <Select placeholder="거래처 선택" style={{ width: 180 }} showSearch
-            optionFilterProp="label"
-            options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
-        </Form.Item>
-        <Form.Item name="inbound_date" label="입고일">
-          <DatePicker style={{ width: 140 }} />
-        </Form.Item>
-        <Form.Item name="memo" label="비고">
-          <Input placeholder="비고" style={{ width: 200 }} />
-        </Form.Item>
-      </Form>
-
-      {/* 엑셀 일괄 입고 버튼 */}
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-        <Button icon={<UploadOutlined />} onClick={() => setExcelOpen(true)}>엑셀 일괄 입고</Button>
-      </div>
+      <Card size="small" style={{ marginBottom: 16 }}>
+        <Form form={form} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}
+          initialValues={{ inbound_date: dayjs(), partner_code: undefined }}>
+          <Form.Item name="partner_code" label="거래처" rules={[{ required: true, message: '거래처 선택' }]}>
+            <Select placeholder="거래처 선택" style={{ width: 180 }} showSearch
+              optionFilterProp="label"
+              options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
+          </Form.Item>
+          <Form.Item name="inbound_date" label="입고일">
+            <DatePicker style={{ width: 140 }} />
+          </Form.Item>
+          <Form.Item name="memo" label="비고">
+            <Input placeholder="비고" style={{ width: 200 }} />
+          </Form.Item>
+          <Button icon={<UploadOutlined />} onClick={() => setExcelOpen(true)}>엑셀 일괄 입고</Button>
+        </Form>
+      </Card>
 
       {/* 엑셀 입고 모달 */}
       <Modal title="엑셀 일괄 입고" open={excelOpen} onCancel={handleExcelClose} width={520}
@@ -283,13 +306,13 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
         )}
       </Modal>
 
-      {/* 상품 추가 (자동완성) */}
-      <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center' }}>
-        <PlusOutlined style={{ color: '#1890ff' }} />
+      {/* 상품 추가 */}
+      <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+        <SearchOutlined style={{ color: '#1890ff' }} />
         <Select
           showSearch
           value={null as any}
-          placeholder="품번/상품명/SKU 입력하여 추가"
+          placeholder="품번 / 상품명 / SKU 입력하여 추가"
           style={{ flex: 1, maxWidth: 500 }}
           filterOption={false}
           onSearch={handleSearch}
@@ -303,17 +326,22 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       {/* 입고 품목 */}
       <div style={{ marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontWeight: 600 }}>입고 품목 ({items.length}건)</span>
-        <span style={{ fontSize: 13, color: '#666' }}>
-          총 수량: <b>{fmt(items.reduce((s, i) => s + i.qty, 0))}</b>
-        </span>
+        <Space size="large">
+          <span style={{ fontSize: 13, color: '#666' }}>
+            총 수량: <b>{fmt(totalQty)}</b>
+          </span>
+          <span style={{ fontSize: 13, color: '#666' }}>
+            총 금액: <b style={{ color: '#1890ff' }}>{fmt(totalAmount)}원</b>
+          </span>
+        </Space>
       </div>
       <Table dataSource={items} columns={itemColumns} rowKey="key"
-        size="small" scroll={{ x: 900 }} pagination={false} />
+        size="small" scroll={{ x: 1000 }} pagination={false} />
 
       <div style={{ marginTop: 16, textAlign: 'right' }}>
         <Button type="primary" icon={<ImportOutlined />} size="large"
-          onClick={handleSubmit} loading={creating}>
-          입고 등록
+          onClick={handleSubmit} loading={creating} disabled={items.length === 0}>
+          입고 등록 ({totalQty}개)
         </Button>
       </div>
     </div>
@@ -324,24 +352,43 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
 function HistoryTab({ partners }: { partners: any[] }) {
   const user = useAuthStore((s) => s.user);
   const isAdmin = [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user?.role as any);
+  const isHQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user?.role as any);
   const { data, total, loading, fetchList } = useInboundStore();
   const [page, setPage] = useState(1);
   const [partnerFilter, setPartnerFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string>('');
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null]);
+  const [search, setSearch] = useState('');
 
   // 상세 모달
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailData, setDetailData] = useState<InboundRecord | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // 입고확정 모달
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmRecord, setConfirmRecord] = useState<InboundRecord | null>(null);
+  const [confirmItems, setConfirmItems] = useState<VariantRow[]>([]);
+  const [confirmLoading, setConfirmLoading] = useState(false);
+  const [variantOptions, setVariantOptions] = useState<any[]>([]);
+  const [searchLoadingV, setSearchLoadingV] = useState(false);
+  const searchTimerRef2 = useRef<ReturnType<typeof setTimeout>>();
+
+  // 요약 통계
+  const todayCount = data.filter((d: any) => d.inbound_date && dayjs(d.inbound_date).isSame(dayjs(), 'day')).length;
+  const totalQty = data.reduce((s: number, d: any) => s + (Number(d.total_qty) || 0), 0);
+  const pendingCount = data.filter((d: any) => d.status === 'PENDING').length;
+
   const load = useCallback((p = 1) => {
     const params: any = { page: p, limit: '50' };
     if (partnerFilter) params.partner_code = partnerFilter;
+    if (statusFilter) params.status = statusFilter;
+    if (search) params.search = search;
     if (dateRange[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
     if (dateRange[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
     fetchList(params);
     setPage(p);
-  }, [partnerFilter, dateRange, fetchList]);
+  }, [partnerFilter, statusFilter, dateRange, search, fetchList]);
 
   useEffect(() => { load(1); }, [load]);
 
@@ -360,7 +407,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
   const handleDelete = async (id: number) => {
     try {
       await inboundApi.remove(id);
-      message.success('입고가 삭제되었습니다 (재고 원복됨).');
+      message.success('입고가 삭제되었습니다.');
       setDetailOpen(false);
       load(page);
     } catch (e: any) {
@@ -368,13 +415,96 @@ function HistoryTab({ partners }: { partners: any[] }) {
     }
   };
 
-  const columns = [
+  // ── 입고확정 ──
+  const openConfirmModal = (record: InboundRecord) => {
+    setConfirmRecord(record);
+    setConfirmItems([]);
+    setConfirmOpen(true);
+    setDetailOpen(false);
+  };
+
+  const handleVSearch = (value: string) => {
+    if (searchTimerRef2.current) clearTimeout(searchTimerRef2.current);
+    if (!value || value.length < 1) { setVariantOptions([]); return; }
+    searchTimerRef2.current = setTimeout(async () => {
+      setSearchLoadingV(true);
+      try {
+        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
+        const d = await res.json();
+        if (d.success) {
+          setVariantOptions((d.data || []).map((v: any) => ({
+            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
+            value: v.variant_id,
+            raw: v,
+          })));
+        }
+      } catch { /* ignore */ }
+      finally { setSearchLoadingV(false); }
+    }, 250);
+  };
+
+  const handleVSelect = (_value: number, option: any) => {
+    const row = option.raw;
+    if (confirmItems.find((i) => i.variant_id === row.variant_id)) {
+      message.warning('이미 추가된 항목입니다.');
+      return;
+    }
+    setConfirmItems((prev) => [
+      ...prev,
+      {
+        key: `${row.variant_id}-${Date.now()}`,
+        variant_id: row.variant_id,
+        product_code: row.product_code,
+        product_name: row.product_name,
+        sku: row.sku,
+        color: row.color,
+        size: row.size,
+        qty: 1,
+        unit_price: row.base_price || 0,
+      },
+    ]);
+  };
+
+  const updateCI = (key: string, field: string, value: number) => {
+    setConfirmItems((prev) => prev.map((i) => (i.key === key ? { ...i, [field]: value } : i)));
+  };
+  const removeCI = (key: string) => {
+    setConfirmItems((prev) => prev.filter((i) => i.key !== key));
+  };
+
+  const handleConfirm = async () => {
+    if (!confirmRecord) return;
+    if (confirmItems.length === 0) { message.warning('품목을 추가해주세요.'); return; }
+    setConfirmLoading(true);
+    try {
+      await inboundApi.confirm(confirmRecord.record_id, confirmItems.map((i) => ({
+        variant_id: i.variant_id, qty: i.qty, unit_price: i.unit_price || undefined,
+      })));
+      message.success('입고가 확정되었습니다.');
+      setConfirmOpen(false);
+      load(page);
+    } catch (e: any) { message.error(e.message || '입고확정 실패'); }
+    finally { setConfirmLoading(false); }
+  };
+
+  const confirmTotalQty = confirmItems.reduce((s, i) => s + i.qty, 0);
+
+  const columns: any[] = [
     { title: '입고번호', dataIndex: 'inbound_no', width: 140 },
+    { title: '상태', dataIndex: 'status', width: 80,
+      render: (v: string) => v === 'PENDING'
+        ? <Tag color="orange">대기중</Tag>
+        : <Tag color="green">완료</Tag>,
+    },
     { title: '입고일', dataIndex: 'inbound_date', width: 110,
       render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
     { title: '거래처', dataIndex: 'partner_name', width: 130, ellipsis: true },
     { title: '품목수', dataIndex: 'item_count', width: 80, render: (v: number) => `${v}건` },
-    { title: '총수량', dataIndex: 'total_qty', width: 90, render: (v: number) => fmt(v) },
+    { title: '총수량', dataIndex: 'total_qty', width: 90,
+      render: (v: number, r: any) => r.status === 'PENDING'
+        ? <span style={{ color: '#fa8c16' }}>예상 {fmt(r.expected_qty || 0)}</span>
+        : <b>{fmt(v)}</b>,
+    },
     { title: '비고', dataIndex: 'memo', width: 150, ellipsis: true },
     { title: '등록자', dataIndex: 'created_by', width: 100 },
     { title: '등록일시', dataIndex: 'created_at', width: 150,
@@ -384,68 +514,211 @@ function HistoryTab({ partners }: { partners: any[] }) {
   const detailItemCols = [
     { title: '품번', dataIndex: 'product_code', width: 120 },
     { title: '상품명', dataIndex: 'product_name', width: 180, ellipsis: true },
-    { title: 'SKU', dataIndex: 'sku', width: 130 },
-    { title: '컬러', dataIndex: 'color', width: 80 },
-    { title: '사이즈', dataIndex: 'size', width: 70 },
-    { title: '수량', dataIndex: 'qty', width: 80, render: (v: number) => fmt(v) },
+    { title: 'SKU', dataIndex: 'sku', width: 160 },
+    { title: '컬러', dataIndex: 'color', width: 70 },
+    { title: '사이즈', dataIndex: 'size', width: 65 },
+    { title: '수량', dataIndex: 'qty', width: 80, render: (v: number) => <b>{fmt(v)}</b> },
     { title: '단가', dataIndex: 'unit_price', width: 100,
-      render: (v: number | null) => v != null ? fmt(v) : '-' },
+      render: (v: number | null) => v != null ? fmt(v) + '원' : '-' },
+  ];
+
+  const confirmItemCols = [
+    { title: '품번', dataIndex: 'product_code', width: 100 },
+    { title: '상품명', dataIndex: 'product_name', width: 150, ellipsis: true },
+    { title: '컬러/사이즈', width: 100, render: (_: unknown, r: VariantRow) => `${r.color}/${r.size}` },
+    { title: '수량', width: 90,
+      render: (_: unknown, r: VariantRow) => (
+        <InputNumber min={1} value={r.qty} size="small" style={{ width: 70 }}
+          onChange={(v) => updateCI(r.key, 'qty', v || 1)} />
+      ),
+    },
+    { title: '단가', width: 110,
+      render: (_: unknown, r: VariantRow) => (
+        <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
+          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+          parser={(v) => Number((v || '').replace(/,/g, ''))}
+          onChange={(v) => updateCI(r.key, 'unit_price', v || 0)} />
+      ),
+    },
+    { title: '', width: 40,
+      render: (_: unknown, r: VariantRow) => (
+        <Button type="text" danger size="small" icon={<DeleteOutlined />} onClick={() => removeCI(r.key)} />
+      ),
+    },
   ];
 
   return (
     <div>
+      {/* 요약 카드 */}
+      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff1f0', borderRadius: 8, padding: '12px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#cf132299' }}>입고대기</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#cf1322' }}>{pendingCount}건</div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#e6f7ff', borderRadius: 8, padding: '12px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#1890ff99' }}>전체 건수</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#1890ff' }}>{total}건</div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#f6ffed', borderRadius: 8, padding: '12px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#52c41a99' }}>조회 총수량</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{fmt(totalQty)}개</div>
+          </div>
+        </Col>
+        <Col xs={12} sm={6}>
+          <div style={{ background: '#fff7e6', borderRadius: 8, padding: '12px 16px', textAlign: 'center' }}>
+            <div style={{ fontSize: 11, color: '#fa8c1699' }}>오늘 입고</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#fa8c16' }}>{todayCount}건</div>
+          </div>
+        </Col>
+      </Row>
+
       {/* 필터 */}
-      <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+      <div style={{ marginBottom: 12, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'flex-end' }}>
         <div>
-          <span style={{ fontSize: 11, color: '#888', marginRight: 4 }}>거래처</span>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <Segmented
+            value={statusFilter}
+            onChange={(v) => setStatusFilter(v as string)}
+            options={[
+              { label: '전체', value: '' },
+              { label: '대기중', value: 'PENDING' },
+              { label: '완료', value: 'COMPLETED' },
+            ]}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
           <Select value={partnerFilter || undefined} placeholder="전체" allowClear
             onChange={(v) => setPartnerFilter(v || '')} style={{ width: 160 }}
             showSearch optionFilterProp="label"
             options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
         </div>
         <div>
-          <span style={{ fontSize: 11, color: '#888', marginRight: 4 }}>기간</span>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <DatePicker.RangePicker value={dateRange as any} onChange={(v) => setDateRange(v as any)}
-            style={{ width: 300 }} />
+            style={{ width: 260 }} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="입고번호 검색" value={search} onChange={e => setSearch(e.target.value)}
+            onPressEnter={() => load(1)} allowClear style={{ width: 180 }} prefix={<SearchOutlined />} />
         </div>
         <Button onClick={() => load(1)}>조회</Button>
       </div>
 
       <Table dataSource={data} columns={columns} rowKey="record_id" loading={loading}
-        size="small" scroll={{ x: 1100, y: 'calc(100vh - 300px)' }}
+        size="small" scroll={{ x: 1100, y: 'calc(100vh - 400px)' }}
         pagination={{
           current: page, total, pageSize: 50,
           showTotal: (t) => `총 ${t}건`,
           onChange: (p) => load(p),
         }}
-        onRow={(r) => ({ onClick: () => showDetail(r.record_id), style: { cursor: 'pointer' } })}
+        onRow={(r) => ({
+          onClick: () => showDetail(r.record_id),
+          style: { cursor: 'pointer', background: r.status === 'PENDING' ? '#fffbe6' : undefined },
+        })}
       />
 
       {/* 상세 모달 */}
       <Modal title={detailData ? `입고 상세 — ${detailData.inbound_no}` : '입고 상세'}
-        open={detailOpen} onCancel={() => setDetailOpen(false)} width={800}
+        open={detailOpen} onCancel={() => setDetailOpen(false)} width={850}
         footer={
-          isAdmin && detailData ? (
-            <Popconfirm title="삭제하면 재고가 원복됩니다. 삭제하시겠습니까?"
-              onConfirm={() => handleDelete(detailData.record_id)}>
-              <Button danger>삭제 (재고 원복)</Button>
-            </Popconfirm>
-          ) : null
+          detailData ? (
+            <Space>
+              {detailData.status === 'PENDING' && isHQ && (
+                <Button type="primary" icon={<CheckCircleOutlined />}
+                  onClick={() => openConfirmModal(detailData)}>입고확정</Button>
+              )}
+              {isAdmin && (
+                <Popconfirm title={detailData.status === 'COMPLETED' ? '삭제하면 재고가 원복됩니다. 삭제하시겠습니까?' : '대기중 입고를 삭제하시겠습니까?'}
+                  onConfirm={() => handleDelete(detailData.record_id)}>
+                  <Button danger>삭제{detailData.status === 'COMPLETED' ? ' (재고 원복)' : ''}</Button>
+                </Popconfirm>
+              )}
+              <Button onClick={() => setDetailOpen(false)}>닫기</Button>
+            </Space>
+          ) : <Button onClick={() => setDetailOpen(false)}>닫기</Button>
         }>
         {detailData && (
           <div>
-            <Space style={{ marginBottom: 12 }} wrap>
-              <Tag color="blue">{detailData.inbound_no}</Tag>
-              <span>거래처: <b>{detailData.partner_name}</b></span>
-              <span>입고일: <b>{dayjs(detailData.inbound_date).format('YYYY-MM-DD')}</b></span>
-              <span>등록자: <b>{detailData.created_by}</b></span>
-            </Space>
+            <Row gutter={16} style={{ marginBottom: 12 }}>
+              <Col span={6}>
+                <Tag color="blue">{detailData.inbound_no}</Tag>
+                {detailData.status === 'PENDING' ? <Tag color="orange">대기중</Tag> : <Tag color="green">완료</Tag>}
+              </Col>
+              <Col span={6}>거래처: <b>{detailData.partner_name}</b></Col>
+              <Col span={6}>입고일: <b>{dayjs(detailData.inbound_date).format('YYYY-MM-DD')}</b></Col>
+              <Col span={6}>등록자: <b>{detailData.created_by}</b></Col>
+            </Row>
+            {detailData.expected_qty != null && detailData.status === 'PENDING' && (
+              <div style={{ marginBottom: 8, color: '#fa8c16', fontWeight: 500 }}>
+                예상 수량: {fmt(detailData.expected_qty)}개
+              </div>
+            )}
             {detailData.memo && <div style={{ marginBottom: 8, color: '#666' }}>비고: {detailData.memo}</div>}
-            <Table dataSource={detailData.items || []} columns={detailItemCols} rowKey="item_id"
-              size="small" pagination={false} loading={detailLoading} />
-            <div style={{ marginTop: 8, textAlign: 'right', fontWeight: 600 }}>
-              총 수량: {fmt((detailData.items || []).reduce((s: number, i: InboundItem) => s + i.qty, 0))}
+            {detailData.status === 'COMPLETED' && (
+              <>
+                <Table dataSource={detailData.items || []} columns={detailItemCols} rowKey="item_id"
+                  size="small" pagination={false} loading={detailLoading} />
+                <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end', gap: 16 }}>
+                  <span>총 품목: <b>{(detailData.items || []).length}</b>건</span>
+                  <span>총 수량: <b>{fmt((detailData.items || []).reduce((s: number, i: InboundItem) => s + i.qty, 0))}</b>개</span>
+                </div>
+              </>
+            )}
+            {detailData.status === 'PENDING' && (
+              <div style={{ padding: 16, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16' }}>
+                입고확정 버튼을 눌러 품목을 추가하고 재고를 반영하세요.
+              </div>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      {/* 입고확정 모달 */}
+      <Modal
+        title={confirmRecord ? `입고확정 — ${confirmRecord.inbound_no}` : '입고확정'}
+        open={confirmOpen} onCancel={() => setConfirmOpen(false)} width={900}
+        footer={
+          <Space>
+            <Button onClick={() => setConfirmOpen(false)}>취소</Button>
+            <Button type="primary" icon={<CheckCircleOutlined />}
+              onClick={handleConfirm} loading={confirmLoading}
+              disabled={confirmItems.length === 0}>
+              입고확정 ({confirmTotalQty}개)
+            </Button>
+          </Space>
+        }
+      >
+        {confirmRecord && (
+          <div>
+            <Row gutter={16} style={{ marginBottom: 12 }}>
+              <Col span={6}><Tag color="blue">{confirmRecord.inbound_no}</Tag></Col>
+              <Col span={6}>거래처: <b>{confirmRecord.partner_name}</b></Col>
+              <Col span={6}>입고일: <b>{dayjs(confirmRecord.inbound_date).format('YYYY-MM-DD')}</b></Col>
+              {confirmRecord.expected_qty != null && (
+                <Col span={6}>예상 수량: <b style={{ color: '#fa8c16' }}>{fmt(confirmRecord.expected_qty)}개</b></Col>
+              )}
+            </Row>
+            {confirmRecord.memo && <div style={{ marginBottom: 12, color: '#666' }}>비고: {confirmRecord.memo}</div>}
+            <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
+              <SearchOutlined style={{ color: '#1890ff' }} />
+              <Select showSearch value={null as any} placeholder="품번 / 상품명 / SKU 입력하여 추가"
+                style={{ flex: 1 }} filterOption={false}
+                onSearch={handleVSearch} onSelect={handleVSelect}
+                loading={searchLoadingV} options={variantOptions}
+                notFoundContent={searchLoadingV ? '검색 중...' : '검색어를 입력하세요'} />
             </div>
+            <div style={{ marginBottom: 8, fontWeight: 600 }}>
+              입고 품목 ({confirmItems.length}건) — 총 {fmt(confirmTotalQty)}개
+            </div>
+            <Table dataSource={confirmItems} columns={confirmItemCols} rowKey="key"
+              size="small" scroll={{ x: 700 }} pagination={false} />
           </div>
         )}
       </Modal>
@@ -469,12 +742,11 @@ export default function InboundPage() {
   };
 
   return (
-    <div style={{ padding: '12px 18px' }}>
-      <h2 style={{ margin: '0 0 12px', fontSize: 18 }}>입고관리</h2>
+    <div>
       <Tabs activeKey={tab} onChange={setTab} items={[
         {
           key: 'register',
-          label: '입고 등록',
+          label: <span><InboxOutlined /> 입고 등록</span>,
           children: <RegisterTab partners={partners} onCreated={handleCreated} />,
         },
         {

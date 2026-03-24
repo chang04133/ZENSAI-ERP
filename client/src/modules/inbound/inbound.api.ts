@@ -7,10 +7,35 @@ const crud = createCrudApi<InboundRecord>('/api/inbounds');
 export const inboundApi = {
   ...crud,
 
+  summary: async () => {
+    const res = await apiFetch('/api/inbounds/summary');
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as {
+      total_count: number; total_qty: number;
+      pending_count: number; pending_qty: number;
+      today_count: number; today_qty: number;
+      week_count: number; week_qty: number;
+      month_count: number; month_qty: number;
+      by_partner: Array<{ partner_code: string; partner_name: string; count: number; total_qty: number }>;
+    };
+  },
+
   generateNo: async () => {
     const res = await apiFetch('/api/inbounds/generate-no');
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as string;
+  },
+
+  confirm: async (id: number, items: Array<{ variant_id: number; qty: number; unit_price?: number; memo?: string }>) => {
+    const res = await apiFetch(`/api/inbounds/${id}/confirm`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as InboundRecord;
   },
 };

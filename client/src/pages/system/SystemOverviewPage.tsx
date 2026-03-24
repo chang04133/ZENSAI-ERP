@@ -121,7 +121,7 @@ const dbTableData = [
   { key: '12', group: '출고', table: 'shipment_request_items', pk: 'item_id (SERIAL)', fields: 'request_id, variant_id, request_qty, shipped_qty, received_qty', relations: '→ shipment_requests' },
   { key: '13', group: '재입고', table: 'restock_requests', pk: 'request_id (SERIAL)', fields: 'request_no(RS+YYMMDD+###), partner_code, status(DRAFT/APPROVED/ORDERED/RECEIVED/CANCELLED), received_date', relations: '← restock_request_items' },
   { key: '14', group: '재입고', table: 'restock_request_items', pk: 'item_id (SERIAL)', fields: 'request_id, variant_id, request_qty, received_qty, unit_cost', relations: '→ restock_requests' },
-  { key: '15', group: '생산', table: 'production_plans', pk: 'plan_id (SERIAL)', fields: 'plan_no(PP+YYMMDD+###), plan_name, season, status(DRAFT/CONFIRMED/IN_PRODUCTION/COMPLETED/CANCELLED)', relations: '← plan_items, material_usage' },
+  { key: '15', group: '생산', table: 'production_plans', pk: 'plan_id (SERIAL)', fields: 'plan_no(PP+YYMMDD+###), plan_name, season, status(DRAFT/IN_PRODUCTION/COMPLETED/CANCELLED)', relations: '← plan_items, material_usage' },
   { key: '16', group: '생산', table: 'production_plan_items', pk: 'item_id (SERIAL)', fields: 'plan_id, category, sub_category, product_code, variant_id, plan_qty, produced_qty, unit_cost', relations: '→ production_plans' },
   { key: '17', group: '자재', table: 'materials', pk: 'material_id (SERIAL)', fields: 'material_code(MAT+####), material_name, material_type(FABRIC/ACCESSORY/PACKAGING), stock_qty, min_stock_qty', relations: '← material_usage' },
   { key: '18', group: '자재', table: 'production_material_usage', pk: 'usage_id (SERIAL)', fields: 'plan_id, material_id, required_qty, used_qty', relations: '→ plans, materials' },
@@ -179,9 +179,8 @@ const workflows = [
   { title: '생산기획 플로우', color: '#531dab', icon: <ExperimentOutlined />, steps: [
     { step: '1', action: '자동추천', detail: '60일판매→판매율→Grade S(≥80%×1.5)/A(≥50%×1.2)/B(≥30%×1.0)→안전버퍼1.2×' },
     { step: '2', action: 'DRAFT', detail: '수동 or 자동생성. CANCELLED 가능' },
-    { step: '3', action: 'CONFIRMED', detail: 'ADMIN 전용. approved_by. 자재BOM 연결. CANCELLED 가능' },
-    { step: '4', action: 'IN_PRODUCTION', detail: 'start_date 자동. produced-qty 실시간 업데이트' },
-    { step: '5', action: 'COMPLETED', detail: '①자재차감(GREATEST(0)) ②HQ재고입고 ③알림' },
+    { step: '3', action: 'IN_PRODUCTION', detail: 'approved_by 설정. start_date 자동. produced-qty 실시간 업데이트' },
+    { step: '4', action: 'COMPLETED', detail: '①자재차감(GREATEST(0)) ②HQ재고입고 ③알림' },
   ]},
   { title: '재입고 플로우', color: '#eb2f96', icon: <SyncOutlined />, steps: [
     { step: '1', action: '자동제안', detail: '60일판매→30일수요→시즌가중치→(현재고+생산중+진행중) 차감→×1.2 버퍼' },
@@ -642,7 +641,7 @@ export default function SystemOverviewPage() {
           <ul style={{ fontSize: 13 }}>
             <li><Text strong>권한:</Text> ADMIN=CRUD, HQ=조회</li>
             <li><Text strong>완료:</Text> ①자재차감(GREATEST(0)) ②HQ재고입고 ③알림</li>
-            <li><Text strong>전이:</Text> DRAFT→CONFIRMED→IN_PRODUCTION→COMPLETED. CANCELLED 가능(DRAFT/CONFIRMED)</li>
+            <li><Text strong>전이:</Text> DRAFT→IN_PRODUCTION→COMPLETED. CANCELLED 가능(DRAFT)</li>
           </ul>
           <Divider />
           <Title level={5}>재입고</Title>

@@ -29,6 +29,7 @@ import productionExcelRoutes from './modules/production/production-excel.routes'
 import productionRoutes from './modules/production/production.routes';
 import materialRoutes from './modules/production/material.routes';
 import fundRoutes from './modules/fund/fund.routes';
+import financialRoutes from './modules/fund/financial.routes';
 import inboundExcelRoutes from './modules/inbound/inbound-excel.routes';
 import inboundRoutes from './modules/inbound/inbound.routes';
 
@@ -111,6 +112,7 @@ app.use('/api/productions', productionExcelRoutes);  // Excel routes first
 app.use('/api/productions', productionRoutes);
 app.use('/api/materials', materialRoutes);
 app.use('/api/funds', fundRoutes);
+app.use('/api/financial', financialRoutes);
 app.use('/api/inbounds', inboundExcelRoutes);  // Excel routes first
 app.use('/api/inbounds', inboundRoutes);
 // Production: serve static files

@@ -59,6 +59,14 @@ export default function FundPlanPage() {
         fundApi.productionCosts(year),
       ]);
       setCategories(cats);
+      // 자식이 있는 루트 카테고리 자동 펼침
+      const rootIds = (cats as Category[]).filter((c: Category) => c.parent_id == null).map((c: Category) => c.category_id);
+      const hasChildren = new Set(rootIds.filter((rid: number) => (cats as Category[]).some((c: Category) => c.parent_id != null && +c.parent_id === rid)));
+      setExpanded(prev => {
+        const next = new Set(prev);
+        hasChildren.forEach((id: number) => next.add(id));
+        return next;
+      });
       const map: Record<string, PlanEntry> = {};
       for (const p of plans) map[cellKey(p.category_id, p.plan_month)] = p;
       setPlanMap(map);
@@ -71,17 +79,17 @@ export default function FundPlanPage() {
   useEffect(() => { load(); }, [load]);
 
   // 최상위(루트) 카테고리
-  const rootCats = useMemo(() => categories.filter(c => !c.parent_id), [categories]);
+  const rootCats = useMemo(() => categories.filter(c => c.parent_id == null), [categories]);
 
   // 특정 부모의 자식들
   const childrenOf = useCallback(
-    (pid: number) => categories.filter(c => c.parent_id === pid),
+    (pid: number) => categories.filter(c => c.parent_id != null && +c.parent_id === pid),
     [categories],
   );
 
   // 리프 노드 판별 (자식이 없는 항목)
   const isLeaf = useCallback(
-    (catId: number) => !categories.some(c => c.parent_id === catId),
+    (catId: number) => !categories.some(c => c.parent_id != null && +c.parent_id === catId),
     [categories],
   );
 

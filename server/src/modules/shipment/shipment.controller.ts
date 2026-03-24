@@ -12,6 +12,15 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     super(shipmentService);
   }
 
+  /** 상태별 요약 */
+  summary = asyncHandler(async (req: Request, res: Response) => {
+    const query: any = {};
+    const pc = getStorePartnerCode(req);
+    if (pc) query.partner = pc;
+    const result = await shipmentService.summary(query);
+    res.json({ success: true, data: result });
+  });
+
   /** 목록 조회 — 매장 사용자는 자기 매장 관련만 */
   list = asyncHandler(async (req: Request, res: Response) => {
     const query: any = { ...req.query };

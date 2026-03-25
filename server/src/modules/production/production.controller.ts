@@ -142,6 +142,22 @@ class ProductionController extends BaseController<ProductionPlan> {
     res.json({ success: true, data: result });
   });
 
+  /** 생산시작 + 선지급 (원자적 트랜잭션) */
+  startProduction = asyncHandler(async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
+    const result = await productionService.startProduction(id, req.body, req.user!.userId);
+    res.json({ success: true, data: result });
+  });
+
+  /** 완료처리 + 잔금지급 (원자적 트랜잭션) */
+  completeProduction = asyncHandler(async (req: Request, res: Response) => {
+    const id = parseInt(req.params.id as string, 10);
+    if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
+    const result = await productionService.completeProduction(id, req.body, req.user!.userId);
+    res.json({ success: true, data: result });
+  });
+
 }
 
 export const productionController = new ProductionController();

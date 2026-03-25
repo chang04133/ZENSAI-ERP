@@ -198,7 +198,7 @@ export default function ProductDetailPage() {
             )}
           </Descriptions.Item>
           <Descriptions.Item label="기본가 (판매가)">{fmtPrice(product.base_price)}</Descriptions.Item>
-          {!isStore && <Descriptions.Item label="매입가 (원가)">{fmtPrice(product.cost_price)}</Descriptions.Item>}
+          {!isStore && <Descriptions.Item label="원가(원)">{fmtPrice(product.cost_price)}</Descriptions.Item>}
           <Descriptions.Item label="할인가">{fmtPrice(product.discount_price)}</Descriptions.Item>
           <Descriptions.Item label="행사가격">{fmtPrice(product.event_price)}</Descriptions.Item>
           <Descriptions.Item label="재입고 알림">
@@ -222,7 +222,7 @@ export default function ProductDetailPage() {
               { title: '자재코드', dataIndex: 'material_code', width: 100 },
               { title: '자재명', dataIndex: 'material_name', width: 150 },
               { title: '유형', dataIndex: 'material_type', width: 80, render: (v: string) => <Tag>{v === 'FABRIC' ? '원단' : v === 'ACCESSORY' ? '부속' : v === 'PACKAGING' ? '포장' : v}</Tag> },
-              { title: '단가', dataIndex: 'unit_price', width: 100, render: (v: number) => fmtPrice(v) },
+              { title: '원가(원)', dataIndex: 'unit_price', width: 100, render: (v: number) => fmtPrice(v) },
               { title: '사용량', dataIndex: 'usage_qty', width: 80, render: (v: number) => Number(v) },
               { title: '소계', key: 'subtotal', width: 100, render: (_: any, r: any) => fmtPrice(Number(r.usage_qty) * Number(r.unit_price)) },
             ]}

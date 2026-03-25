@@ -103,7 +103,7 @@ export default function MaterialManagePage() {
     { title: '유형', dataIndex: 'material_type', key: 'type', width: 70,
       render: (v: string) => <Tag color={TYPE_COLORS[v]}>{TYPE_LABELS[v] || v}</Tag> },
     { title: '단위', dataIndex: 'unit', key: 'unit', width: 50 },
-    { title: '단가', dataIndex: 'unit_price', key: 'price', width: 80,
+    { title: '원가(원)', dataIndex: 'unit_price', key: 'price', width: 80,
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
     { title: '재고', dataIndex: 'stock_qty', key: 'stock', width: 80,
       render: (v: number, r: Material) => (
@@ -204,7 +204,7 @@ export default function MaterialManagePage() {
                 {['ea', 'm', 'yard', 'kg', 'roll'].map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}
               </Select>
             </Form.Item>
-            <Form.Item name="unit_price" label="단가">
+            <Form.Item name="unit_price" label="원가(원)">
               <InputNumber min={0} style={{ width: 140 }} />
             </Form.Item>
           </Space>

@@ -101,23 +101,34 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       const plan = planResult.rows[0];
 
       for (const item of items) {
+        // 카테고리/핏/기장으로 매칭되는 상품 자동 검색
+        const matchConds: string[] = ['p.category = $1', 'p.is_active = TRUE'];
+        const matchParams: any[] = [item.category];
+        let mi = 2;
+        if (item.sub_category) { matchConds.push(`p.sub_category = $${mi}`); matchParams.push(item.sub_category); mi++; }
+        if (item.fit) { matchConds.push(`p.fit = $${mi}`); matchParams.push(item.fit); mi++; }
+        if (item.length) { matchConds.push(`p.length = $${mi}`); matchParams.push(item.length); mi++; }
+
+        const matchResult = await client.query(
+          `SELECT product_code FROM products p WHERE ${matchConds.join(' AND ')} LIMIT 1`,
+          matchParams,
+        );
+        const matchedCode = matchResult.rows[0]?.product_code || null;
+
         await client.query(
-          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo, product_code)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
           [plan.plan_id, item.category, item.sub_category || null, item.fit || null, item.length || null,
-           item.plan_qty, item.unit_cost || null, item.memo || null],
+           item.plan_qty, item.unit_cost || null, item.memo || null, matchedCode],
         );
 
         // 매칭 상품 is_reorder = TRUE 자동 업데이트
-        const matchConds: string[] = ['p.category = $1'];
-        const matchParams: any[] = [item.category];
-        let mi = 2;
-        if (item.fit) { matchConds.push(`p.fit = $${mi}`); matchParams.push(item.fit); mi++; }
-        if (item.length) { matchConds.push(`p.length = $${mi}`); matchParams.push(item.length); mi++; }
-        await client.query(
-          `UPDATE products p SET is_reorder = TRUE WHERE is_active = TRUE AND is_reorder = FALSE AND ${matchConds.join(' AND ')}`,
-          matchParams,
-        );
+        if (matchedCode) {
+          await client.query(
+            `UPDATE products SET is_reorder = TRUE WHERE product_code = $1 AND is_reorder = FALSE`,
+            [matchedCode],
+          );
+        }
       }
 
       await client.query('COMMIT');

@@ -1,11 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Table, Button, Select, Tag, Input, DatePicker, message, Row, Col,
-  Segmented, Steps, Popconfirm, Space,
+  Card, Table, Button, Tag, Steps, message, Space, Popconfirm, Spin,
 } from 'antd';
 import {
-  SearchOutlined, EyeOutlined, CheckCircleOutlined, SendOutlined,
-  CloseCircleOutlined, InboxOutlined,
+  SendOutlined, EyeOutlined, CheckCircleOutlined,
+  CloseCircleOutlined, RollbackOutlined, SwapOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { STATUS_COLORS, getStatusLabel } from '../../components/shipment/ShipmentConstants';
@@ -14,9 +13,6 @@ import ReceivedQtyModal from '../../components/shipment/ReceivedQtyModal';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
-import { datePresets } from '../../utils/date-presets';
-
-const { RangePicker } = DatePicker;
 
 interface SummaryRow {
   status: string;
@@ -26,60 +22,49 @@ interface SummaryRow {
   total_shipped_qty: number;
 }
 
-interface StatusSummary {
-  count: number;
-  qty: number;
+interface TypeSummary {
+  PENDING: { count: number; qty: number };
+  SHIPPED: { count: number; qty: number };
+  RECEIVED: { count: number; qty: number };
+  CANCELLED: { count: number; qty: number };
 }
 
-const STATUS_CARD_COLORS: Record<string, { bg: string; text: string; border: string }> = {
-  PENDING: { bg: '#fffbe6', text: '#d48806', border: '#ffe58f' },
-  SHIPPED: { bg: '#f6ffed', text: '#389e0d', border: '#b7eb8f' },
-  RECEIVED: { bg: '#e6fffb', text: '#08979c', border: '#87e8de' },
-  CANCELLED: { bg: '#fff1f0', text: '#cf1322', border: '#ffa39e' },
-};
+const emptySummary = (): TypeSummary => ({
+  PENDING: { count: 0, qty: 0 },
+  SHIPPED: { count: 0, qty: 0 },
+  RECEIVED: { count: 0, qty: 0 },
+  CANCELLED: { count: 0, qty: 0 },
+});
 
-const STATUS_CARD_LABELS: Record<string, string> = {
-  PENDING: '대기',
-  SHIPPED: '출고완료',
-  RECEIVED: '입고완료',
-  CANCELLED: '취소',
-};
-
-const TYPE_OPTIONS = [
-  { label: '전체', value: '' },
-  { label: '출고', value: '출고' },
-  { label: '반품', value: '반품' },
-  { label: '수평이동', value: '수평이동' },
-];
-
-const STATUS_OPTIONS = [
-  { label: '전체', value: '' },
-  { label: '대기', value: 'PENDING' },
-  { label: '출고완료', value: 'SHIPPED' },
-  { label: '입고완료', value: 'RECEIVED' },
-  { label: '취소', value: 'CANCELLED' },
-];
+type RequestType = '출고' | '반품' | '수평이동';
 
 export default function ShipmentDashboardPage() {
   const user = useAuthStore((s) => s.user);
+  const [summaryLoading, setSummaryLoading] = useState(true);
 
-  // Summary
-  const [summaryData, setSummaryData] = useState<SummaryRow[]>([]);
-  const [summaryLoading, setSummaryLoading] = useState(false);
+  // Summary by type
+  const [shipmentSummary, setShipmentSummary] = useState<TypeSummary>(emptySummary());
+  const [returnSummary, setReturnSummary] = useState<TypeSummary>(emptySummary());
+  const [transferSummary, setTransferSummary] = useState<TypeSummary>(emptySummary());
 
-  // List
-  const [data, setData] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
+  // Per-type list state
+  const [shipmentData, setShipmentData] = useState<any[]>([]);
+  const [shipmentTotal, setShipmentTotal] = useState(0);
+  const [shipmentPage, setShipmentPage] = useState(1);
+  const [shipmentListLoading, setShipmentListLoading] = useState(false);
+  const [shipmentStatusFilter, setShipmentStatusFilter] = useState('');
 
-  // Filters
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [typeFilter, setTypeFilter] = useState<string>('');
-  const [search, setSearch] = useState('');
-  const [dateRange, setDateRange] = useState<[any, any] | null>(null);
-  const [loadTrigger, setLoadTrigger] = useState(0);
-  const triggerLoad = () => { setPage(1); setLoadTrigger((p) => p + 1); };
+  const [returnData, setReturnData] = useState<any[]>([]);
+  const [returnTotal, setReturnTotal] = useState(0);
+  const [returnPage, setReturnPage] = useState(1);
+  const [returnListLoading, setReturnListLoading] = useState(false);
+  const [returnStatusFilter, setReturnStatusFilter] = useState('');
+
+  const [transferData, setTransferData] = useState<any[]>([]);
+  const [transferTotal, setTransferTotal] = useState(0);
+  const [transferPage, setTransferPage] = useState(1);
+  const [transferListLoading, setTransferListLoading] = useState(false);
+  const [transferStatusFilter, setTransferStatusFilter] = useState('');
 
   // Detail modal
   const [detailOpen, setDetailOpen] = useState(false);
@@ -89,68 +74,88 @@ export default function ShipmentDashboardPage() {
   const [shipOpen, setShipOpen] = useState(false);
   const [shipDetail, setShipDetail] = useState<any>(null);
   const [shipQtys, setShipQtys] = useState<Record<number, number>>({});
-  const [shipLoading, setShipLoading] = useState(false);
+  const [shipConfirmLoading, setShipConfirmLoading] = useState(false);
 
   // Receive confirm modal
   const [recvOpen, setRecvOpen] = useState(false);
   const [recvDetail, setRecvDetail] = useState<any>(null);
   const [recvQtys, setRecvQtys] = useState<Record<number, number>>({});
-  const [recvLoading, setRecvLoading] = useState(false);
+  const [recvConfirmLoading, setRecvConfirmLoading] = useState(false);
 
   // Expanded rows
   const [expandedDetails, setExpandedDetails] = useState<Record<number, any[]>>({});
   const [expandLoading, setExpandLoading] = useState<Record<number, boolean>>({});
 
-  // --- Data Loading ---
+  const baseParams = useCallback((): Record<string, string> => {
+    const p: Record<string, string> = {};
+    if (user?.partnerCode) p.partner = user.partnerCode;
+    return p;
+  }, [user?.partnerCode]);
+
+  // --- Summary ---
   const loadSummary = useCallback(async () => {
     setSummaryLoading(true);
     try {
-      const result = await shipmentApi.summary();
-      setSummaryData(result);
+      const summaryData = await shipmentApi.summary();
+      const sShip = emptySummary();
+      const sReturn = emptySummary();
+      const sTransfer = emptySummary();
+      for (const row of summaryData as SummaryRow[]) {
+        const target = row.request_type === '출고' ? sShip : row.request_type === '반품' ? sReturn : row.request_type === '수평이동' ? sTransfer : null;
+        if (target && target[row.status as keyof TypeSummary]) {
+          target[row.status as keyof TypeSummary].count += row.count;
+          target[row.status as keyof TypeSummary].qty += row.total_request_qty;
+        }
+      }
+      setShipmentSummary(sShip);
+      setReturnSummary(sReturn);
+      setTransferSummary(sTransfer);
     } catch (e: any) { message.error(e.message); }
     finally { setSummaryLoading(false); }
   }, []);
 
-  const loadList = useCallback(async () => {
+  // --- Per-type list loaders ---
+  const loadTypeList = useCallback(async (
+    type: RequestType, page: number, statusFilter: string,
+    setData: (d: any[]) => void, setTotal: (n: number) => void, setLoading: (b: boolean) => void,
+  ) => {
     setLoading(true);
     try {
-      const params: Record<string, string> = { page: String(page), limit: '50' };
-      if (search) params.search = search;
+      const params: Record<string, string> = { ...baseParams(), request_type: type, page: String(page), limit: '50' };
       if (statusFilter) params.status = statusFilter;
-      if (typeFilter) params.request_type = typeFilter;
-      if (user?.partnerCode) params.partner = user.partnerCode;
-      if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
-      if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
       const result = await shipmentApi.list(params);
       setData(result.data);
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, statusFilter, typeFilter, dateRange, user?.partnerCode]);
+  }, [baseParams]);
 
-  const refreshAll = useCallback(() => {
-    loadSummary();
-    loadList();
-  }, [loadSummary, loadList]);
+  const loadShipmentList = useCallback(() => {
+    loadTypeList('출고', shipmentPage, shipmentStatusFilter, setShipmentData, setShipmentTotal, setShipmentListLoading);
+  }, [loadTypeList, shipmentPage, shipmentStatusFilter]);
+
+  const loadReturnList = useCallback(() => {
+    loadTypeList('반품', returnPage, returnStatusFilter, setReturnData, setReturnTotal, setReturnListLoading);
+  }, [loadTypeList, returnPage, returnStatusFilter]);
+
+  const loadTransferList = useCallback(() => {
+    loadTypeList('수평이동', transferPage, transferStatusFilter, setTransferData, setTransferTotal, setTransferListLoading);
+  }, [loadTypeList, transferPage, transferStatusFilter]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { loadList(); }, [page, loadTrigger]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadShipmentList(); }, [loadShipmentList]);
+  useEffect(() => { loadReturnList(); }, [loadReturnList]);
+  useEffect(() => { loadTransferList(); }, [loadTransferList]);
 
-  // --- Summary aggregation ---
-  const statusSummary: Record<string, StatusSummary> = { PENDING: { count: 0, qty: 0 }, SHIPPED: { count: 0, qty: 0 }, RECEIVED: { count: 0, qty: 0 }, CANCELLED: { count: 0, qty: 0 } };
-  for (const row of summaryData) {
-    if (statusSummary[row.status]) {
-      statusSummary[row.status].count += row.count;
-      statusSummary[row.status].qty += row.total_request_qty;
-    }
-  }
-
-  // --- Handlers ---
-  const handleCardClick = (status: string) => {
-    setStatusFilter((prev) => prev === status ? '' : status);
-    triggerLoad();
+  const refreshAll = () => {
+    loadSummary();
+    loadShipmentList();
+    loadReturnList();
+    loadTransferList();
+    setExpandedDetails({});
   };
 
+  // --- Handlers ---
   const handleViewDetail = async (id: number) => {
     try { setDetail(await shipmentApi.get(id)); setDetailOpen(true); }
     catch (e: any) { message.error(e.message); }
@@ -187,7 +192,6 @@ export default function ShipmentDashboardPage() {
     );
   };
 
-  // Ship confirm
   const openShipConfirm = async (id: number) => {
     try {
       const d = await shipmentApi.get(id);
@@ -201,19 +205,17 @@ export default function ShipmentDashboardPage() {
 
   const handleShipConfirm = async () => {
     if (!shipDetail) return;
-    setShipLoading(true);
+    setShipConfirmLoading(true);
     try {
       const items = Object.entries(shipQtys).map(([vid, qty]) => ({ variant_id: Number(vid), shipped_qty: qty }));
       await shipmentApi.shipConfirm(shipDetail.request_id, items);
       message.success('출고확인 완료');
       setShipOpen(false);
-      setExpandedDetails({});
       refreshAll();
     } catch (e: any) { message.error(e.message); }
-    finally { setShipLoading(false); }
+    finally { setShipConfirmLoading(false); }
   };
 
-  // Receive confirm
   const openRecvConfirm = async (id: number) => {
     try {
       const d = await shipmentApi.get(id);
@@ -227,40 +229,58 @@ export default function ShipmentDashboardPage() {
 
   const handleRecvConfirm = async () => {
     if (!recvDetail) return;
-    setRecvLoading(true);
+    setRecvConfirmLoading(true);
     try {
       const items = Object.entries(recvQtys).map(([vid, qty]) => ({ variant_id: Number(vid), received_qty: qty }));
       await shipmentApi.receive(recvDetail.request_id, items);
       message.success('수령확인 완료');
       setRecvOpen(false);
-      setExpandedDetails({});
       refreshAll();
     } catch (e: any) { message.error(e.message); }
-    finally { setRecvLoading(false); }
+    finally { setRecvConfirmLoading(false); }
   };
 
-  // Cancel
   const handleCancel = async (id: number) => {
     try {
       await shipmentApi.update(id, { status: 'CANCELLED' });
       message.success('취소 처리되었습니다.');
-      setExpandedDetails({});
       refreshAll();
     } catch (e: any) { message.error(e.message); }
   };
 
-  // --- Columns ---
-  const columns = [
+  // --- 권한 판별 ---
+  const isAdmin = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(user?.role || '');
+  const myPartner = user?.partnerCode;
+  const canShipConfirm = (r: any) => isAdmin || r.from_partner === myPartner;
+  const canRecvConfirm = (r: any) => isAdmin || r.to_partner === myPartner;
+
+  // --- Action column ---
+  const actionColumn = (record: any) => (
+    <Space size={4}>
+      <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+      {record.status === 'PENDING' && canShipConfirm(record) && (
+        <Button size="small" type="primary" icon={<SendOutlined />}
+          onClick={() => openShipConfirm(record.request_id)}>출고확인</Button>
+      )}
+      {record.status === 'SHIPPED' && canRecvConfirm(record) && (
+        <Button size="small" style={{ color: '#08979c', borderColor: '#87e8de' }}
+          icon={<CheckCircleOutlined />}
+          onClick={() => openRecvConfirm(record.request_id)}>수령확인</Button>
+      )}
+      {(record.status === 'PENDING' || record.status === 'SHIPPED') && (canShipConfirm(record) || isAdmin) && (
+        <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기">
+          <Button size="small" danger icon={<CloseCircleOutlined />}>취소</Button>
+        </Popconfirm>
+      )}
+    </Space>
+  );
+
+  // --- Column builder ---
+  const buildColumns = (extraCols: any[]) => [
     { title: '의뢰번호', dataIndex: 'request_no', width: 130 },
     { title: '의뢰일', dataIndex: 'request_date', width: 100,
       render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
-    { title: '유형', dataIndex: 'request_type', width: 90,
-      render: (v: string) => {
-        const colorMap: Record<string, string> = { '출고': 'blue', '반품': 'orange', '수평이동': 'purple' };
-        return <Tag color={colorMap[v] || 'default'}>{v}</Tag>;
-      }},
-    { title: '출발', dataIndex: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
-    { title: '도착', dataIndex: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
+    ...extraCols,
     { title: '품목', dataIndex: 'item_summary', ellipsis: true,
       render: (v: string, r: any) => v ? <span>{v} <span style={{ color: '#999' }}>({r.item_count}종)</span></span> : '-' },
     { title: '의뢰', dataIndex: 'total_request_qty', width: 60, align: 'right' as const,
@@ -271,137 +291,204 @@ export default function ShipmentDashboardPage() {
       render: (v: number) => <span style={{ color: v > 0 ? '#13c2c2' : '#ccc' }}>{v || 0}</span> },
     { title: '상태', dataIndex: 'status', width: 90,
       render: (v: string, r: any) => <Tag color={STATUS_COLORS[v]}>{getStatusLabel(v, r.request_type)}</Tag> },
-    { title: '액션', key: 'action', width: 200, render: (_: any, record: any) => (
-      <Space size={4}>
-        <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-        {record.status === 'PENDING' && (
-          <Button size="small" type="primary" icon={<SendOutlined />}
-            onClick={() => openShipConfirm(record.request_id)}>출고확인</Button>
-        )}
-        {record.status === 'SHIPPED' && (
-          <Button size="small" style={{ color: '#08979c', borderColor: '#87e8de' }}
-            icon={<CheckCircleOutlined />}
-            onClick={() => openRecvConfirm(record.request_id)}>수령확인</Button>
-        )}
-        {(record.status === 'PENDING' || record.status === 'SHIPPED') && (
-          <Popconfirm title="정말 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)}
-            okText="취소처리" cancelText="닫기">
-            <Button size="small" danger icon={<CloseCircleOutlined />}>취소</Button>
-          </Popconfirm>
-        )}
-      </Space>
-    )},
+    { title: '액션', key: 'action', width: 200, render: (_: any, r: any) => actionColumn(r) },
   ];
+
+  const shipmentColumns = buildColumns([
+    { title: '출발', dataIndex: 'from_partner_name', width: 100, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '도착', dataIndex: 'to_partner_name', width: 100, ellipsis: true, render: (v: string) => v || '-' },
+  ]);
+
+  const returnColumns = buildColumns([
+    { title: '반품처', dataIndex: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '입고처', dataIndex: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
+  ]);
+
+  const transferColumns = buildColumns([
+    { title: '출발', dataIndex: 'from_partner_name', width: 100, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '도착', dataIndex: 'to_partner_name', width: 100, ellipsis: true, render: (v: string) => v || '-' },
+  ]);
+
+  // --- Section renderer ---
+  const renderSection = (config: {
+    title: string;
+    icon: React.ReactNode;
+    color: string;
+    borderColor: string;
+    summary: TypeSummary;
+    steps: Array<{ status: string; label: string }>;
+    data: any[];
+    total: number;
+    page: number;
+    onPageChange: (p: number) => void;
+    listLoading: boolean;
+    statusFilter: string;
+    onStatusFilter: (s: string) => void;
+    columns: any[];
+    emptyText: string;
+  }) => {
+    const { title, icon, color, borderColor, summary, steps, data, total, page, onPageChange,
+      listLoading, statusFilter, onStatusFilter, columns, emptyText } = config;
+    const totalAll = Object.values(summary).reduce((s, v) => s + v.count, 0);
+
+    return (
+      <Card
+        size="small"
+        style={{ borderRadius: 10, marginBottom: 16, borderLeft: `4px solid ${borderColor}` }}
+        title={
+          <span style={{ fontSize: 15, fontWeight: 600, color }}>
+            {icon} <span style={{ marginLeft: 6 }}>{title}</span>
+            <Tag style={{ marginLeft: 8, fontSize: 11 }}>{totalAll}건</Tag>
+          </span>
+        }
+      >
+        {/* 상태 흐름 — 클릭으로 필터 */}
+        <div style={{ padding: '8px 16px', marginBottom: 12, background: '#fafafa', borderRadius: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+            {/* 전체 버튼 */}
+            <div
+              onClick={() => { onStatusFilter(''); }}
+              style={{
+                padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                background: !statusFilter ? color : 'transparent',
+                color: !statusFilter ? '#fff' : '#666',
+                fontWeight: !statusFilter ? 600 : 400,
+                fontSize: 13, transition: 'all 0.2s',
+                border: !statusFilter ? 'none' : '1px solid #e8e8e8',
+              }}
+            >
+              전체 {totalAll}건
+            </div>
+            {steps.map((st) => {
+              const s = summary[st.status as keyof TypeSummary];
+              const active = statusFilter === st.status;
+              return (
+                <div
+                  key={st.status}
+                  onClick={() => onStatusFilter(active ? '' : st.status)}
+                  style={{
+                    padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                    background: active ? color : 'transparent',
+                    color: active ? '#fff' : '#666',
+                    fontWeight: active ? 600 : 400,
+                    fontSize: 13, transition: 'all 0.2s',
+                    border: active ? 'none' : '1px solid #e8e8e8',
+                  }}
+                >
+                  {st.label} <strong>{s.count}</strong>건
+                  <span style={{ fontSize: 11, opacity: 0.7, marginLeft: 4 }}>({s.qty.toLocaleString()})</span>
+                </div>
+              );
+            })}
+            {summary.CANCELLED.count > 0 && (
+              <div
+                onClick={() => onStatusFilter(statusFilter === 'CANCELLED' ? '' : 'CANCELLED')}
+                style={{
+                  padding: '6px 14px', borderRadius: 6, cursor: 'pointer',
+                  background: statusFilter === 'CANCELLED' ? '#ff4d4f' : 'transparent',
+                  color: statusFilter === 'CANCELLED' ? '#fff' : '#999',
+                  fontSize: 13, transition: 'all 0.2s',
+                  border: statusFilter === 'CANCELLED' ? 'none' : '1px solid #e8e8e8',
+                }}
+              >
+                취소 {summary.CANCELLED.count}건
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* 테이블 */}
+        <Table
+          columns={columns}
+          dataSource={data}
+          rowKey="request_id"
+          loading={summaryLoading || listLoading}
+          size="small"
+          scroll={{ x: 1100 }}
+          pagination={{
+            current: page, total, pageSize: 50,
+            onChange: onPageChange,
+            showTotal: (t) => `총 ${t}건`,
+            size: 'small',
+          }}
+          expandable={{ expandedRowRender, onExpand: handleExpand, rowExpandable: () => true }}
+          locale={{ emptyText: <div style={{ padding: 16, color: '#bbb' }}>{emptyText}</div> }}
+        />
+      </Card>
+    );
+  };
 
   return (
     <div>
       <PageHeader title="종합출고관리" />
 
-      {/* 상태 요약 카드 */}
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        {(['PENDING', 'SHIPPED', 'RECEIVED', 'CANCELLED'] as const).map((status) => {
-          const colors = STATUS_CARD_COLORS[status];
-          const s = statusSummary[status];
-          const isActive = statusFilter === status;
-          return (
-            <Col xs={12} sm={6} key={status}>
-              <div
-                onClick={() => handleCardClick(status)}
-                style={{
-                  background: isActive ? colors.text : colors.bg,
-                  borderRadius: 8,
-                  padding: '12px 16px',
-                  textAlign: 'center',
-                  cursor: 'pointer',
-                  border: `2px solid ${isActive ? colors.text : colors.border}`,
-                  transition: 'all 0.2s',
-                }}
-              >
-                <div style={{ fontSize: 11, color: isActive ? '#fff' : colors.text, opacity: 0.8 }}>
-                  {STATUS_CARD_LABELS[status]}
-                </div>
-                <div style={{ fontSize: 22, fontWeight: 700, color: isActive ? '#fff' : colors.text }}>
-                  {summaryLoading ? '-' : `${s.count}건`}
-                </div>
-                {status !== 'CANCELLED' && (
-                  <div style={{ fontSize: 11, color: isActive ? '#ffffffcc' : colors.text, opacity: 0.7 }}>
-                    총 {summaryLoading ? '-' : s.qty}수량
-                  </div>
-                )}
-              </div>
-            </Col>
-          );
-        })}
-      </Row>
+      {/* 섹션 1: 출고 */}
+      {renderSection({
+        title: '출고 (본사→매장)',
+        icon: <SendOutlined />,
+        color: '#1890ff',
+        borderColor: '#1890ff',
+        summary: shipmentSummary,
+        steps: [
+          { status: 'SHIPPED', label: '출고완료' },
+          { status: 'RECEIVED', label: '수령완료' },
+        ],
+        data: shipmentData,
+        total: shipmentTotal,
+        page: shipmentPage,
+        onPageChange: setShipmentPage,
+        listLoading: shipmentListLoading,
+        statusFilter: shipmentStatusFilter,
+        onStatusFilter: (s) => { setShipmentStatusFilter(s); setShipmentPage(1); },
+        columns: shipmentColumns,
+        emptyText: '출고 내역이 없습니다',
+      })}
 
-      {/* 상태 흐름 시각화 */}
-      <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
-        <Steps
-          size="small"
-          items={[
-            {
-              title: `대기 ${statusSummary.PENDING.count}건`,
-              description: `${statusSummary.PENDING.qty}수량`,
-              icon: <InboxOutlined />,
-              status: 'wait' as const,
-            },
-            {
-              title: `출고완료 ${statusSummary.SHIPPED.count}건`,
-              description: `${statusSummary.SHIPPED.qty}수량`,
-              icon: <SendOutlined />,
-              status: 'process' as const,
-            },
-            {
-              title: `입고완료 ${statusSummary.RECEIVED.count}건`,
-              description: `${statusSummary.RECEIVED.qty}수량`,
-              icon: <CheckCircleOutlined />,
-              status: 'finish' as const,
-            },
-          ]}
-        />
-      </div>
+      {/* 섹션 2: 반품 */}
+      {renderSection({
+        title: '반품 (매장→본사)',
+        icon: <RollbackOutlined />,
+        color: '#fa8c16',
+        borderColor: '#fa8c16',
+        summary: returnSummary,
+        steps: [
+          { status: 'PENDING', label: '대기' },
+          { status: 'SHIPPED', label: '반품출고' },
+          { status: 'RECEIVED', label: '반품수령' },
+        ],
+        data: returnData,
+        total: returnTotal,
+        page: returnPage,
+        onPageChange: setReturnPage,
+        listLoading: returnListLoading,
+        statusFilter: returnStatusFilter,
+        onStatusFilter: (s) => { setReturnStatusFilter(s); setReturnPage(1); },
+        columns: returnColumns,
+        emptyText: '반품 내역이 없습니다',
+      })}
 
-      {/* 필터 */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
-        <div style={{ minWidth: 200, maxWidth: 320 }}>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onPressEnter={triggerLoad}
-            style={{ width: '100%' }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
-          <Segmented options={TYPE_OPTIONS} value={typeFilter}
-            onChange={(v) => { setTypeFilter(v as string); triggerLoad(); }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select value={statusFilter || ''} onChange={(v) => { setStatusFilter(v || ''); triggerLoad(); }} style={{ width: 120 }}
-            options={STATUS_OPTIONS} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
-          <RangePicker presets={datePresets} value={dateRange} onChange={(v) => { setDateRange(v as any); triggerLoad(); }} />
-        </div>
-        <Button onClick={triggerLoad}>조회</Button>
-      </div>
-
-      {/* 테이블 */}
-      <Table
-        columns={columns}
-        dataSource={data}
-        rowKey="request_id"
-        loading={loading}
-        size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{
-          current: page, total, pageSize: 50,
-          onChange: setPage,
-          showTotal: (t) => `총 ${t}건`,
-        }}
-        expandable={{ expandedRowRender, onExpand: handleExpand, rowExpandable: () => true }}
-      />
+      {/* 섹션 3: 수평이동 */}
+      {renderSection({
+        title: '수평이동 (매장↔매장)',
+        icon: <SwapOutlined />,
+        color: '#722ed1',
+        borderColor: '#722ed1',
+        summary: transferSummary,
+        steps: [
+          { status: 'PENDING', label: '대기' },
+          { status: 'SHIPPED', label: '이동출고' },
+          { status: 'RECEIVED', label: '이동완료' },
+        ],
+        data: transferData,
+        total: transferTotal,
+        page: transferPage,
+        onPageChange: setTransferPage,
+        listLoading: transferListLoading,
+        statusFilter: transferStatusFilter,
+        onStatusFilter: (s) => { setTransferStatusFilter(s); setTransferPage(1); },
+        columns: transferColumns,
+        emptyText: '수평이동 내역이 없습니다',
+      })}
 
       {/* 모달들 */}
       <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
@@ -413,7 +500,7 @@ export default function ShipmentDashboardPage() {
         onQtyChange={(vid, qty) => setShipQtys((prev) => ({ ...prev, [vid]: qty }))}
         onConfirm={handleShipConfirm}
         onCancel={() => setShipOpen(false)}
-        confirmLoading={shipLoading}
+        confirmLoading={shipConfirmLoading}
       />
 
       <ReceivedQtyModal
@@ -423,7 +510,7 @@ export default function ShipmentDashboardPage() {
         onQtyChange={(vid, qty) => setRecvQtys((prev) => ({ ...prev, [vid]: qty }))}
         onConfirm={handleRecvConfirm}
         onCancel={() => setRecvOpen(false)}
-        confirmLoading={recvLoading}
+        confirmLoading={recvConfirmLoading}
       />
     </div>
   );

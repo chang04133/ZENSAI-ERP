@@ -19,6 +19,8 @@ router.put('/:id/payment', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ
 router.put('/:id/status', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.updateStatus);
 router.put('/:id/produced-qty', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.updateProducedQty);
 router.put('/:id/materials', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.saveMaterials);
+router.put('/:id/start-production', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.startProduction);
+router.put('/:id/complete-production', authMiddleware, requireRole('SYS_ADMIN', 'ADMIN', 'HQ_MANAGER'), productionController.completeProduction);
 
 // 기본 CRUD
 productionController.registerCrudRoutes(router, {

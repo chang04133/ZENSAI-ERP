@@ -274,7 +274,7 @@ export default function ProductFormPage() {
             <Form.Item name="base_price" label="기본가 (판매가)">
               <InputNumber style={{ width: 160 }} min={0} formatter={priceFormatter} />
             </Form.Item>
-            <Form.Item label="매입가 (원가)">
+            <Form.Item label="원가(원)">
               <InputNumber style={{ width: 160 }} value={calculatedCostPrice} formatter={priceFormatter} disabled />
               <div style={{ fontSize: 11, color: '#888' }}>부자재 합산 자동계산</div>
             </Form.Item>
@@ -319,7 +319,7 @@ export default function ProductFormPage() {
                 { title: '자재코드', dataIndex: 'material_code', width: 100 },
                 { title: '자재명', dataIndex: 'material_name', width: 140 },
                 { title: '유형', dataIndex: 'material_type', width: 80, render: (v: string) => <Tag>{v === 'FABRIC' ? '원단' : v === 'ACCESSORY' ? '부속' : v === 'PACKAGING' ? '포장' : v}</Tag> },
-                { title: '단가', dataIndex: 'unit_price', width: 100, render: (v: number) => `₩${Number(v || 0).toLocaleString()}` },
+                { title: '원가(원)', dataIndex: 'unit_price', width: 100, render: (v: number) => `₩${Number(v || 0).toLocaleString()}` },
                 { title: '사용량', dataIndex: 'usage_qty', width: 100,
                   render: (_: any, record: any) => (
                     <InputNumber

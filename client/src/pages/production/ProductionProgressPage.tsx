@@ -132,7 +132,7 @@ export default function ProductionProgressPage() {
               columns={[
                 { title: '카테고리 / 핏 / 기장', key: 'name', ellipsis: true,
                   render: (_: any, r: ProductionPlanItem) => itemLabel(r) },
-                { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 90,
+                { title: '원가(원)', dataIndex: 'unit_cost', key: 'cost', width: 90,
                   render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
                 { title: '계획', dataIndex: 'plan_qty', key: 'plan', width: 70,
                   render: (v: number) => fmtNum(v) },

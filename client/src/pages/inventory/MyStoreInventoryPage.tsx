@@ -4,10 +4,11 @@ import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOut
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { partnerApi } from '../../modules/partner/partner.api';
+import { productApi } from '../../modules/product/product.api';
+import { codeApi } from '../../modules/code/code.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { sizeSort } from '../../utils/size-order';
-import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
 import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 const STOCK_LEVELS = [
@@ -39,16 +40,71 @@ export default function MyStoreInventoryPage() {
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
-  const [category, setCategory] = useState<string | undefined>();
-  const [season, setSeason] = useState<string | undefined>();
-  const [size, setSize] = useState<string | undefined>();
+  const [category, setCategory] = useState('');
+  const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [season, setSeason] = useState('');
+  const [yearFromFilter, setYearFromFilter] = useState('');
+  const [yearToFilter, setYearToFilter] = useState('');
+  const [fitFilter, setFitFilter] = useState('');
+  const [lengthFilter, setLengthFilter] = useState('');
+  const [size, setSize] = useState('');
   const [color, setColor] = useState('');
-  const [stockLevel, setStockLevel] = useState<string | undefined>();
-  const [sortField, setSortField] = useState('qty');
-  const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('ASC');
+  const [stockLevel, setStockLevel] = useState('');
+  const [sortValue, setSortValue] = useState('qty_ASC');
+
+  // Dynamic filter options (상품관리와 동일)
+  const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
+  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
+  const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
+  const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
+  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
+  const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
+  const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
 
   // Dashboard stats
   const [stats, setStats] = useState<any>(null);
+
+  // 코드 옵션 로드 (상품관리와 동일)
+  useEffect(() => {
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setAllCategoryCodes(data);
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('FIT').then((data: any[]) => {
+      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('LENGTH').then((data: any[]) => {
+      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    productApi.variantOptions().then((data: any) => {
+      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
+      setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
+    }).catch(() => {});
+  }, []);
+
+  const handleCategoryFilterChange = (value: string) => {
+    setCategory(value);
+    setSubCategoryFilter('');
+    setPage(1);
+    if (!value) { setSubCategoryOptions([]); return; }
+    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
+    if (parent) {
+      setSubCategoryOptions(
+        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
+          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
+      );
+    } else {
+      setSubCategoryOptions([]);
+    }
+  };
 
   const load = useCallback(async (p?: number, searchOverride?: string) => {
     if (isHqOrAbove && !selectedPartner) return;
@@ -56,21 +112,30 @@ export default function MyStoreInventoryPage() {
     setLoading(true);
     try {
       const s = searchOverride !== undefined ? searchOverride : search;
-      const params: Record<string, string> = { page: String(currentPage), limit: '50', sort_field: sortField, sort_dir: sortDir };
+      const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (isHqOrAbove && selectedPartner) params.partner_code = selectedPartner;
       if (s) params.search = s;
       if (category) params.category = category;
+      if (subCategoryFilter) params.sub_category = subCategoryFilter;
       if (season) params.season = season;
+      if (yearFromFilter) params.year_from = yearFromFilter;
+      if (yearToFilter) params.year_to = yearToFilter;
+      if (fitFilter) params.fit = fitFilter;
+      if (lengthFilter) params.length = lengthFilter;
       if (size) params.size = size;
       if (color) params.color = color;
       if (stockLevel) params.stock_level = stockLevel;
+      // Parse sort
+      const lastUnderscore = sortValue.lastIndexOf('_');
+      params.sort_field = sortValue.substring(0, lastUnderscore);
+      params.sort_dir = sortValue.substring(lastUnderscore + 1);
       const result = await inventoryApi.list(params);
       setRawData(result.data);
       setTotal(result.total);
       setSumQty(result.sumQty ?? 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, category, season, size, color, stockLevel, sortField, sortDir, isHqOrAbove, selectedPartner]);
+  }, [page, search, category, subCategoryFilter, season, yearFromFilter, yearToFilter, fitFilter, lengthFilter, size, color, stockLevel, sortValue, isHqOrAbove, selectedPartner]);
 
   const loadStats = useCallback(async () => {
     if (isHqOrAbove && !selectedPartner) return;
@@ -91,7 +156,7 @@ export default function MyStoreInventoryPage() {
   }, [isHqOrAbove]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { load(); }, [page, sortField, sortDir, category, season, size, color, stockLevel, selectedPartner]);
+  useEffect(() => { load(); }, [page, category, subCategoryFilter, season, yearFromFilter, yearToFilter, fitFilter, lengthFilter, size, color, stockLevel, sortValue, selectedPartner]);
 
   const doSearch = () => { setPage(1); load(1); };
 
@@ -118,28 +183,25 @@ export default function MyStoreInventoryPage() {
   }, []);
 
   const resetFilters = () => {
-    setSearch(''); setCategory(undefined); setSeason(undefined);
-    setSize(undefined); setColor(''); setStockLevel(undefined);
-    setSortField('qty'); setSortDir('ASC');
+    setSearch(''); setCategory(''); setSubCategoryFilter('');
+    setSeason(''); setYearFromFilter(''); setYearToFilter('');
+    setFitFilter(''); setLengthFilter('');
+    setSize(''); setColor(''); setStockLevel('');
+    setSortValue('qty_ASC'); setSubCategoryOptions([]);
     setPage(1);
   };
-
-  // Extract season options from stats
-  const seasonOptions = (stats?.bySeason || [])
-    .filter((s: any) => s.season)
-    .map((s: any) => ({ label: `${formatCode('SEASON', s.season)} (${s.total_qty}개)`, value: s.season }));
 
   // --- 뷰모드별 데이터 변환 ---
   const displayData = useMemo(() => {
     if (viewMode === 'product') {
-      // Group by product_code
       const map: Record<string, any> = {};
       rawData.forEach((r) => {
         const key = r.product_code;
         if (!map[key]) {
           map[key] = {
             product_code: r.product_code, product_name: r.product_name, category: r.category,
-            brand: r.brand, season: r.season, fit: r.fit, base_price: r.base_price, image_url: r.image_url,
+            sub_category: r.sub_category, brand: r.brand, season: r.season, year: r.year,
+            fit: r.fit, length: r.length, base_price: r.base_price, image_url: r.image_url,
             total_qty: 0, _variants: [],
           };
         }
@@ -156,34 +218,32 @@ export default function MyStoreInventoryPage() {
         if (!map[key]) {
           map[key] = {
             product_code: r.product_code, product_name: r.product_name, category: r.category,
-            brand: r.brand, season: r.season, fit: r.fit, base_price: r.base_price, image_url: r.image_url,
+            sub_category: r.sub_category, brand: r.brand, season: r.season, year: r.year,
+            fit: r.fit, length: r.length, base_price: r.base_price, image_url: r.image_url,
             _color: r.color || '-', _colorQty: 0, _colorVariants: [], _rowKey: key,
           };
         }
         map[key]._colorQty += Number(r.qty || 0);
         map[key]._colorVariants.push(r);
       });
-      // Sort variants within each color group by size
       Object.values(map).forEach((row: any) => {
         row._colorVariants.sort((a: any, b: any) => sizeSort(a.size, b.size));
       });
       return Object.values(map);
     }
 
-    // size view: each variant as a row
     return rawData.map((r) => ({ ...r, _rowKey: `${r.inventory_id}` }));
   }, [viewMode, rawData]);
 
-  // --- Render qty with color coding ---
   const renderQty = (qty: number) => {
     const n = Number(qty);
     let label: string | undefined;
     if (n === 0) { label = '품절'; }
     else if (n <= 5) { label = '부족'; }
-    const color = n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333';
+    const clr = n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333';
     return (
       <Space size={4}>
-        <span style={{ fontWeight: 600, color }}>{n.toLocaleString()}</span>
+        <span style={{ fontWeight: 600, color: clr }}>{n.toLocaleString()}</span>
         {label && <Tag color={n === 0 ? 'red' : 'orange'} style={{ fontSize: 11, lineHeight: '16px', padding: '0 4px' }}>{label}</Tag>}
       </Space>
     );
@@ -198,16 +258,14 @@ export default function MyStoreInventoryPage() {
     },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90,
-      render: (v: string) => v ? <Tag>{v}</Tag> : '-',
-    },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
+    { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 90, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
-    { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90,
-      render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
-    },
-    { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100,
-      render: (v: number) => renderQty(v),
-    },
+    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
+    { title: '기장', dataIndex: 'length', key: 'length', width: 65, render: (v: string) => v ? <Tag color="volcano">{formatCode('LENGTH', v)}</Tag> : '-' },
+    { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90, render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
+    { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, render: (v: number) => renderQty(v) },
   ];
 
   // --- 컬러별 columns ---
@@ -217,18 +275,13 @@ export default function MyStoreInventoryPage() {
         ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
         : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
     },
-    { title: '상품코드', key: 'product_code', width: 130, ellipsis: true,
-      render: (_: any, r: any) => `${r.product_code}`,
-    },
+    { title: '상품코드', key: 'product_code', width: 130, ellipsis: true, render: (_: any, r: any) => r.product_code },
     { title: 'Color', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90,
-      render: (v: string) => v ? <Tag>{v}</Tag> : '-',
-    },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
-    { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100,
-      render: (v: number) => renderQty(v),
-    },
+    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
+    { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100, render: (v: number) => renderQty(v) },
   ];
 
   // --- 사이즈별 columns ---
@@ -243,12 +296,8 @@ export default function MyStoreInventoryPage() {
     { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v || '-'}</Tag> },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 170, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90,
-      render: (v: string) => v ? <Tag>{v}</Tag> : '-',
-    },
-    { title: '재고', dataIndex: 'qty', key: 'qty', width: 100,
-      render: (v: number) => renderQty(Number(v)),
-    },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
+    { title: '재고', dataIndex: 'qty', key: 'qty', width: 100, render: (v: number) => renderQty(Number(v)) },
   ];
 
   const displayColumns = useMemo(() => {
@@ -261,7 +310,6 @@ export default function MyStoreInventoryPage() {
   const productExpandedRow = (record: any) => {
     const variants = record._variants || [];
     if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
-    // Group by color for display
     const colorMap: Record<string, any[]> = {};
     variants.forEach((v: any) => {
       const c = v.color || '-';
@@ -269,7 +317,7 @@ export default function MyStoreInventoryPage() {
       colorMap[c].push(v);
     });
     const rows: any[] = [];
-    Object.entries(colorMap).forEach(([clr, vs]) => {
+    Object.entries(colorMap).forEach(([, vs]) => {
       vs.sort((a: any, b: any) => sizeSort(a.size, b.size));
       vs.forEach((v: any) => rows.push(v));
     });
@@ -277,9 +325,7 @@ export default function MyStoreInventoryPage() {
       { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
       { title: 'Color', dataIndex: 'color', key: 'color', width: 80, render: (v: string) => v || '-' },
       { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90,
-        render: (v: number) => renderQty(Number(v)),
-      },
+      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
     ];
     return <Table columns={cols} dataSource={rows} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
   };
@@ -290,9 +336,7 @@ export default function MyStoreInventoryPage() {
     const cols = [
       { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
       { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90,
-        render: (v: number) => renderQty(Number(v)),
-      },
+      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
     ];
     return <Table columns={cols} dataSource={variants} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
   };
@@ -303,16 +347,8 @@ export default function MyStoreInventoryPage() {
     return undefined;
   }, [viewMode, rawData]);
 
-  const handleTableChange = (_pagination: any, _filters: any, sorter: any) => {
-    if (sorter.field && sorter.order) {
-      setSortField(sorter.field);
-      setSortDir(sorter.order === 'ascend' ? 'ASC' : 'DESC');
-    }
-  };
-
   const overall = stats?.overall;
   const byCategory = stats?.byCategory || [];
-
   const selectedPartnerName = partners.find(p => p.partner_code === selectedPartner)?.partner_name;
 
   return (
@@ -325,8 +361,7 @@ export default function MyStoreInventoryPage() {
           <ShopOutlined style={{ fontSize: 18, color: '#1677ff' }} />
           <span style={{ fontWeight: 600 }}>매장 선택:</span>
           <Select
-            showSearch
-            optionFilterProp="label"
+            showSearch optionFilterProp="label"
             placeholder="매장을 선택해주세요"
             value={selectedPartner || undefined}
             onChange={(v) => { setSelectedPartner(v); setPage(1); setRawData([]); setStats(null); }}
@@ -371,7 +406,7 @@ export default function MyStoreInventoryPage() {
                     key={c.category}
                     color={category === c.category ? 'blue' : undefined}
                     style={{ cursor: 'pointer', margin: 0 }}
-                    onClick={() => { setCategory(prev => prev === c.category ? undefined : c.category); setPage(1); }}
+                    onClick={() => { setCategory(prev => prev === c.category ? '' : c.category); setPage(1); }}
                   >
                     {c.category} ({c.total_qty})
                   </Tag>
@@ -382,45 +417,69 @@ export default function MyStoreInventoryPage() {
         </Row>
       )}
 
-      {/* Filters + Table (매장 선택 필요) */}
+      {/* Filters + Table */}
       {(!isHqOrAbove || selectedPartner) && (<>
-      <Space wrap style={{ marginBottom: 16 }}>
-        <AutoComplete
-          value={search} onChange={onSearchChange} onSelect={onSearchSelect}
-          style={{ width: 220 }}
-          options={searchSuggestions.map(s => ({
-            value: s.product_code,
-            label: (
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
-                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
-              </div>
-            ),
-          }))}
-        >
-          <Input
-            size="small" placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
-            onPressEnter={doSearch}
-            allowClear
-          />
-        </AutoComplete>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <AutoComplete
+            value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+            style={{ width: '100%' }}
+            options={searchSuggestions.map(s => ({
+              value: s.product_code,
+              label: (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                  <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+                </div>
+              ),
+            }))}
+          >
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={doSearch} allowClear />
+          </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select size="small" value={category || ''} onChange={(v) => { setCategory(v || undefined); setPage(1); }}
-            style={{ width: 120 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} /></div>
+          <Select value={category} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
+          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
+            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!category} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
+          <Select allowClear value={yearFromFilter || undefined} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(까지)</div>
+          <Select allowClear value={yearToFilter || undefined} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
+            placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select size="small" value={season || ''} onChange={(v) => { setSeason(v || undefined); setPage(1); }}
-            style={{ width: 140 }} options={[{ label: '전체 보기', value: '' }, ...seasonOptions]} /></div>
+          <Select value={season} onChange={(v) => { setSeason(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
+          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
+            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
+          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select showSearch optionFilterProp="label" value={color}
+            onChange={(v) => { setColor(v); setPage(1); }} style={{ width: 120 }}
+            options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-          <Select size="small" value={size || ''} onChange={(v) => { setSize(v || undefined); setPage(1); }}
-            style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} /></div>
-        <Input size="small" placeholder="색상" value={color} onChange={(e) => setColor(e.target.value)}
-          onPressEnter={doSearch} style={{ width: 90 }} allowClear />
+          <Select showSearch optionFilterProp="label" value={size}
+            onChange={(v) => { setSize(v); setPage(1); }} style={{ width: 110 }}
+            options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>재고상태</div>
-          <Select size="small" value={stockLevel || ''} onChange={(v) => { setStockLevel(v || undefined); setPage(1); }}
+          <Select value={stockLevel} onChange={(v) => { setStockLevel(v); setPage(1); }}
             style={{ width: 130 }} options={STOCK_LEVELS} /></div>
-        <Button size="small" onClick={doSearch} type="primary">조회</Button>
-        <Button size="small" icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
-      </Space>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
+          <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
+            options={[
+              { label: '재고 적은순', value: 'qty_ASC' },
+              { label: '재고 많은순', value: 'qty_DESC' },
+              { label: '상품명순', value: 'product_name_ASC' },
+              { label: '가격 높은순', value: 'base_price_DESC' },
+              { label: '가격 낮은순', value: 'base_price_ASC' },
+            ]} /></div>
+        <Button onClick={doSearch}>조회</Button>
+        <Button icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
+      </div>
 
       <div style={{ marginBottom: 12 }}>
         <Segmented
@@ -440,11 +499,10 @@ export default function MyStoreInventoryPage() {
       <Table
         columns={displayColumns}
         dataSource={displayData}
-        rowKey={viewMode === 'product' ? 'product_code' : viewMode === 'color' ? '_rowKey' : '_rowKey'}
+        rowKey={viewMode === 'product' ? 'product_code' : '_rowKey'}
         loading={loading}
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        onChange={handleTableChange}
         pagination={{
           current: page, total, pageSize: 50,
           onChange: (p) => setPage(p),

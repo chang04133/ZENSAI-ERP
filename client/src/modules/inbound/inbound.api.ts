@@ -14,9 +14,8 @@ export const inboundApi = {
     return data.data as {
       total_count: number; total_qty: number;
       pending_count: number; pending_qty: number;
-      today_count: number; today_qty: number;
-      week_count: number; week_qty: number;
-      month_count: number; month_qty: number;
+      completed_count: number; completed_qty: number;
+      manual_count: number; manual_qty: number;
       by_partner: Array<{ partner_code: string; partner_name: string; count: number; total_qty: number }>;
     };
   },

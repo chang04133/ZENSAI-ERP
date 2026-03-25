@@ -18,12 +18,14 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
   }
 
   async list(options: any = {}) {
-    const { page = 1, limit = 20, search, partner_code, date_from, date_to, status } = options;
+    const { page = 1, limit = 20, search, partner_code, date_from, date_to, status, source_type } = options;
     const offset = (Number(page) - 1) * Number(limit);
     const qb = new QueryBuilder('ir');
     if (search) qb.search(['inbound_no'], search);
     if (partner_code) qb.eq('partner_code', partner_code);
     if (status) qb.eq('status', status);
+    if (source_type === 'MANUAL') qb.raw("(ir.source_type IS NULL OR ir.source_type != 'PRODUCTION')");
+    else if (source_type === 'PRODUCTION') qb.eq('source_type', 'PRODUCTION');
     if (date_from) qb.raw('ir.inbound_date >= ?', date_from);
     if (date_to) qb.raw('ir.inbound_date <= ?', date_to);
     const { whereClause, params, nextIdx } = qb.build();
@@ -51,11 +53,15 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
 
   async getWithItems(id: number): Promise<InboundRecord | null> {
     const rec = await this.pool.query(
-      `SELECT ir.*, p.partner_name
+      `SELECT ir.*, p.partner_name,
+         pp.plan_no
        FROM inbound_records ir
        LEFT JOIN partners p ON ir.partner_code = p.partner_code
+       LEFT JOIN production_plans pp ON ir.source_type = 'PRODUCTION' AND ir.source_id = pp.plan_id
        WHERE ir.record_id = $1`, [id]);
     if (rec.rows.length === 0) return null;
+    const record = rec.rows[0];
+
     const items = await this.pool.query(
       `SELECT ii.*, pv.sku, pv.color, pv.size, pr.product_name, pr.product_code
        FROM inbound_items ii
@@ -63,7 +69,22 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
        JOIN products pr ON pv.product_code = pr.product_code
        WHERE ii.record_id = $1
        ORDER BY ii.item_id`, [id]);
-    return { ...rec.rows[0], items: items.rows };
+    record.items = items.rows;
+
+    // 생산입고 대기 시 생산계획 품목도 함께 반환
+    if (record.status === 'PENDING' && record.source_type === 'PRODUCTION' && record.source_id) {
+      const prodItems = await this.pool.query(
+        `SELECT ppi.item_id, ppi.category, ppi.sub_category, ppi.fit, ppi.length,
+                ppi.product_code, ppi.plan_qty, ppi.produced_qty, ppi.unit_cost,
+                pr.product_name
+         FROM production_plan_items ppi
+         LEFT JOIN products pr ON ppi.product_code = pr.product_code
+         WHERE ppi.plan_id = $1
+         ORDER BY ppi.item_id`, [record.source_id]);
+      record.production_items = prodItems.rows;
+    }
+
+    return record;
   }
 
   async createWithItems(
@@ -123,15 +144,13 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
     const sql = `
       SELECT
         COUNT(*)::int as total_count,
-        COALESCE(SUM(agg.total_qty), 0)::int as total_qty,
+        COALESCE(SUM(CASE WHEN ir.status = 'COMPLETED' THEN agg.total_qty ELSE ir.expected_qty END), 0)::int as total_qty,
         COUNT(*) FILTER (WHERE ir.status = 'PENDING')::int as pending_count,
         COALESCE(SUM(ir.expected_qty) FILTER (WHERE ir.status = 'PENDING'), 0)::int as pending_qty,
-        COUNT(*) FILTER (WHERE ir.inbound_date = CURRENT_DATE)::int as today_count,
-        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date = CURRENT_DATE), 0)::int as today_qty,
-        COUNT(*) FILTER (WHERE ir.inbound_date >= date_trunc('week', CURRENT_DATE))::int as week_count,
-        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date >= date_trunc('week', CURRENT_DATE)), 0)::int as week_qty,
-        COUNT(*) FILTER (WHERE ir.inbound_date >= date_trunc('month', CURRENT_DATE))::int as month_count,
-        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.inbound_date >= date_trunc('month', CURRENT_DATE)), 0)::int as month_qty
+        COUNT(*) FILTER (WHERE ir.status = 'COMPLETED')::int as completed_count,
+        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.status = 'COMPLETED'), 0)::int as completed_qty,
+        COUNT(*) FILTER (WHERE ir.status = 'COMPLETED' AND (ir.source_type IS NULL OR ir.source_type != 'PRODUCTION'))::int as manual_count,
+        COALESCE(SUM(agg.total_qty) FILTER (WHERE ir.status = 'COMPLETED' AND (ir.source_type IS NULL OR ir.source_type != 'PRODUCTION')), 0)::int as manual_qty
       FROM inbound_records ir
       LEFT JOIN (
         SELECT record_id, SUM(qty) as total_qty

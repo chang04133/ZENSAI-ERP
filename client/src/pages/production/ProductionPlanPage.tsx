@@ -400,30 +400,22 @@ export default function ProductionPlanPage() {
     setAdvanceLoading(true);
     try {
       const values = await advanceForm.validateFields();
-      // 1. 상태 변경 (DRAFT → IN_PRODUCTION)
-      await productionApi.updateStatus(advancePlanId, 'IN_PRODUCTION');
-      // 2. 선지급 처리
-      try {
-        await productionApi.updatePayment(advancePlanId, {
-          action: 'advance',
-          total_amount: values.total_amount,
-          advance_rate: values.advance_rate,
-          advance_amount: values.advance_amount,
-          advance_date: values.advance_date.format('YYYY-MM-DD'),
-        });
-        message.success('생산이 시작되었습니다. 선지급이 처리되었습니다.');
-      } catch (payErr: any) {
-        message.warning('생산시작은 완료되었으나 선지급 처리에 실패했습니다: ' + payErr.message);
-      }
+      await productionApi.startProduction(advancePlanId, {
+        total_amount: values.total_amount,
+        advance_rate: values.advance_rate,
+        advance_amount: values.advance_amount,
+        advance_date: values.advance_date.format('YYYY-MM-DD'),
+      });
+      message.success('생산이 시작되었습니다. 선지급이 처리되었습니다.');
       setAdvanceOpen(false);
-    } catch (e: any) {
-      message.error('생산시작 실패: ' + (e.message || '알 수 없는 오류'));
-    } finally {
-      setAdvanceLoading(false);
       load(); loadCounts();
       if (detail?.plan_id === advancePlanId) {
         try { const updated = await productionApi.get(advancePlanId); setDetail(updated); } catch {}
       }
+    } catch (e: any) {
+      message.error('생산시작 실패: ' + (e.message || '알 수 없는 오류'));
+    } finally {
+      setAdvanceLoading(false);
     }
   };
 
@@ -443,29 +435,19 @@ export default function ProductionPlanPage() {
     setBalanceLoading(true);
     try {
       const values = await balanceForm.validateFields();
-      const balanceAmt = (Number(balancePlan.total_amount) || 0) - (Number(balancePlan.advance_amount) || 0);
-      // 1. 잔금 처리
-      await productionApi.updatePayment(planId, {
-        action: 'balance',
-        balance_amount: balanceAmt,
+      await productionApi.completeProduction(planId, {
         balance_date: values.balance_date.format('YYYY-MM-DD'),
       });
-      // 2. 완료 처리
-      try {
-        await productionApi.updateStatus(planId, 'COMPLETED');
-        message.success('잔금이 지급되었습니다. 생산이 완료 처리되었습니다.');
-      } catch (statusErr: any) {
-        message.warning('잔금 지급은 완료되었으나 완료 처리에 실패했습니다: ' + statusErr.message);
-      }
+      message.success('잔금이 지급되었습니다. 생산이 완료 처리되었습니다.');
       setBalanceOpen(false);
-    } catch (e: any) {
-      message.error('잔금 지급 실패: ' + (e.message || '알 수 없는 오류'));
-    } finally {
-      setBalanceLoading(false);
       load(); loadCounts();
       if (detail?.plan_id === planId) {
         try { const updated = await productionApi.get(planId); setDetail(updated); } catch {}
       }
+    } catch (e: any) {
+      message.error('완료처리 실패: ' + (e.message || '알 수 없는 오류'));
+    } finally {
+      setBalanceLoading(false);
     }
   };
 
@@ -781,7 +763,7 @@ export default function ProductionPlanPage() {
                           value={item.unit_cost}
                           onChange={(v) => updateSubItem(group.key, item.key, 'unit_cost', v)}
                           style={{ width: 120 }}
-                          placeholder="단가"
+                          placeholder="원가(원)"
                           formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                           parser={(v) => Number((v || '').replace(/,/g, ''))}
                         />
@@ -976,7 +958,7 @@ export default function ProductionPlanPage() {
                         { title: '기장', dataIndex: 'length', key: 'len', width: 100,
                           render: (v: string) => v ? <Tag>{lenLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>전체</span> },
                         { title: '계획수량', dataIndex: 'plan_qty', key: 'plan', width: 90, render: (v: number) => fmtNum(v) },
-                        { title: '단가', dataIndex: 'unit_cost', key: 'cost', width: 100,
+                        { title: '원가(원)', dataIndex: 'unit_cost', key: 'cost', width: 100,
                           render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
                         { title: '금액', key: 'amount', width: 110, render: (_: any, r: any) => {
                           const amt = (r.plan_qty || 0) * (r.unit_cost || 0);

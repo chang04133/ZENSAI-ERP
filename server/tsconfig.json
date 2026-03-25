@@ -11,7 +11,7 @@
     "skipLibCheck": true,
     "lib": ["ES2022"]
   },
-  "files": ["src/types/express.d.ts"],
+  "files": ["src/types/express.d.ts", "src/types/vendor.d.ts"],
   "include": ["src/**/*.ts", "../shared/**/*.ts"],
   "exclude": ["node_modules", "dist", "src/**/*-GLOBALCHAIRMAN*"]
 }

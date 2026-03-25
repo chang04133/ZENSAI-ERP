@@ -31,16 +31,15 @@ const ReturnManagePage = lazy(() => import('../pages/shipment/ReturnManagePage')
 const HorizontalTransferPage = lazy(() => import('../pages/shipment/HorizontalTransferPage'));
 const ShipmentHistoryPage = lazy(() => import('../pages/shipment/ShipmentHistoryPage'));
 const ShipmentViewPage = lazy(() => import('../pages/shipment/ShipmentViewPage'));
-const NewProductShipmentPage = lazy(() => import('../pages/shipment/NewProductShipmentPage'));
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
-const MyStoreInventoryPage = lazy(() => import('../pages/inventory/MyStoreInventoryPage'));
-const WarehouseInventoryPage = lazy(() => import('../pages/inventory/WarehouseInventoryPage'));
 
 // Inbound
 const InboundDashboardPage = lazy(() => import('../pages/receiving/InboundDashboardPage'));
 const InboundPage = lazy(() => import('../pages/receiving/InboundPage'));
+const InboundViewPage = lazy(() => import('../pages/receiving/InboundViewPage'));
+const InboundHistoryPage = lazy(() => import('../pages/receiving/InboundHistoryPage'));
 
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
@@ -131,7 +130,6 @@ export const appRoutes: AppRoute[] = [
   { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/new-product', element: <NewProductShipmentPage />, roles: ADMIN_HQ },
   { path: '/shipment/view', element: <ShipmentViewPage />, roles: ADMIN_HQ_STORE },
 
   // Inventory
@@ -139,14 +137,14 @@ export const appRoutes: AppRoute[] = [
   { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/my-store', element: <MyStoreInventoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/warehouse', element: <WarehouseInventoryPage />, roles: ADMIN_HQ_STORE },
   // 기존 /inventory/inbound 경로 유지 (호환)
   { path: '/inventory/inbound', element: <InboundPage />, roles: ADMIN_HQ_STORE },
 
   // Inbound
   { path: '/inbound/dashboard', element: <InboundDashboardPage />, roles: ADMIN_HQ_STORE },
   { path: '/inbound/register', element: <InboundPage />, roles: ADMIN_HQ },
+  { path: '/inbound/view', element: <InboundViewPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inbound/history', element: <InboundHistoryPage />, roles: ADMIN_HQ_STORE },
 
   // Sales — 매출등록은 STORE_STAFF도 가능
   { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },

@@ -212,7 +212,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       ),
     },
     {
-      title: '단가', dataIndex: 'unit_price', width: 110,
+      title: '원가(원)', dataIndex: 'unit_price', width: 110,
       render: (_: number, r: VariantRow) => (
         <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
           formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
@@ -280,7 +280,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
           <Button icon={<DownloadOutlined />} size="small" onClick={handleTemplateDownload}>
             템플릿 다운로드
           </Button>
-          <span style={{ marginLeft: 8, fontSize: 12, color: '#888' }}>SKU / 수량 / 단가 / 메모</span>
+          <span style={{ marginLeft: 8, fontSize: 12, color: '#888' }}>SKU / 수량 / 원가 / 메모</span>
         </div>
 
         <Upload.Dragger
@@ -475,6 +475,10 @@ function HistoryTab({ partners }: { partners: any[] }) {
   const handleConfirm = async () => {
     if (!confirmRecord) return;
     if (confirmItems.length === 0) { message.warning('품목을 추가해주세요.'); return; }
+    if (confirmRecord.expected_qty && confirmTotalQty !== confirmRecord.expected_qty) {
+      message.error(`입고 수량(${confirmTotalQty}개)이 예상 수량(${confirmRecord.expected_qty}개)과 일치하지 않습니다.`);
+      return;
+    }
     setConfirmLoading(true);
     try {
       await inboundApi.confirm(confirmRecord.record_id, confirmItems.map((i) => ({
@@ -518,7 +522,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
     { title: '컬러', dataIndex: 'color', width: 70 },
     { title: '사이즈', dataIndex: 'size', width: 65 },
     { title: '수량', dataIndex: 'qty', width: 80, render: (v: number) => <b>{fmt(v)}</b> },
-    { title: '단가', dataIndex: 'unit_price', width: 100,
+    { title: '원가(원)', dataIndex: 'unit_price', width: 100,
       render: (v: number | null) => v != null ? fmt(v) + '원' : '-' },
   ];
 
@@ -532,7 +536,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
           onChange={(v) => updateCI(r.key, 'qty', v || 1)} />
       ),
     },
-    { title: '단가', width: 110,
+    { title: '원가(원)', width: 110,
       render: (_: unknown, r: VariantRow) => (
         <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
           formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}

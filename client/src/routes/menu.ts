@@ -20,7 +20,6 @@ export const menuItems: MenuItem[] = [
   { key: '/', label: '대시보드', icon: 'DashboardOutlined', roles: ALL },
   { key: '/notices', label: '공지사항', icon: 'NotificationOutlined', roles: ALL },
   { key: '/barcode', label: '바코드 관리', icon: 'BarcodeOutlined', roles: STORE_ONLY },
-  { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
   {
     key: 'sub-products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
     children: [
@@ -33,8 +32,6 @@ export const menuItems: MenuItem[] = [
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/warehouse', label: '창고재고', icon: 'HomeOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/my-store', label: '매장재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
     ],
@@ -53,6 +50,8 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/inbound/dashboard', label: '종합입고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inbound/register', label: '입고등록', icon: 'PlusCircleOutlined', roles: ADMIN_HQ },
+      { key: '/inbound/view', label: '입고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inbound/history', label: '입고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
   {
@@ -60,8 +59,7 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/shipment/dashboard', label: '종합출고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/request', label: '출고등록', icon: 'SendOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/new-product', label: '신상 판매분 출고', icon: 'RocketOutlined', roles: ADMIN_HQ },
-      { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
+{ key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/history', label: '출고내역', icon: 'HistoryOutlined', roles: ADMIN_HQ_STORE },
@@ -85,7 +83,13 @@ export const menuItems: MenuItem[] = [
     ],
   },
   { key: '/users', label: '직원 관리', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
-  { key: '/codes', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_SYS },
+  {
+    key: 'sub-master', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_SYS,
+    children: [
+      { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/codes', label: '코드 관리', icon: 'DatabaseOutlined', roles: ADMIN_SYS },
+    ],
+  },
   {
     key: '/system', label: '시스템관리', icon: 'ToolOutlined', roles: ADMIN_SYS,
     children: [

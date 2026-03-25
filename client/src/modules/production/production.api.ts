@@ -108,6 +108,28 @@ export const productionApi = {
     return d.data as ProductionPlan;
   },
 
+  /** 생산시작 + 선지급 (원자적) */
+  startProduction: async (id: number, paymentData: Record<string, any>) => {
+    const res = await apiFetch(`/api/productions/${id}/start-production`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(paymentData),
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data as ProductionPlan;
+  },
+
+  /** 완료처리 + 잔금지급 (원자적) */
+  completeProduction: async (id: number, paymentData: Record<string, any>) => {
+    const res = await apiFetch(`/api/productions/${id}/complete-production`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(paymentData),
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data as ProductionPlan;
+  },
+
   // 엑셀 템플릿 다운로드 URL
   excelTemplateUrl: '/api/productions/excel/template',
 

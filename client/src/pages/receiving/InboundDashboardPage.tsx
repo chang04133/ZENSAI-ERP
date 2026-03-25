@@ -4,8 +4,8 @@ import {
   Segmented, Select, InputNumber,
 } from 'antd';
 import {
-  SearchOutlined, CalendarOutlined, ShopOutlined, InboxOutlined,
-  RiseOutlined, DeleteOutlined, ClockCircleOutlined, CheckCircleOutlined,
+  SearchOutlined, InboxOutlined,
+  DeleteOutlined, ClockCircleOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inboundApi } from '../../modules/inbound/inbound.api';
@@ -22,18 +22,15 @@ const { RangePicker } = DatePicker;
 interface Summary {
   total_count: number; total_qty: number;
   pending_count: number; pending_qty: number;
-  today_count: number; today_qty: number;
-  week_count: number; week_qty: number;
-  month_count: number; month_qty: number;
+  completed_count: number; completed_qty: number;
+  manual_count: number; manual_qty: number;
   by_partner: Array<{ partner_code: string; partner_name: string; count: number; total_qty: number }>;
 }
 
 const CARD_STYLES = [
-  { bg: '#fff1f0', text: '#cf1322', border: '#ffa39e', label: '입고대기', icon: <ClockCircleOutlined />, key: 'pending' },
-  { bg: '#e6f7ff', text: '#1890ff', border: '#91d5ff', label: '오늘 입고', icon: <CalendarOutlined />, key: 'today' },
-  { bg: '#f6ffed', text: '#52c41a', border: '#b7eb8f', label: '이번주', icon: <RiseOutlined />, key: 'week' },
-  { bg: '#fff7e6', text: '#fa8c16', border: '#ffd591', label: '이번달', icon: <InboxOutlined />, key: 'month' },
-  { bg: '#f9f0ff', text: '#722ed1', border: '#d3adf7', label: '전체', icon: <ShopOutlined />, key: 'total' },
+  { bg: '#fff1f0', text: '#cf1322', border: '#ffa39e', label: '입고대기', icon: <ClockCircleOutlined />, key: 'pending', qtyLabel: '예상' },
+  { bg: '#f6ffed', text: '#52c41a', border: '#b7eb8f', label: '입고완료', icon: <CheckCircleOutlined />, key: 'completed', qtyLabel: '총' },
+  { bg: '#e6f7ff', text: '#1890ff', border: '#91d5ff', label: '수동입고', icon: <InboxOutlined />, key: 'manual', qtyLabel: '총' },
 ];
 
 interface ConfirmItem {
@@ -68,6 +65,7 @@ export default function InboundDashboardPage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [partnerFilter, setPartnerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [sourceFilter, setSourceFilter] = useState<string>('');
   const [loadTrigger, setLoadTrigger] = useState(0);
   const triggerLoad = () => { setPage(1); setLoadTrigger((p) => p + 1); };
 
@@ -101,6 +99,7 @@ export default function InboundDashboardPage() {
       if (search) params.search = search;
       if (partnerFilter) params.partner_code = partnerFilter;
       if (statusFilter) params.status = statusFilter;
+      if (sourceFilter) params.source_type = sourceFilter;
       if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
       if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
       const result = await inboundApi.list(params);
@@ -108,7 +107,7 @@ export default function InboundDashboardPage() {
       setTotal(result.total);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, partnerFilter, statusFilter, dateRange]);
+  }, [page, search, partnerFilter, statusFilter, sourceFilter, dateRange]);
 
   const refreshAll = useCallback(() => {
     loadSummary();
@@ -121,11 +120,9 @@ export default function InboundDashboardPage() {
   // Summary card values
   const cardValues = summary ? [
     { count: summary.pending_count, qty: summary.pending_qty },
-    { count: summary.today_count, qty: summary.today_qty },
-    { count: summary.week_count, qty: summary.week_qty },
-    { count: summary.month_count, qty: summary.month_qty },
-    { count: summary.total_count, qty: summary.total_qty },
-  ] : Array(5).fill({ count: 0, qty: 0 });
+    { count: summary.completed_count, qty: summary.completed_qty },
+    { count: summary.manual_count, qty: summary.manual_qty },
+  ] : Array(3).fill({ count: 0, qty: 0 });
 
   // Detail
   const showDetail = async (id: number) => {
@@ -218,6 +215,10 @@ export default function InboundDashboardPage() {
       message.warning('입고할 품목을 추가해주세요.');
       return;
     }
+    if (confirmRecord.expected_qty && confirmTotalQty !== confirmRecord.expected_qty) {
+      message.error(`입고 수량(${confirmTotalQty}개)이 예상 수량(${confirmRecord.expected_qty}개)과 일치하지 않습니다.`);
+      return;
+    }
     setConfirmLoading(true);
     try {
       await inboundApi.confirm(confirmRecord.record_id, confirmItems.map((i) => ({
@@ -275,7 +276,7 @@ export default function InboundDashboardPage() {
     { title: '사이즈', dataIndex: 'size', width: 65 },
     { title: '수량', dataIndex: 'qty', width: 80, align: 'right' as const,
       render: (v: number) => <strong>{fmt(v)}</strong> },
-    { title: '단가', dataIndex: 'unit_price', width: 100,
+    { title: '원가(원)', dataIndex: 'unit_price', width: 100,
       render: (v: number | null) => v != null ? fmt(v) + '원' : '-' },
   ];
 
@@ -290,7 +291,7 @@ export default function InboundDashboardPage() {
           onChange={(v) => updateConfirmItem(r.key, 'qty', v || 1)} />
       ),
     },
-    { title: '단가', dataIndex: 'unit_price', width: 110,
+    { title: '원가(원)', dataIndex: 'unit_price', width: 110,
       render: (_: number, r: ConfirmItem) => (
         <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
           formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
@@ -315,14 +316,19 @@ export default function InboundDashboardPage() {
       <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
         {CARD_STYLES.map((style, i) => {
           const v = cardValues[i];
+          const handleCardClick = () => {
+            if (style.key === 'pending') { setStatusFilter('PENDING'); setSourceFilter(''); }
+            else if (style.key === 'completed') { setStatusFilter('COMPLETED'); setSourceFilter(''); }
+            else if (style.key === 'manual') { setStatusFilter('COMPLETED'); setSourceFilter('MANUAL'); }
+            triggerLoad();
+          };
           return (
-            <Col xs={12} sm={style.key === 'pending' ? 12 : 6} md={style.key === 'pending' ? 6 : undefined} key={style.label}>
+            <Col xs={24} sm={8} key={style.label}>
               <div style={{
                 background: style.bg, borderRadius: 8, padding: '12px 16px', textAlign: 'center',
-                border: `1px solid ${style.border}`,
-                cursor: style.key === 'pending' ? 'pointer' : undefined,
+                border: `1px solid ${style.border}`, cursor: 'pointer',
               }}
-              onClick={style.key === 'pending' ? () => { setStatusFilter('PENDING'); triggerLoad(); } : undefined}>
+              onClick={handleCardClick}>
                 <div style={{ fontSize: 11, color: style.text, opacity: 0.8 }}>
                   {style.icon} {style.label}
                 </div>
@@ -330,9 +336,7 @@ export default function InboundDashboardPage() {
                   {summaryLoading ? '-' : `${v.count}건`}
                 </div>
                 <div style={{ fontSize: 11, color: style.text, opacity: 0.7 }}>
-                  {style.key === 'pending'
-                    ? `예상 ${summaryLoading ? '-' : fmt(v.qty)}수량`
-                    : `총 ${summaryLoading ? '-' : fmt(v.qty)}수량`}
+                  {style.qtyLabel} {summaryLoading ? '-' : fmt(v.qty)}수량
                 </div>
               </div>
             </Col>
@@ -367,14 +371,22 @@ export default function InboundDashboardPage() {
       {/* 필터 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div>
-          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>분류</div>
           <Segmented
-            value={statusFilter}
-            onChange={(v) => { setStatusFilter(v as string); triggerLoad(); }}
+            value={`${statusFilter}|${sourceFilter}`}
+            onChange={(v) => {
+              const val = v as string;
+              if (val === '|') { setStatusFilter(''); setSourceFilter(''); }
+              else if (val === 'PENDING|') { setStatusFilter('PENDING'); setSourceFilter(''); }
+              else if (val === 'COMPLETED|') { setStatusFilter('COMPLETED'); setSourceFilter(''); }
+              else if (val === 'COMPLETED|MANUAL') { setStatusFilter('COMPLETED'); setSourceFilter('MANUAL'); }
+              triggerLoad();
+            }}
             options={[
-              { label: '전체', value: '' },
-              { label: '대기중', value: 'PENDING' },
-              { label: '완료', value: 'COMPLETED' },
+              { label: '전체', value: '|' },
+              { label: '입고대기', value: 'PENDING|' },
+              { label: '입고완료', value: 'COMPLETED|' },
+              { label: '수동입고', value: 'COMPLETED|MANUAL' },
             ]}
           />
         </div>
@@ -477,9 +489,37 @@ export default function InboundDashboardPage() {
               </>
             )}
             {detailData.status === 'PENDING' && (
-              <div style={{ padding: 16, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16' }}>
-                입고확정 버튼을 눌러 품목을 추가하고 재고를 반영하세요.
-              </div>
+              <>
+                {detailData.production_items && detailData.production_items.length > 0 && (
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ fontWeight: 600, marginBottom: 8, color: '#722ed1' }}>
+                      생산계획 품목 ({detailData.production_items.length}건)
+                    </div>
+                    <Table
+                      dataSource={detailData.production_items}
+                      rowKey="item_id"
+                      size="small"
+                      pagination={false}
+                      columns={[
+                        { title: '카테고리', dataIndex: 'category', width: 90 },
+                        { title: '세부', dataIndex: 'sub_category', width: 80, render: (v: string | null) => v || '-' },
+                        { title: '핏', dataIndex: 'fit', width: 70, render: (v: string | null) => v || '-' },
+                        { title: '기장', dataIndex: 'length', width: 70, render: (v: string | null) => v || '-' },
+                        { title: '품번', dataIndex: 'product_code', width: 120, render: (v: string | null) => v || '-' },
+                        { title: '상품명', dataIndex: 'product_name', width: 150, ellipsis: true, render: (v: string | null) => v || '-' },
+                        { title: '계획수량', dataIndex: 'plan_qty', width: 90, align: 'right' as const,
+                          render: (v: number) => <strong>{fmt(v)}</strong> },
+                      ]}
+                    />
+                    <div style={{ marginTop: 4, textAlign: 'right', color: '#722ed1', fontSize: 12 }}>
+                      총 계획수량: <strong>{fmt(detailData.production_items.reduce((s, i) => s + i.plan_qty, 0))}</strong>개
+                    </div>
+                  </div>
+                )}
+                <div style={{ padding: 16, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16' }}>
+                  입고확정 버튼을 눌러 품목을 추가하고 재고를 반영하세요.
+                </div>
+              </>
             )}
           </div>
         )}
@@ -511,6 +551,34 @@ export default function InboundDashboardPage() {
               )}
             </Row>
             {confirmRecord.memo && <div style={{ marginBottom: 12, color: '#666' }}>비고: {confirmRecord.memo}</div>}
+
+            {/* 생산계획 품목 참고 (생산입고인 경우) */}
+            {confirmRecord.production_items && confirmRecord.production_items.length > 0 && (
+              <div style={{ marginBottom: 16, padding: 12, background: '#f9f0ff', borderRadius: 8, border: '1px solid #d3adf7' }}>
+                <div style={{ fontWeight: 600, marginBottom: 8, color: '#722ed1', fontSize: 13 }}>
+                  생산계획 품목 (참고)
+                </div>
+                <Table
+                  dataSource={confirmRecord.production_items}
+                  rowKey="item_id"
+                  size="small"
+                  pagination={false}
+                  columns={[
+                    { title: '카테고리', dataIndex: 'category', width: 80 },
+                    { title: '세부', dataIndex: 'sub_category', width: 70, render: (v: string | null) => v || '-' },
+                    { title: '핏', dataIndex: 'fit', width: 60, render: (v: string | null) => v || '-' },
+                    { title: '품번', dataIndex: 'product_code', width: 110, render: (v: string | null) => v || '-' },
+                    { title: '상품명', dataIndex: 'product_name', width: 130, ellipsis: true, render: (v: string | null) => v || '-' },
+                    { title: '계획수량', dataIndex: 'plan_qty', width: 80, align: 'right' as const,
+                      render: (v: number) => <strong style={{ color: '#722ed1' }}>{fmt(v)}</strong> },
+                  ]}
+                />
+                <div style={{ marginTop: 4, fontSize: 11, color: '#722ed1' }}>
+                  아래에서 variant(색상/사이즈)를 검색하여 수량을 분배해주세요.
+                  총 입고수량이 예상수량({fmt(confirmRecord.expected_qty || 0)}개)과 일치해야 확정됩니다.
+                </div>
+              </div>
+            )}
 
             {/* 상품 검색 */}
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>

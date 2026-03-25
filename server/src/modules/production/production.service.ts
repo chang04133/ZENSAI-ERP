@@ -86,7 +86,7 @@ class ProductionService extends BaseService<ProductionPlan> {
 
         // 2) 입고대기 레코드 생성 (재고는 입고확정 시 반영)
         const totalProduced = await client.query(
-          `SELECT COALESCE(SUM(produced_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
+          `SELECT COALESCE(SUM(plan_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
           [id],
         );
 
@@ -119,6 +119,127 @@ class ProductionService extends BaseService<ProductionPlan> {
           id, undefined, userId,
         );
       }
+
+      return productionRepository.getWithItems(id);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 생산시작 + 선지급 — 하나의 트랜잭션 */
+  async startProduction(id: number, paymentData: Record<string, any>, userId: string): Promise<ProductionPlan | null> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1 FOR UPDATE', [id]);
+      if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다');
+      const plan = current.rows[0];
+      if (plan.status !== 'DRAFT') throw new Error(`초안 상태에서만 생산시작이 가능합니다. (현재: ${plan.status})`);
+
+      // 1) 상태 변경 DRAFT → IN_PRODUCTION
+      await client.query(
+        `UPDATE production_plans SET status = 'IN_PRODUCTION', approved_by = $1,
+         start_date = COALESCE(start_date, CURRENT_DATE), updated_at = NOW()
+         WHERE plan_id = $2`,
+        [userId, id],
+      );
+
+      // 2) 선지급 처리
+      const totalAmount = Number(paymentData.total_amount) || 0;
+      const advanceRate = Number(paymentData.advance_rate) || 30;
+      const advanceAmount = Number(paymentData.advance_amount) || Math.round(totalAmount * advanceRate / 100);
+      const balanceAmount = totalAmount - advanceAmount;
+      await client.query(
+        `UPDATE production_plans SET
+          total_amount = $1, advance_rate = $2, advance_amount = $3,
+          advance_date = COALESCE($4::date, CURRENT_DATE), advance_status = 'PAID',
+          balance_amount = $5, updated_at = NOW()
+        WHERE plan_id = $6`,
+        [totalAmount, advanceRate, advanceAmount, paymentData.advance_date || null, balanceAmount, id],
+      );
+
+      await client.query('COMMIT');
+      return productionRepository.getWithItems(id);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 완료처리 + 잔금지급 — 하나의 트랜잭션 */
+  async completeProduction(id: number, paymentData: Record<string, any>, userId: string): Promise<ProductionPlan | null> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const current = await client.query('SELECT * FROM production_plans WHERE plan_id = $1 FOR UPDATE', [id]);
+      if (current.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다');
+      const plan = current.rows[0];
+      if (plan.status !== 'IN_PRODUCTION') throw new Error(`생산중 상태에서만 완료 처리가 가능합니다. (현재: ${plan.status})`);
+      if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 잔금 지급 가능합니다.');
+
+      // 1) 잔금 처리
+      await client.query(
+        `UPDATE production_plans SET
+          balance_date = COALESCE($1::date, CURRENT_DATE), balance_status = 'PAID', updated_at = NOW()
+        WHERE plan_id = $2`,
+        [paymentData.balance_date || null, id],
+      );
+
+      // 2) 상태 변경 IN_PRODUCTION → COMPLETED + 자재차감 + 입고
+      await client.query(
+        `UPDATE production_plans SET status = 'COMPLETED', end_date = CURRENT_DATE, updated_at = NOW()
+         WHERE plan_id = $1`,
+        [id],
+      );
+
+      // 자재 차감
+      const materials = await client.query(
+        'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
+        [id],
+      );
+      for (const mat of materials.rows) {
+        await client.query(
+          'UPDATE materials SET stock_qty = GREATEST(0, stock_qty - $1), updated_at = NOW() WHERE material_id = $2',
+          [mat.used_qty, mat.material_id],
+        );
+      }
+
+      // 입고대기 생성
+      const totalProduced = await client.query(
+        `SELECT COALESCE(SUM(produced_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
+        [id],
+      );
+      let targetPartner = plan.partner_code;
+      if (!targetPartner) {
+        const hqResult = await client.query(
+          `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
+        );
+        targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
+      }
+      await inboundRepository.createPending({
+        inbound_date: new Date().toISOString().slice(0, 10),
+        partner_code: targetPartner,
+        source_type: 'PRODUCTION',
+        source_id: id,
+        expected_qty: totalProduced.rows[0].total,
+        memo: `생산계획 ${plan.plan_no || id} 완료 — 입고 대기`,
+        created_by: userId,
+      }, client);
+
+      await client.query('COMMIT');
+
+      createNotification(
+        'PRODUCTION', '생산완료',
+        `생산계획 #${plan.plan_no || id}이(가) 완료되었습니다. 입고관리에서 입고확정을 진행해주세요.`,
+        id, undefined, userId,
+      );
 
       return productionRepository.getWithItems(id);
     } catch (e) {

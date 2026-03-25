@@ -45,6 +45,36 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     return true;
   }
 
+  /** 보내는 측만 (from_partner) */
+  private async checkSenderAccess(req: Request, res: Response, requestId: number): Promise<boolean> {
+    const role = req.user?.role;
+    if (role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER') return true;
+    const pc = req.user?.partnerCode;
+    if (!pc) { res.status(403).json({ success: false, error: '권한이 없습니다.' }); return false; }
+    const shipment = await shipmentService.getWithItems(requestId);
+    if (!shipment) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return false; }
+    if (shipment.from_partner !== pc) {
+      res.status(403).json({ success: false, error: '출고확인은 출발 거래처만 가능합니다.' });
+      return false;
+    }
+    return true;
+  }
+
+  /** 받는 측만 (to_partner) */
+  private async checkReceiverAccess(req: Request, res: Response, requestId: number): Promise<boolean> {
+    const role = req.user?.role;
+    if (role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER') return true;
+    const pc = req.user?.partnerCode;
+    if (!pc) { res.status(403).json({ success: false, error: '권한이 없습니다.' }); return false; }
+    const shipment = await shipmentService.getWithItems(requestId);
+    if (!shipment) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return false; }
+    if (shipment.to_partner !== pc) {
+      res.status(403).json({ success: false, error: '수령확인은 도착 거래처만 가능합니다.' });
+      return false;
+    }
+    return true;
+  }
+
   getById = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);
     if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
@@ -152,11 +182,11 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     }
   });
 
-  /** 출고확인: shipped_qty 저장 + SHIPPED 상태 + 재고 차감 (단일 트랜잭션) */
+  /** 출고확인: shipped_qty 저장 + SHIPPED 상태 + 재고 차감 (단일 트랜잭션) — 보내는 측만 */
   shipConfirm = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
     if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
-    if (!(await this.checkStoreAccess(req, res, requestId))) return;
+    if (!(await this.checkSenderAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, shipped_qty }]
     if (!items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: '출고수량 품목이 없습니다.' });
@@ -174,11 +204,11 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     res.json({ success: true, data: result });
   });
 
-  /** 수령확인: received_qty 저장 + 상태 RECEIVED + 재고 연동 (단일 트랜잭션) */
+  /** 수령확인: received_qty 저장 + 상태 RECEIVED + 재고 연동 (단일 트랜잭션) — 받는 측만 */
   receive = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
     if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
-    if (!(await this.checkStoreAccess(req, res, requestId))) return;
+    if (!(await this.checkReceiverAccess(req, res, requestId))) return;
     const { items } = req.body; // [{ variant_id, received_qty }]
     if (!items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: '수령수량 품목이 없습니다.' });

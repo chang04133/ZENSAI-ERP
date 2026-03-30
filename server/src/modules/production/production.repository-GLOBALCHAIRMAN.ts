@@ -1,0 +1,1057 @@
+import { BaseRepository } from '../../core/base.repository';
+import { ProductionPlan } from '../../../../shared/types/production';
+import { getPool } from '../../db/connection';
+
+class ProductionRepository extends BaseRepository<ProductionPlan> {
+  constructor() {
+    super({
+      tableName: 'production_plans',
+      primaryKey: 'plan_id',
+      searchFields: ['plan_no', 'plan_name'],
+      filterFields: ['status', 'season', 'partner_code'],
+      defaultOrder: 'created_at DESC',
+      tableAlias: 'pp',
+    });
+  }
+
+  async list(options: any = {}) {
+    const pool = getPool();
+    const { status, season, partner_code, search } = options;
+    const page = Math.max(Number(options.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (status) { conditions.push(`pp.status = $${idx++}`); params.push(status); }
+    if (season) { conditions.push(`pp.season = $${idx++}`); params.push(season); }
+    if (partner_code) { conditions.push(`pp.partner_code = $${idx++}`); params.push(partner_code); }
+    if (search) {
+      conditions.push(`(pp.plan_no ILIKE $${idx} OR pp.plan_name ILIKE $${idx})`);
+      params.push(`%${search}%`); idx++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+
+    const countSql = `SELECT COUNT(*) FROM production_plans pp ${where}`;
+    const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT pp.*, pt.partner_name, u.user_name as created_by_name,
+             COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
+             COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty,
+             COUNT(pi.item_id)::int as item_count,
+             COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0)::bigint as total_cost
+      FROM production_plans pp
+      LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
+      LEFT JOIN users u ON pp.created_by = u.user_id
+      LEFT JOIN production_plan_items pi ON pp.plan_id = pi.plan_id
+      ${where}
+      GROUP BY pp.plan_id, pt.partner_name, u.user_name
+      ORDER BY pp.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}`;
+    const data = await pool.query(dataSql, [...params, limit, offset]);
+
+    return { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+
+  async generateNo(client?: any): Promise<string> {
+    const conn = client || getPool();
+    const result = await conn.query('SELECT generate_plan_no() as no');
+    return result.rows[0].no;
+  }
+
+  async createWithItems(header: Record<string, any>, items: any[]): Promise<ProductionPlan> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const planNo = await this.generateNo(client);
+      const insertSql = `
+        INSERT INTO production_plans (plan_no, plan_name, season, target_date, start_date, end_date, partner_code, memo, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`;
+      const planResult = await client.query(insertSql, [
+        planNo, header.plan_name, header.season, header.target_date,
+        header.start_date, header.end_date, header.partner_code,
+        header.memo, header.created_by,
+      ]);
+      const plan = planResult.rows[0];
+
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+          [plan.plan_id, item.category, item.sub_category || null, item.fit || null, item.length || null,
+           item.plan_qty, item.unit_cost || null, item.memo || null],
+        );
+
+        // 매칭 상품 is_reorder = TRUE 자동 업데이트
+        const matchConds: string[] = ['p.category = $1'];
+        const matchParams: any[] = [item.category];
+        let mi = 2;
+        if (item.fit) { matchConds.push(`p.fit = $${mi}`); matchParams.push(item.fit); mi++; }
+        if (item.length) { matchConds.push(`p.length = $${mi}`); matchParams.push(item.length); mi++; }
+        await client.query(
+          `UPDATE products p SET is_reorder = TRUE WHERE is_active = TRUE AND is_reorder = FALSE AND ${matchConds.join(' AND ')}`,
+          matchParams,
+        );
+      }
+
+      await client.query('COMMIT');
+      return this.getWithItems(plan.plan_id) as Promise<ProductionPlan>;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async getWithItems(id: number): Promise<ProductionPlan | null> {
+    const pool = getPool();
+    const headerSql = `
+      SELECT pp.*, pt.partner_name, u.user_name as created_by_name
+      FROM production_plans pp
+      LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
+      LEFT JOIN users u ON pp.created_by = u.user_id
+      WHERE pp.plan_id = $1`;
+    const header = await pool.query(headerSql, [id]);
+    if (header.rows.length === 0) return null;
+
+    const itemsSql = `
+      SELECT pi.*
+      FROM production_plan_items pi
+      WHERE pi.plan_id = $1
+      ORDER BY pi.item_id`;
+    const items = await pool.query(itemsSql, [id]);
+
+    const materialsSql = `
+      SELECT pmu.*, m.material_name, m.material_type, m.unit, m.stock_qty
+      FROM production_material_usage pmu
+      JOIN materials m ON pmu.material_id = m.material_id
+      WHERE pmu.plan_id = $1
+      ORDER BY pmu.usage_id`;
+    const materials = await pool.query(materialsSql, [id]);
+
+    return { ...header.rows[0], items: items.rows, materials: materials.rows };
+  }
+
+  async dashboardStats(): Promise<any> {
+    const pool = getPool();
+    const [statusCounts, recentPlans, seasonSummary, progressItems] = await Promise.all([
+      pool.query(`
+        SELECT status, COUNT(*)::int as count,
+               COALESCE(SUM(sub.total_qty), 0)::int as total_qty
+        FROM production_plans pp
+        LEFT JOIN LATERAL (
+          SELECT SUM(plan_qty) as total_qty FROM production_plan_items WHERE plan_id = pp.plan_id
+        ) sub ON TRUE
+        GROUP BY status ORDER BY
+          CASE status WHEN 'DRAFT' THEN 1 WHEN 'CONFIRMED' THEN 2
+          WHEN 'IN_PRODUCTION' THEN 3 WHEN 'COMPLETED' THEN 4 ELSE 5 END
+      `),
+      pool.query(`
+        SELECT pp.plan_id, pp.plan_no, pp.plan_name, pp.status, pp.target_date, pp.season,
+               pt.partner_name,
+               COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
+               COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty
+        FROM production_plans pp
+        LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
+        LEFT JOIN production_plan_items pi ON pp.plan_id = pi.plan_id
+        WHERE pp.status NOT IN ('COMPLETED', 'CANCELLED')
+        GROUP BY pp.plan_id, pt.partner_name
+        ORDER BY pp.target_date ASC NULLS LAST, pp.created_at DESC
+        LIMIT 10
+      `),
+      pool.query(`
+        SELECT pp.season,
+               COUNT(DISTINCT pp.plan_id)::int as plan_count,
+               COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
+               COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty
+        FROM production_plans pp
+        LEFT JOIN production_plan_items pi ON pp.plan_id = pi.plan_id
+        WHERE pp.status NOT IN ('CANCELLED') AND pp.season IS NOT NULL
+        GROUP BY pp.season ORDER BY pp.season DESC
+      `),
+      pool.query(`
+        SELECT pi.item_id, pi.plan_id, pi.category, pi.sub_category, pi.fit, pi.length,
+               pi.plan_qty, pi.produced_qty, pi.unit_cost,
+               pp.plan_no, pp.plan_name, pp.status as plan_status
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status = 'IN_PRODUCTION' AND pi.produced_qty < pi.plan_qty
+        ORDER BY (pi.produced_qty::float / NULLIF(pi.plan_qty, 0)) ASC
+        LIMIT 15
+      `),
+    ]);
+
+    return {
+      statusCounts: statusCounts.rows,
+      recentPlans: recentPlans.rows,
+      seasonSummary: seasonSummary.rows,
+      progressItems: progressItems.rows,
+    };
+  }
+
+  async recommendations(options: { limit?: number; category?: string } = {}): Promise<any[]> {
+    const pool = getPool();
+    const limit = options.limit || 30;
+
+    // 설정값 조회: 판매기간(일), 판매율 임계값(%)
+    // 자동생산등급용 별도 기간 (AUTO_PROD_SALES_PERIOD_DAYS, 기본 14일)
+    const settingsResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('AUTO_PROD_SALES_PERIOD_DAYS', 'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD')",
+    );
+    const settingsMap: Record<string, string> = {};
+    for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
+    const salesPeriodDays = parseInt(settingsMap.AUTO_PROD_SALES_PERIOD_DAYS || '14', 10);
+    const sellThroughThreshold = parseFloat(settingsMap.PRODUCTION_SELL_THROUGH_THRESHOLD || '40');
+
+    const conditions: string[] = [];
+    const params: any[] = [salesPeriodDays];
+    let idx = 2;
+
+    if (options.category) {
+      conditions.push(`p.category = $${idx++}`);
+      params.push(options.category);
+    }
+    const extraWhere = conditions.length ? 'AND ' + conditions.join(' AND ') : '';
+
+    const sql = `
+      WITH current_season AS (
+        SELECT CASE
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          ELSE 'WN'
+        END AS season_code
+      ),
+      season_weights AS (
+        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS weight
+        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_WEIGHT_%'
+      ),
+      sales_velocity AS (
+        SELECT
+          p.product_code, p.product_name, p.category, p.season,
+          CASE
+            WHEN p.season LIKE '%SS' THEN 'SA'
+            WHEN p.season LIKE '%FW' THEN 'WN'
+            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%WN' THEN 'WN'
+            ELSE 'SA'
+          END AS product_season,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric * 30)::int AS predicted_30d
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code
+        JOIN sales s ON pv.variant_id = s.variant_id
+          AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
+        WHERE p.is_active = TRUE AND p.sale_status = '판매중' ${extraWhere}
+        GROUP BY p.product_code, p.product_name, p.category, p.season
+      ),
+      current_stock AS (
+        SELECT pv.product_code, COALESCE(SUM(i.qty), 0)::int AS total_stock
+        FROM product_variants pv
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        GROUP BY pv.product_code
+      ),
+      in_production AS (
+        SELECT p.product_code,
+               COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int
+                 / GREATEST(1, COUNT(DISTINCT p.product_code))::int AS pending_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        JOIN products p ON p.category = pi.category
+          AND (pi.fit IS NULL OR p.fit = pi.fit)
+          AND (pi.length IS NULL OR p.length = pi.length)
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION')
+        GROUP BY p.product_code
+      )
+      SELECT
+        sv.product_code, sv.product_name, sv.category, sv.season,
+        sv.product_season,
+        sv.total_sold,
+        sv.avg_daily_sales,
+        sv.predicted_30d AS raw_predicted_30d,
+        COALESCE(sw.weight, 1.0) AS season_weight,
+        CASE
+          WHEN (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)) > 0
+            THEN (CURRENT_DATE + (COALESCE(cs.total_stock, 0)::numeric / (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)))::int)::text
+          ELSE NULL
+        END AS sellout_date,
+        COALESCE(cs.total_stock, 0) AS current_stock,
+        COALESCE(ip.pending_qty, 0) AS in_production_qty,
+        (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) AS total_available,
+        GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) AS shortage_qty,
+        CEIL(GREATEST(0, ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int - COALESCE(cs.total_stock, 0) - COALESCE(ip.pending_qty, 0)) * 1.2)::int AS recommended_qty,
+        CASE
+          WHEN (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)) > 0
+            THEN ROUND((COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0))::numeric / (sv.avg_daily_sales * COALESCE(sw.weight, 1.0)))::int
+          ELSE 9999
+        END AS days_of_stock,
+        CASE
+          WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN ROUND(sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100, 1)
+          ELSE 0
+        END AS sell_through_rate,
+        cs2.season_code AS current_season_code
+      FROM sales_velocity sv
+      CROSS JOIN current_season cs2
+      LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' || sv.product_season || '_' || cs2.season_code
+      LEFT JOIN current_stock cs ON sv.product_code = cs.product_code
+      LEFT JOIN in_production ip ON sv.product_code = ip.product_code
+      WHERE sv.avg_daily_sales > 0
+        AND (COALESCE(cs.total_stock, 0) + COALESCE(ip.pending_qty, 0)) < ROUND(sv.predicted_30d * COALESCE(sw.weight, 1.0))::int
+        AND CASE
+          WHEN (sv.total_sold + COALESCE(cs.total_stock, 0)) > 0
+            THEN sv.total_sold::numeric / (sv.total_sold + COALESCE(cs.total_stock, 0)) * 100
+          ELSE 0
+        END >= $${idx}
+      ORDER BY days_of_stock ASC, shortage_qty DESC
+      LIMIT $${idx + 1}`;
+    params.push(sellThroughThreshold);
+
+    const result = await pool.query(sql, [...params, limit]);
+
+    // 등급 분류 추가
+    const gradeSettings = await this.autoGenerateSettings();
+    return result.rows.map((r: any) => {
+      const rate = Number(r.sell_through_rate);
+      let grade: string;
+      if (rate >= gradeSettings.gradeS.min) grade = 'S';
+      else if (rate >= gradeSettings.gradeA.min) grade = 'A';
+      else if (rate >= gradeSettings.gradeB.min) grade = 'B';
+      else grade = 'C';
+      return { ...r, grade };
+    });
+  }
+
+  async categorySummary(): Promise<any[]> {
+    const pool = getPool();
+    const sql = `
+      WITH all_categories AS (
+        SELECT code_value AS category
+        FROM master_codes
+        WHERE code_type = 'CATEGORY' AND parent_code IS NULL AND is_active = TRUE
+      ),
+      current_season AS (
+        SELECT CASE
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          ELSE 'WN'
+        END AS season_code
+      ),
+      season_weights AS (
+        SELECT code_value, COALESCE(code_label, '1.0')::numeric AS weight
+        FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'SEASON_WEIGHT_%'
+      ),
+      product_weight AS (
+        SELECT p.product_code, p.category,
+          COALESCE(sw.weight, 1.0) AS weight
+        FROM products p
+        CROSS JOIN current_season cs2
+        LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' ||
+          CASE
+            WHEN p.season LIKE '%SS' THEN 'SA'
+            WHEN p.season LIKE '%FW' THEN 'WN'
+            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%WN' THEN 'WN'
+            ELSE 'SA'
+          END || '_' || cs2.season_code
+        WHERE p.is_active = TRUE
+      ),
+      category_sales AS (
+        SELECT
+          COALESCE(p.category, '미분류') AS category,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold_90d,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90 * 30)::int AS raw_predicted_30d
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '90 days' AND p.is_active = TRUE
+        GROUP BY COALESCE(p.category, '미분류')
+      ),
+      category_avg_weight AS (
+        SELECT COALESCE(pw2.category, '미분류') AS category,
+               ROUND(AVG(pw2.weight), 2) AS avg_weight
+        FROM product_weight pw2
+        GROUP BY COALESCE(pw2.category, '미분류')
+      ),
+      category_stock AS (
+        SELECT
+          COALESCE(p.category, '미분류') AS category,
+          COALESCE(SUM(i.qty), 0)::int AS total_stock,
+          COUNT(DISTINCT p.product_code)::int AS product_count
+        FROM products p
+        LEFT JOIN product_variants pv ON p.product_code = pv.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE p.is_active = TRUE
+        GROUP BY COALESCE(p.category, '미분류')
+      ),
+      category_production AS (
+        SELECT
+          pi.category AS category,
+          COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category IS NOT NULL
+        GROUP BY pi.category
+      )
+      SELECT
+        ac.category,
+        COALESCE(cst.product_count, 0) AS product_count,
+        COALESCE(cs.total_sold_90d, 0) AS total_sold_90d,
+        COALESCE(cs.avg_daily_sales, 0) AS avg_daily_sales,
+        CASE
+          WHEN (COALESCE(cs.avg_daily_sales, 0) * COALESCE(caw.avg_weight, 1.0)) > 0
+            THEN (CURRENT_DATE + (COALESCE(cst.total_stock, 0)::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int)::text
+          ELSE NULL
+        END AS sellout_date,
+        COALESCE(cst.total_stock, 0) AS current_stock,
+        COALESCE(cp.pending_qty, 0) AS in_production_qty,
+        (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0)) AS total_available,
+        CASE
+          WHEN (COALESCE(cs.avg_daily_sales, 0) * COALESCE(caw.avg_weight, 1.0)) > 0
+            THEN ROUND((COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)))::int
+          ELSE 9999
+        END AS stock_coverage_days,
+        CASE
+          WHEN COALESCE(cs.avg_daily_sales, 0) = 0 THEN 'HEALTHY'
+          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 30 THEN 'HEALTHY'
+          WHEN (COALESCE(cst.total_stock, 0) + COALESCE(cp.pending_qty, 0))::numeric / (cs.avg_daily_sales * COALESCE(caw.avg_weight, 1.0)) >= 15 THEN 'WARNING'
+          ELSE 'CRITICAL'
+        END AS stock_status
+      FROM all_categories ac
+      LEFT JOIN category_sales cs ON ac.category = cs.category
+      LEFT JOIN category_avg_weight caw ON ac.category = caw.category
+      LEFT JOIN category_stock cst ON ac.category = cst.category
+      LEFT JOIN category_production cp ON ac.category = cp.category
+      ORDER BY stock_coverage_days ASC, ac.category`;
+
+    const result = await pool.query(sql);
+    return result.rows;
+  }
+
+  async categorySubStats(category: string): Promise<any[]> {
+    const pool = getPool();
+    const sql = `
+      WITH sub_codes AS (
+        SELECT mc.code_value, mc.code_label
+        FROM master_codes mc
+        JOIN master_codes parent ON mc.parent_code = parent.code_id
+        WHERE parent.code_type = 'CATEGORY' AND parent.code_value = $1 AND mc.is_active = TRUE
+      ),
+      sub_sales AS (
+        SELECT
+          COALESCE(p.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(s.qty), 0)::int AS total_sold_90d,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90, 2) AS avg_daily_sales,
+          ROUND(COALESCE(SUM(s.qty), 0)::numeric / 90 * 30)::int AS predicted_30d_demand
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
+          AND p.is_active = TRUE AND p.category = $1
+        GROUP BY COALESCE(p.sub_category, '미분류')
+      ),
+      sub_stock AS (
+        SELECT
+          COALESCE(p.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(i.qty), 0)::int AS total_stock,
+          COUNT(DISTINCT p.product_code)::int AS product_count
+        FROM products p
+        LEFT JOIN product_variants pv ON p.product_code = pv.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        WHERE p.is_active = TRUE AND p.category = $1
+        GROUP BY COALESCE(p.sub_category, '미분류')
+      ),
+      sub_production AS (
+        SELECT
+          COALESCE(pi.sub_category, '미분류') AS sub_category,
+          COALESCE(SUM(GREATEST(0, pi.plan_qty - pi.produced_qty)), 0)::int AS pending_qty
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.status IN ('CONFIRMED', 'IN_PRODUCTION') AND pi.category = $1
+        GROUP BY COALESCE(pi.sub_category, '미분류')
+      ),
+      all_subs AS (
+        SELECT code_value AS sub_category, code_label FROM sub_codes
+        UNION
+        SELECT sub_category, NULL FROM sub_sales WHERE sub_category NOT IN (SELECT code_value FROM sub_codes)
+        UNION
+        SELECT sub_category, NULL FROM sub_stock WHERE sub_category NOT IN (SELECT code_value FROM sub_codes)
+      )
+      SELECT
+        a.sub_category,
+        COALESCE(a.code_label, a.sub_category) AS sub_category_label,
+        COALESCE(ss.product_count, 0) AS product_count,
+        COALESCE(sl.total_sold_90d, 0) AS total_sold_90d,
+        COALESCE(sl.avg_daily_sales, 0) AS avg_daily_sales,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) > 0
+            THEN (CURRENT_DATE + (COALESCE(ss.total_stock, 0)::numeric / sl.avg_daily_sales)::int)::text
+          ELSE NULL
+        END AS sellout_date,
+        COALESCE(ss.total_stock, 0) AS current_stock,
+        COALESCE(sp.pending_qty, 0) AS in_production_qty,
+        (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0)) AS total_available,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) > 0
+            THEN ROUND((COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales)::int
+          ELSE 9999
+        END AS stock_coverage_days,
+        CASE
+          WHEN COALESCE(sl.avg_daily_sales, 0) = 0 THEN 'HEALTHY'
+          WHEN (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales >= 30 THEN 'HEALTHY'
+          WHEN (COALESCE(ss.total_stock, 0) + COALESCE(sp.pending_qty, 0))::numeric / sl.avg_daily_sales >= 15 THEN 'WARNING'
+          ELSE 'CRITICAL'
+        END AS stock_status
+      FROM all_subs a
+      LEFT JOIN sub_sales sl ON a.sub_category = sl.sub_category
+      LEFT JOIN sub_stock ss ON a.sub_category = ss.sub_category
+      LEFT JOIN sub_production sp ON a.sub_category = sp.sub_category
+      WHERE COALESCE(ss.product_count, 0) > 0 OR COALESCE(sl.total_sold_90d, 0) > 0 OR COALESCE(sp.pending_qty, 0) > 0
+      ORDER BY stock_coverage_days ASC, a.sub_category`;
+
+    const result = await pool.query(sql, [category]);
+    return result.rows;
+  }
+
+  async productVariantDetail(productCode: string): Promise<any[]> {
+    const pool = getPool();
+    // 설정값: 자동생산등급용 판매기간
+    const settingsResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('AUTO_PROD_SALES_PERIOD_DAYS', 'PRODUCTION_SALES_PERIOD_DAYS')",
+    );
+    const settingsMap: Record<string, string> = {};
+    for (const r of settingsResult.rows) settingsMap[r.code_value] = r.code_label;
+    const salesPeriodDays = parseInt(settingsMap.AUTO_PROD_SALES_PERIOD_DAYS || '14', 10);
+
+    const sql = `
+      SELECT pv.color, pv.size, pv.sku,
+        COALESCE(sold.qty, 0)::int AS sold_qty,
+        COALESCE(stock.qty, 0)::int AS current_stock,
+        CASE WHEN (COALESCE(sold.qty, 0) + COALESCE(stock.qty, 0)) > 0
+          THEN ROUND(COALESCE(sold.qty, 0)::numeric / (COALESCE(sold.qty, 0) + COALESCE(stock.qty, 0)) * 100, 1)
+          ELSE 0
+        END AS sell_through_rate
+      FROM product_variants pv
+      LEFT JOIN (
+        SELECT variant_id, SUM(qty)::int AS qty
+        FROM sales
+        WHERE sale_date >= CURRENT_DATE - ($2 || ' days')::interval
+        GROUP BY variant_id
+      ) sold ON pv.variant_id = sold.variant_id
+      LEFT JOIN (
+        SELECT variant_id, SUM(qty)::int AS qty
+        FROM inventory
+        GROUP BY variant_id
+      ) stock ON pv.variant_id = stock.variant_id
+      WHERE pv.product_code = $1
+      ORDER BY pv.color,
+        CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 ELSE 7 END`;
+
+    const result = await pool.query(sql, [productCode, salesPeriodDays]);
+    return result.rows;
+  }
+
+  async autoGenerateSettings(): Promise<{
+    gradeS: { min: number; mult: number };
+    gradeA: { min: number; mult: number };
+    gradeB: { min: number; mult: number };
+    safetyBuffer: number;
+  }> {
+    const pool = getPool();
+    const result = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value LIKE 'AUTO_PROD_%'",
+    );
+    const map: Record<string, string> = {};
+    for (const r of result.rows) map[r.code_value] = r.code_label;
+    return {
+      gradeS: { min: parseInt(map.AUTO_PROD_GRADE_S_MIN || '80', 10), mult: parseFloat(map.AUTO_PROD_GRADE_S_MULT || '1.5') },
+      gradeA: { min: parseInt(map.AUTO_PROD_GRADE_A_MIN || '50', 10), mult: parseFloat(map.AUTO_PROD_GRADE_A_MULT || '1.2') },
+      gradeB: { min: parseInt(map.AUTO_PROD_GRADE_B_MIN || '30', 10), mult: parseFloat(map.AUTO_PROD_GRADE_B_MULT || '1.0') },
+      safetyBuffer: parseFloat(map.AUTO_PROD_SAFETY_BUFFER || '1.2'),
+    };
+  }
+
+  async autoGeneratePlans(userId: string, season?: string): Promise<any[]> {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      // 1) 설정값 로드
+      const settings = await this.autoGenerateSettings();
+      // 2) 추천 데이터 가져오기 (판매율 B급 이상만)
+      const recs = await this.recommendations({ limit: 100 });
+      if (recs.length === 0) return [];
+
+      // 3) 등급별 배수 적용 + 카테고리 그룹핑
+      const categoryGroups: Record<string, Array<{
+        product_code: string; product_name: string; category: string;
+        shortage_qty: number; sell_through_rate: number; grade: string;
+        final_qty: number; season_weight: number; days_of_stock: number;
+      }>> = {};
+
+      for (const rec of recs) {
+        const rate = Number(rec.sell_through_rate);
+        const shortage = Number(rec.shortage_qty);
+        if (shortage <= 0) continue;
+
+        let grade: string;
+        let mult: number;
+        if (rate >= settings.gradeS.min) { grade = 'S'; mult = settings.gradeS.mult; }
+        else if (rate >= settings.gradeA.min) { grade = 'A'; mult = settings.gradeA.mult; }
+        else if (rate >= settings.gradeB.min) { grade = 'B'; mult = settings.gradeB.mult; }
+        else continue; // C등급 제외
+
+        const finalQty = Math.ceil(shortage * settings.safetyBuffer * mult);
+        const cat = rec.category || '미분류';
+        if (!categoryGroups[cat]) categoryGroups[cat] = [];
+        categoryGroups[cat].push({
+          product_code: rec.product_code,
+          product_name: rec.product_name,
+          category: cat,
+          shortage_qty: shortage,
+          sell_through_rate: rate,
+          grade,
+          final_qty: finalQty,
+          season_weight: Number(rec.season_weight),
+          days_of_stock: Number(rec.days_of_stock),
+        });
+      }
+
+      if (Object.keys(categoryGroups).length === 0) return [];
+
+      // 4) 현재 시즌 결정
+      const m = new Date().getMonth() + 1;
+      const y = new Date().getFullYear();
+      const yy = String(y).slice(-2);
+      const currentSeason = season || ([3, 4, 5, 9, 10, 11].includes(m) ? `${yy}SA` : [6, 7, 8].includes(m) ? `${yy}SM` : `${yy}WN`);
+
+      // 5) 카테고리별 생산계획 자동 생성
+      await client.query('BEGIN');
+      const createdPlans: any[] = [];
+
+      for (const [cat, items] of Object.entries(categoryGroups)) {
+        const totalQty = items.reduce((s, i) => s + i.final_qty, 0);
+        const gradeBreakdown = items.reduce((acc, i) => {
+          acc[i.grade] = (acc[i.grade] || 0) + 1;
+          return acc;
+        }, {} as Record<string, number>);
+        const gradeSummary = Object.entries(gradeBreakdown).map(([g, c]) => `${g}급 ${c}건`).join(', ');
+
+        const planNo = await this.generateNo(client);
+        const planName = `[자동] ${cat} 생산기획 (${gradeSummary})`;
+
+        // target_date: 현재 월 1일 (자금계획 연동을 위해 필수)
+        const now = new Date();
+        const targetDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+
+        const planResult = await client.query(
+          `INSERT INTO production_plans (plan_no, plan_name, season, target_date, memo, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [planNo, planName, currentSeason, targetDate,
+           `판매율 기반 자동 생성. ${items.length}개 품목, 총 ${totalQty}개. ${gradeSummary}`,
+           userId],
+        );
+        const plan = planResult.rows[0];
+
+        // 카테고리 단위로 1개 아이템 (총합)
+        await client.query(
+          `INSERT INTO production_plan_items (plan_id, category, plan_qty, memo)
+           VALUES ($1, $2, $3, $4)`,
+          [plan.plan_id, cat, totalQty,
+           items.map(i => `${i.product_code}(${i.grade}급/${i.sell_through_rate}%→${i.final_qty}개)`).join(', ')],
+        );
+
+        createdPlans.push({
+          plan_id: plan.plan_id,
+          plan_no: planNo,
+          plan_name: planName,
+          category: cat,
+          total_qty: totalQty,
+          item_count: items.length,
+          items,
+          grade_breakdown: gradeBreakdown,
+        });
+      }
+
+      await client.query('COMMIT');
+      return createdPlans;
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async autoGeneratePreview(): Promise<any> {
+    const settings = await this.autoGenerateSettings();
+    const recs = await this.recommendations({ limit: 100 });
+    if (recs.length === 0) return { settings, categories: {}, totalProducts: 0, totalQty: 0 };
+
+    const categories: Record<string, any> = {};
+    let totalProducts = 0;
+    let totalQty = 0;
+
+    for (const rec of recs) {
+      const rate = Number(rec.sell_through_rate);
+      const shortage = Number(rec.shortage_qty);
+      if (shortage <= 0) continue;
+
+      let grade: string;
+      let mult: number;
+      if (rate >= settings.gradeS.min) { grade = 'S'; mult = settings.gradeS.mult; }
+      else if (rate >= settings.gradeA.min) { grade = 'A'; mult = settings.gradeA.mult; }
+      else if (rate >= settings.gradeB.min) { grade = 'B'; mult = settings.gradeB.mult; }
+      else continue;
+
+      const finalQty = Math.ceil(shortage * settings.safetyBuffer * mult);
+      const cat = rec.category || '미분류';
+      if (!categories[cat]) categories[cat] = { items: [], totalQty: 0, grades: {} };
+      categories[cat].items.push({
+        product_code: rec.product_code,
+        product_name: rec.product_name,
+        sell_through_rate: rate,
+        grade,
+        shortage_qty: shortage,
+        final_qty: finalQty,
+        days_of_stock: Number(rec.days_of_stock),
+        current_stock: Number(rec.current_stock),
+        season_weight: Number(rec.season_weight),
+      });
+      categories[cat].totalQty += finalQty;
+      categories[cat].grades[grade] = (categories[cat].grades[grade] || 0) + 1;
+      totalProducts++;
+      totalQty += finalQty;
+    }
+
+    return { settings, categories, totalProducts, totalQty };
+  }
+
+  async updateProducedQty(planId: number, items: Array<{ item_id: number; produced_qty: number }>) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // 계획 상태 확인
+      const planCheck = await client.query('SELECT status FROM production_plans WHERE plan_id = $1 FOR UPDATE', [planId]);
+      if (planCheck.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다.');
+      if (planCheck.rows[0].status !== 'IN_PRODUCTION') throw new Error('생산중 상태에서만 수량을 변경할 수 있습니다.');
+
+      for (const item of items) {
+        if (!Number.isInteger(item.produced_qty) || item.produced_qty < 0) throw new Error('생산수량은 0 이상의 정수여야 합니다.');
+        const result = await client.query(
+          'UPDATE production_plan_items SET produced_qty = $1 WHERE item_id = $2 AND plan_id = $3',
+          [item.produced_qty, item.item_id, planId],
+        );
+        if (result.rowCount === 0) throw new Error(`품목(item_id: ${item.item_id})을 찾을 수 없습니다.`);
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  async saveMaterials(planId: number, materials: Array<{ material_id: number; required_qty: number; memo?: string }>) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // 계획 상태 확인 — 완료/취소 상태에서는 자재 변경 불가
+      const planCheck = await client.query('SELECT status FROM production_plans WHERE plan_id = $1 FOR UPDATE', [planId]);
+      if (planCheck.rows.length === 0) throw new Error('생산계획을 찾을 수 없습니다.');
+      if (['COMPLETED', 'CANCELLED'].includes(planCheck.rows[0].status)) throw new Error('완료 또는 취소된 계획의 자재는 수정할 수 없습니다.');
+
+      await client.query('DELETE FROM production_material_usage WHERE plan_id = $1', [planId]);
+      for (const m of materials) {
+        await client.query(
+          'INSERT INTO production_material_usage (plan_id, material_id, required_qty, memo) VALUES ($1, $2, $3, $4)',
+          [planId, m.material_id, m.required_qty, m.memo || null],
+        );
+      }
+      await client.query('COMMIT');
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 카테고리 상세 분석: 월별 판매 추이 + 1년 요약 + 인기 상품 */
+  async categoryDetailedStats(category: string): Promise<{
+    monthlySales: any[];
+    topProducts: any[];
+    yearSummary: any[];
+  }> {
+    const pool = getPool();
+
+    const [monthlyResult, topResult, yearResult] = await Promise.all([
+      // 월별 판매 추이 (12개월)
+      pool.query(`
+        SELECT
+          to_char(s.sale_date, 'YYYY-MM') AS month,
+          COALESCE(p.sub_category, '합계') AS sub_category,
+          SUM(s.qty)::int AS sold_qty,
+          SUM(s.qty * s.price)::bigint AS sold_amount
+        FROM sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= CURRENT_DATE - INTERVAL '12 months'
+          AND p.is_active = TRUE AND p.category = $1
+        GROUP BY GROUPING SETS (
+          (to_char(s.sale_date, 'YYYY-MM'), p.sub_category),
+          (to_char(s.sale_date, 'YYYY-MM'))
+        )
+        ORDER BY month, sub_category
+      `, [category]),
+
+      // 인기 상품 TOP 15 (1년)
+      pool.query(`
+        SELECT
+          p.product_code, p.product_name, p.sub_category,
+          SUM(s.qty)::int AS total_sold_1y,
+          ROUND(SUM(s.qty)::numeric / 12, 1) AS avg_monthly_sales,
+          COALESCE(stock.qty, 0)::int AS current_stock,
+          SUM(s.qty * s.price)::bigint AS total_revenue
+        FROM products p
+        JOIN product_variants pv ON p.product_code = pv.product_code
+        JOIN sales s ON pv.variant_id = s.variant_id
+          AND s.sale_date >= CURRENT_DATE - INTERVAL '365 days'
+        LEFT JOIN LATERAL (
+          SELECT COALESCE(SUM(i.qty), 0) AS qty
+          FROM inventory i
+          JOIN product_variants pv2 ON i.variant_id = pv2.variant_id
+          WHERE pv2.product_code = p.product_code
+        ) stock ON TRUE
+        WHERE p.is_active = TRUE AND p.category = $1
+        GROUP BY p.product_code, p.product_name, p.sub_category, stock.qty
+        ORDER BY total_sold_1y DESC
+        LIMIT 15
+      `, [category]),
+
+      // 세부카테고리별 1년 요약
+      pool.query(`
+        WITH sub_codes AS (
+          SELECT mc.code_value, mc.code_label
+          FROM master_codes mc
+          JOIN master_codes parent ON mc.parent_code = parent.code_id
+          WHERE parent.code_type = 'CATEGORY' AND parent.code_value = $1 AND mc.is_active = TRUE
+        ),
+        yearly_sales AS (
+          SELECT
+            COALESCE(p.sub_category, '미분류') AS sub_category,
+            SUM(s.qty)::int AS total_sold_1y,
+            ROUND(SUM(s.qty)::numeric / 12, 1) AS avg_monthly_sales,
+            SUM(s.qty * s.price)::bigint AS total_revenue
+          FROM sales s
+          JOIN product_variants pv ON s.variant_id = pv.variant_id
+          JOIN products p ON pv.product_code = p.product_code
+          WHERE s.sale_date >= CURRENT_DATE - INTERVAL '365 days'
+            AND p.is_active = TRUE AND p.category = $1
+          GROUP BY COALESCE(p.sub_category, '미분류')
+        ),
+        recent_sales AS (
+          SELECT
+            COALESCE(p.sub_category, '미분류') AS sub_category,
+            SUM(s.qty)::int AS total_sold_30d
+          FROM sales s
+          JOIN product_variants pv ON s.variant_id = pv.variant_id
+          JOIN products p ON pv.product_code = p.product_code
+          WHERE s.sale_date >= CURRENT_DATE - INTERVAL '30 days'
+            AND p.is_active = TRUE AND p.category = $1
+          GROUP BY COALESCE(p.sub_category, '미분류')
+        ),
+        mid_sales AS (
+          SELECT
+            COALESCE(p.sub_category, '미분류') AS sub_category,
+            SUM(s.qty)::int AS total_sold_90d
+          FROM sales s
+          JOIN product_variants pv ON s.variant_id = pv.variant_id
+          JOIN products p ON pv.product_code = p.product_code
+          WHERE s.sale_date >= CURRENT_DATE - INTERVAL '90 days'
+            AND p.is_active = TRUE AND p.category = $1
+          GROUP BY COALESCE(p.sub_category, '미분류')
+        )
+        SELECT
+          COALESCE(sc.code_value, ys.sub_category) AS sub_category,
+          COALESCE(sc.code_label, ys.sub_category) AS sub_category_label,
+          COALESCE(ys.total_sold_1y, 0) AS total_sold_1y,
+          COALESCE(ys.avg_monthly_sales, 0) AS avg_monthly_sales,
+          COALESCE(ys.total_revenue, 0) AS total_revenue,
+          COALESCE(rs.total_sold_30d, 0) AS total_sold_30d,
+          COALESCE(ms.total_sold_90d, 0) AS total_sold_90d,
+          CASE WHEN COALESCE(ys.avg_monthly_sales, 0) > 0 AND COALESCE(rs.total_sold_30d, 0) > 0
+            THEN ROUND((rs.total_sold_30d::numeric / ys.avg_monthly_sales - 1) * 100, 1)
+            ELSE 0
+          END AS trend_pct
+        FROM yearly_sales ys
+        LEFT JOIN sub_codes sc ON ys.sub_category = sc.code_value
+        LEFT JOIN recent_sales rs ON ys.sub_category = rs.sub_category
+        LEFT JOIN mid_sales ms ON ys.sub_category = ms.sub_category
+        ORDER BY ys.total_sold_1y DESC
+      `, [category]),
+    ]);
+
+    return {
+      monthlySales: monthlyResult.rows,
+      topProducts: topResult.rows,
+      yearSummary: yearResult.rows,
+    };
+  }
+
+  /** 시즌 기획시트 데이터: 카테고리/세부카테고리 + 기존 생산실적 */
+  async getSeasonPlanData(season?: string): Promise<any> {
+    const pool = getPool();
+
+    // 1) 카테고리 / 세부카테고리 구조 가져오기
+    const codesSql = `
+      SELECT p.code_value AS category, p.code_label AS category_label,
+             c.code_value AS sub_category, c.code_label AS sub_category_label
+      FROM master_codes p
+      LEFT JOIN master_codes c ON c.parent_code = p.code_id AND c.code_type = 'CATEGORY' AND c.is_active = TRUE
+      WHERE p.code_type = 'CATEGORY' AND p.parent_code IS NULL AND p.is_active = TRUE
+      ORDER BY p.sort_order, p.code_id, c.sort_order, c.code_id`;
+    const codesResult = await pool.query(codesSql);
+
+    // 그룹핑
+    const categories: Array<{
+      category: string;
+      category_label: string;
+      subCategories: Array<{ sub_category: string; sub_category_label: string }>;
+    }> = [];
+    const catMap = new Map<string, typeof categories[0]>();
+
+    for (const row of codesResult.rows) {
+      if (!catMap.has(row.category)) {
+        const cat = { category: row.category, category_label: row.category_label, subCategories: [] as any[] };
+        catMap.set(row.category, cat);
+        categories.push(cat);
+      }
+      if (row.sub_category) {
+        catMap.get(row.category)!.subCategories.push({
+          sub_category: row.sub_category,
+          sub_category_label: row.sub_category_label,
+        });
+      }
+    }
+
+    // 2) 해당 시즌 기존 생산계획 요약 (있으면)
+    let existingPlans: any[] = [];
+    if (season) {
+      const planSql = `
+        SELECT pi.category, pi.sub_category,
+               COUNT(DISTINCT pp.plan_id)::int AS plan_count,
+               COALESCE(SUM(pi.plan_qty), 0)::int AS total_plan_qty,
+               COALESCE(SUM(pi.produced_qty), 0)::int AS total_produced_qty,
+               COALESCE(AVG(pi.unit_cost), 0)::int AS avg_unit_cost
+        FROM production_plan_items pi
+        JOIN production_plans pp ON pi.plan_id = pp.plan_id
+        WHERE pp.season = $1 AND pp.status != 'CANCELLED'
+        GROUP BY pi.category, pi.sub_category
+        ORDER BY pi.category, pi.sub_category`;
+      const planResult = await pool.query(planSql, [season]);
+      existingPlans = planResult.rows;
+    }
+
+    // 3) 사이즈 옵션
+    const sizeResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SIZE' AND is_active = TRUE ORDER BY sort_order, code_id",
+    );
+
+    // 4) 핏 옵션
+    const fitResult = await pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'FIT' AND is_active = TRUE ORDER BY sort_order, code_id",
+    );
+
+    return {
+      categories,
+      existingPlans,
+      sizes: sizeResult.rows,
+      fits: fitResult.rows,
+    };
+  }
+
+  /** 시즌 기획시트 엑셀 템플릿 생성 */
+  async generateSeasonPlanExcel(season: string): Promise<any[][]> {
+    const data = await this.getSeasonPlanData(season);
+    const rows: any[][] = [];
+
+    // 시즌 표시
+    const seasonLabel = (() => {
+      const yr = season.slice(0, -2);
+      const code = season.slice(-2);
+      if (code === 'SA') return `${yr} 봄/가을 (SA)`;
+      if (code === 'SM') return `${yr} 여름 (SM)`;
+      if (code === 'WN') return `${yr} 겨울 (WN)`;
+      return season;
+    })();
+
+    // 헤더
+    rows.push([`${seasonLabel} 생산기획시트`, '', '', '', '', '', '', '', '', '']);
+    rows.push([]);
+
+    // 테이블 헤더
+    rows.push([
+      '카테고리', '세부카테고리', '스타일 수', '컬러 수', '사이즈 수',
+      'LOT (벌)', '총 수량', '단가 (원)', '판매가 (원)', '마진율 (%)',
+      '총 원가', '총 매출(예상)', '기존 계획수량', '기존 생산수량',
+    ]);
+
+    // 기존 계획 매핑
+    const planMap = new Map<string, any>();
+    for (const p of data.existingPlans) {
+      const key = `${p.category}|${p.sub_category || ''}`;
+      planMap.set(key, p);
+    }
+
+    // 카테고리별 행
+    for (const cat of data.categories) {
+      if (cat.subCategories.length === 0) {
+        // 세부카테고리 없는 경우
+        const existing = planMap.get(`${cat.category}|`);
+        rows.push([
+          cat.category_label, '-', '', '', '', '', '', '', '', '',
+          '', '',
+          existing?.total_plan_qty || 0,
+          existing?.total_produced_qty || 0,
+        ]);
+      } else {
+        for (const sub of cat.subCategories) {
+          const existing = planMap.get(`${cat.category}|${sub.sub_category}`);
+          rows.push([
+            cat.category_label, sub.sub_category_label, '', '', '', '', '', '', '', '',
+            '', '',
+            existing?.total_plan_qty || 0,
+            existing?.total_produced_qty || 0,
+          ]);
+        }
+      }
+      // 카테고리 소계 행
+      rows.push([`${cat.category_label} 소계`, '', '', '', '', '', '', '', '', '', '', '', '', '']);
+    }
+
+    // 총합계
+    rows.push([]);
+    rows.push(['총합계', '', '', '', '', '', '', '', '', '', '', '', '', '']);
+
+    // 사이즈 비율 시트 데이터
+    rows.push([]);
+    rows.push(['[사이즈 비율 가이드]']);
+    rows.push(['사이즈', ...data.sizes.map((s: any) => s.code_label), '합계']);
+    rows.push(['비율 (%)', ...data.sizes.map(() => ''), '100']);
+
+    return rows;
+  }
+}
+
+export const productionRepository = new ProductionRepository();

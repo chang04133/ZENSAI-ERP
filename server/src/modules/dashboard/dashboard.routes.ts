@@ -133,6 +133,40 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
   // ── 할일/대기 항목 (역할별) ──
   const pendingActions: any = {};
 
+  // ── 수량불일치(DISCREPANCY) 건수 조회 (역할 공통) ──
+  const discrepancyResult = isStore
+    ? await pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               fp.partner_name as from_partner_name, tp.partner_name as to_partner_name,
+               COALESCE(SUM(ri.shipped_qty), 0)::int as total_shipped_qty,
+               COALESCE(SUM(ri.received_qty), 0)::int as total_received_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'DISCREPANCY' AND (sr.from_partner = $1 OR sr.to_partner = $1)
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+                 fp.partner_name, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `, [pc])
+    : await pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               fp.partner_name as from_partner_name, tp.partner_name as to_partner_name,
+               COALESCE(SUM(ri.shipped_qty), 0)::int as total_shipped_qty,
+               COALESCE(SUM(ri.received_qty), 0)::int as total_received_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'DISCREPANCY'
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+                 fp.partner_name, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `);
+  pendingActions.discrepancies = discrepancyResult.rows;
+
   if (isStore) {
     const [shipmentsToProcess, shipmentsToReceive, restockPending] = await Promise.all([
       // 대기중 출고의뢰 (내 매장에서 출고해야 할 것)

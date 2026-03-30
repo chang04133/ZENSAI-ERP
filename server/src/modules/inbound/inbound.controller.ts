@@ -60,6 +60,8 @@ class InboundController extends BaseController<InboundRecord> {
     }
 
     // 개별 item 검증
+    const variantIds: number[] = [];
+    const seenVariants = new Set<number>();
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item.variant_id || typeof item.variant_id !== 'number') {
@@ -68,6 +70,25 @@ class InboundController extends BaseController<InboundRecord> {
       }
       if (!item.qty || typeof item.qty !== 'number' || item.qty <= 0) {
         res.status(400).json({ success: false, error: `품목 ${i + 1}: 수량은 1 이상이어야 합니다.` });
+        return;
+      }
+      if (seenVariants.has(item.variant_id)) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 동일 상품옵션(variant_id: ${item.variant_id})이 중복되었습니다. 수량을 합쳐주세요.` });
+        return;
+      }
+      seenVariants.add(item.variant_id);
+      variantIds.push(item.variant_id);
+    }
+
+    // variant_id 존재 확인
+    const variantCheck = await pool.query(
+      `SELECT variant_id FROM product_variants WHERE variant_id = ANY($1) AND is_active = TRUE`,
+      [variantIds],
+    );
+    const validIds = new Set(variantCheck.rows.map((r: any) => r.variant_id));
+    for (let i = 0; i < items.length; i++) {
+      if (!validIds.has(items[i].variant_id)) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 존재하지 않는 상품옵션(variant_id: ${items[i].variant_id})입니다.` });
         return;
       }
     }
@@ -98,6 +119,8 @@ class InboundController extends BaseController<InboundRecord> {
       res.status(400).json({ success: false, error: '품목을 1개 이상 추가해주세요.' });
       return;
     }
+    const confirmVariantIds: number[] = [];
+    const confirmSeenVariants = new Set<number>();
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
       if (!item.variant_id || typeof item.variant_id !== 'number') {
@@ -106,6 +129,26 @@ class InboundController extends BaseController<InboundRecord> {
       }
       if (!item.qty || typeof item.qty !== 'number' || item.qty <= 0) {
         res.status(400).json({ success: false, error: `품목 ${i + 1}: 수량은 1 이상이어야 합니다.` });
+        return;
+      }
+      if (confirmSeenVariants.has(item.variant_id)) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 동일 상품옵션(variant_id: ${item.variant_id})이 중복되었습니다. 수량을 합쳐주세요.` });
+        return;
+      }
+      confirmSeenVariants.add(item.variant_id);
+      confirmVariantIds.push(item.variant_id);
+    }
+
+    // variant_id 존재 확인
+    const pool = getPool();
+    const vCheck = await pool.query(
+      `SELECT variant_id FROM product_variants WHERE variant_id = ANY($1) AND is_active = TRUE`,
+      [confirmVariantIds],
+    );
+    const validVids = new Set(vCheck.rows.map((r: any) => r.variant_id));
+    for (let i = 0; i < items.length; i++) {
+      if (!validVids.has(items[i].variant_id)) {
+        res.status(400).json({ success: false, error: `품목 ${i + 1}: 존재하지 않는 상품옵션(variant_id: ${items[i].variant_id})입니다.` });
         return;
       }
     }

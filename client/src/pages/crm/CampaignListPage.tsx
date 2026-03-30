@@ -22,7 +22,7 @@ const STATUS_LABELS: Record<string, string> = {
   DRAFT: '초안', SCHEDULED: '예약', SENDING: '발송중',
   COMPLETED: '완료', CANCELLED: '취소',
 };
-const TYPE_COLORS: Record<string, string> = { SMS: 'orange', EMAIL: 'purple' };
+const TYPE_COLORS: Record<string, string> = { SMS: 'orange', EMAIL: 'purple', ALIMTALK: 'cyan' };
 const TIER_OPTIONS = ['VVIP', 'VIP', '일반', '신규'];
 
 export default function CampaignListPage() {
@@ -141,7 +141,24 @@ export default function CampaignListPage() {
   const handleSend = async (id: number) => {
     try {
       const res = await campaignApi.send(id);
-      message.success(`발송 완료: 성공 ${res.data?.sent || 0}건, 실패 ${res.data?.failed || 0}건`);
+      const sent = res.data?.sent || 0;
+      const failed = res.data?.failed || 0;
+      if (failed > 0) {
+        Modal.info({
+          title: '발송 완료',
+          content: (
+            <div>
+              <p>성공: <strong style={{ color: '#52c41a' }}>{sent}건</strong></p>
+              <p>실패: <strong style={{ color: '#ff4d4f' }}>{failed}건</strong></p>
+              <p style={{ color: '#888', fontSize: 12, marginTop: 8 }}>
+                실패 사유: 수신동의 미동의, 번호/이메일 오류 등
+              </p>
+            </div>
+          ),
+        });
+      } else {
+        message.success(`발송 완료: ${sent}건 성공`);
+      }
       load();
     } catch (e: any) { message.error(e.message); }
   };
@@ -217,7 +234,7 @@ export default function CampaignListPage() {
         <div>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
           <Select value={typeFilter} onChange={(v) => { setTypeFilter(v); setPage(1); }} style={{ width: 100 }}
-            options={[{ label: '전체', value: '' }, { label: 'SMS', value: 'SMS' }, { label: 'EMAIL', value: 'EMAIL' }]} />
+            options={[{ label: '전체', value: '' }, { label: 'SMS', value: 'SMS' }, { label: 'EMAIL', value: 'EMAIL' }, { label: '알림톡', value: 'ALIMTALK' }]} />
         </div>
         <div>
           <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
@@ -229,6 +246,9 @@ export default function CampaignListPage() {
             ]} />
         </div>
         <Button icon={<SearchOutlined />} onClick={load}>조회</Button>
+        {isStore && user?.partnerName && (
+          <Tag color="blue" style={{ fontSize: 13, padding: '4px 10px', lineHeight: '24px' }}>현재 매장: {user.partnerName}</Tag>
+        )}
         <div style={{ flex: 1 }} />
         <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm()}>새 캠페인</Button>
       </div>
@@ -249,9 +269,10 @@ export default function CampaignListPage() {
           </Form.Item>
           <Space size={16} style={{ width: '100%' }} align="start">
             <Form.Item name="campaign_type" label="유형" rules={[{ required: true }]}>
-              <Select style={{ width: 120 }} options={[
+              <Select style={{ width: 140 }} options={[
                 { label: <><MessageOutlined /> SMS</>, value: 'SMS' },
                 { label: <><MailOutlined /> EMAIL</>, value: 'EMAIL' },
+                { label: <><MessageOutlined /> 알림톡</>, value: 'ALIMTALK' },
               ]} />
             </Form.Item>
             {templates.length > 0 && (

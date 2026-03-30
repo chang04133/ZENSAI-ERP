@@ -1,11 +1,14 @@
 export type RestockStatus = 'DRAFT' | 'APPROVED' | 'ORDERED' | 'RECEIVED' | 'CANCELLED';
 
+export type RestockPriority = 'CRITICAL' | 'WARNING' | 'NORMAL';
+
 export interface RestockRequest {
   request_id: number;
   request_no: string;
   request_date: string;
   partner_code: string;
   status: RestockStatus;
+  priority: RestockPriority;
   expected_date: string | null;
   received_date: string | null;
   memo: string | null;

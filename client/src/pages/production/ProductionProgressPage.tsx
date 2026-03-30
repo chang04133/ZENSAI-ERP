@@ -91,10 +91,7 @@ export default function ProductionProgressPage() {
   ];
 
   const itemLabel = (item: ProductionPlanItem) => {
-    const parts = [item.category];
-    if (item.fit) parts.push(item.fit);
-    if (item.length) parts.push(item.length);
-    return parts.join(' / ');
+    return item.category || '-';
   };
 
   return (
@@ -130,7 +127,7 @@ export default function ProductionProgressPage() {
 
             <Table
               columns={[
-                { title: '카테고리 / 핏 / 기장', key: 'name', ellipsis: true,
+                { title: '카테고리', key: 'name', ellipsis: true,
                   render: (_: any, r: ProductionPlanItem) => itemLabel(r) },
                 { title: '원가(원)', dataIndex: 'unit_cost', key: 'cost', width: 90,
                   render: (v: number) => v ? `${fmtNum(v)}원` : '-' },

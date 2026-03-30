@@ -166,6 +166,47 @@ export const crmApi = {
     const res = await apiFetch(`${BASE}/excel/import`, { method: 'POST', body: formData, headers: {} });
     return res.json();
   },
+
+  /* ─── 등급 자동 산정 ─── */
+  getTierRules: async () => {
+    const res = await apiFetch(`${BASE}/tiers/rules`);
+    const json = await res.json();
+    return json.data;
+  },
+  recalculateAllTiers: async () => {
+    const res = await apiFetch(`${BASE}/tiers/recalculate`, { method: 'POST' });
+    return res.json();
+  },
+  recalculateCustomerTier: async (id: number) => {
+    const res = await apiFetch(`${BASE}/${id}/tier/recalculate`, { method: 'POST' });
+    return res.json();
+  },
+  getTierHistory: async (customerId?: number, params: Record<string, string> = {}) => {
+    const base = customerId ? `${BASE}/${customerId}/tier-history` : `${BASE}/tiers/history`;
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${base}?${qs}`);
+    return res.json();
+  },
+
+  /* ─── 포인트 ─── */
+  getPoints: async (customerId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/points`);
+    const json = await res.json();
+    return json.data;
+  },
+  earnPoints: async (customerId: number, data: { amount: number; sale_id?: number }) => {
+    const res = await apiFetch(`${BASE}/${customerId}/points/earn`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  usePoints: async (customerId: number, data: { points: number; description: string }) => {
+    const res = await apiFetch(`${BASE}/${customerId}/points/use`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  getPointTransactions: async (customerId: number, params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${BASE}/${customerId}/points/transactions?${qs}`);
+    return res.json();
+  },
 };
 
 /* ═══════════════ 세그먼트 API ═══════════════ */
@@ -326,6 +367,60 @@ export const senderSettingsApi = {
   },
   save: async (data: any) => {
     const res = await apiFetch(SENDER, { method: 'PUT', body: JSON.stringify(data) });
+    return res.json();
+  },
+};
+
+/* ═══════════════ 자동 캠페인 API ═══════════════ */
+
+const AUTO = `${BASE}/auto-campaigns`;
+
+export const autoCampaignApi = {
+  list: async () => {
+    const res = await apiFetch(AUTO);
+    const json = await res.json();
+    return json.data;
+  },
+  create: async (data: any) => {
+    const res = await apiFetch(AUTO, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  update: async (id: number, data: any) => {
+    const res = await apiFetch(`${AUTO}/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    return res.json();
+  },
+  remove: async (id: number) => {
+    const res = await apiFetch(`${AUTO}/${id}`, { method: 'DELETE' });
+    return res.json();
+  },
+  history: async (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${AUTO}/history?${qs}`);
+    return res.json();
+  },
+  execute: async () => {
+    const res = await apiFetch(`${AUTO}/execute`, { method: 'POST' });
+    return res.json();
+  },
+};
+
+/* ═══════════════ RFM 분석 API ═══════════════ */
+
+const RFM = `${BASE}/rfm`;
+
+export const rfmApi = {
+  getAnalysis: async () => {
+    const res = await apiFetch(`${RFM}/analysis`);
+    const json = await res.json();
+    return json.data;
+  },
+  recalculate: async () => {
+    const res = await apiFetch(`${RFM}/recalculate`, { method: 'POST' });
+    return res.json();
+  },
+  getSegmentCustomers: async (segmentCode: string, params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${RFM}/segments/${segmentCode}/customers?${qs}`);
     return res.json();
   },
 };

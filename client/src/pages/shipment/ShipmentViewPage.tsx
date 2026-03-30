@@ -90,14 +90,15 @@ export default function ShipmentViewPage() {
     { label: '전체', value: '' },
     { label: '대기', value: 'PENDING' },
     { label: '출고완료', value: 'SHIPPED' },
-    { label: '입고완료', value: 'RECEIVED' },
+    { label: '수량불일치', value: 'DISCREPANCY' },
+    { label: '수령완료', value: 'RECEIVED' },
     { label: '취소', value: 'CANCELLED' },
   ];
 
   const columns = [
     { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 140 },
-    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 100,
-      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 120,
+      render: (v: string) => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '-' },
     { title: '유형', dataIndex: 'request_type', key: 'request_type', width: 90,
       render: (v: string) => {
         const colorMap: Record<string, string> = { '출고': 'blue', '반품': 'orange', '수평이동': 'purple' };
@@ -114,7 +115,10 @@ export default function ShipmentViewPage() {
     { title: '수령', dataIndex: 'total_received_qty', key: 'recv_qty', width: 65, align: 'right' as const,
       render: (v: number) => <span style={{ color: v > 0 ? '#13c2c2' : '#ccc' }}>{v || 0}</span> },
     { title: '상태', dataIndex: 'status', key: 'status', width: 90,
-      render: (v: string, r: any) => <Tag color={STATUS_COLORS[v]}>{getStatusLabel(v, r.request_type)}</Tag> },
+      render: (v: string, r: any) => {
+        if (v === 'RECEIVED' && r.to_partner_name) return <Tag color="cyan">{r.to_partner_name} 수령완료</Tag>;
+        return <Tag color={STATUS_COLORS[v]}>{getStatusLabel(v, r.request_type)}</Tag>;
+      } },
     { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, render: (v: string) => v || '-', ellipsis: true },
     { title: '', key: 'action', width: 80, render: (_: any, record: any) => (
       <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>

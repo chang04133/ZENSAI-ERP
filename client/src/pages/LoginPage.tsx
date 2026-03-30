@@ -1,15 +1,35 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Card, Form, Input, Button, Typography, message, Spin } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import AuthLayout from '../layouts/AuthLayout';
 
+const DEV_ACCOUNTS: Record<string, [string, string]> = {
+  '5172': ['admin', 'admin1234!'],
+  '5173': ['hq_mgr', 'test1234!'],
+  '5174': ['gangnam', 'test1234!'],
+  '5175': ['daegu', 'test1234!'],
+};
+
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
   const { isAuthenticated, isLoading } = useAuthStore();
+  const devTriedRef = useRef(false);
+
+  // DEV 모드: LoginPage에 도달하면 자동 로그인 재시도
+  useEffect(() => {
+    if (!import.meta.env.DEV || isLoading || isAuthenticated || devTriedRef.current) return;
+    const account = DEV_ACCOUNTS[window.location.port];
+    if (!account) return;
+    devTriedRef.current = true;
+    setLoading(true);
+    login(account[0], account[1]).then((r) => {
+      if (r.success) navigate('/', { replace: true });
+    }).finally(() => setLoading(false));
+  }, [isLoading, isAuthenticated]);
 
   // 자동 로그인 성공 시 대시보드로 리다이렉트
   if (isAuthenticated) {

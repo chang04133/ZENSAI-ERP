@@ -26,8 +26,8 @@ class ProductionService extends BaseService<ProductionPlan> {
   /** 허용되는 상태 전환 정의 */
   private static ALLOWED_TRANSITIONS: Record<string, string[]> = {
     DRAFT: ['IN_PRODUCTION', 'CANCELLED'],
-    IN_PRODUCTION: ['COMPLETED', 'CANCELLED'],
-    COMPLETED: [],
+    IN_PRODUCTION: ['CANCELLED'],
+    COMPLETED: ['CANCELLED'],
     CANCELLED: [],
   };
 
@@ -48,77 +48,62 @@ class ProductionService extends BaseService<ProductionPlan> {
         throw new Error(`상태를 ${oldStatus}에서 ${status}(으)로 변경할 수 없습니다.`);
       }
 
-      const sets: string[] = ['status = $1', 'updated_at = NOW()'];
-      const vals: any[] = [status];
-      let idx = 2;
+      // ── 완료 취소 시: 사전 검증 + 자재 복원 + 입고대기 삭제 ──
+      if (status === 'CANCELLED' && oldStatus === 'COMPLETED') {
+        // 1) 입고 확정 여부 확인 — 확정된 입고가 있으면 취소 불가
+        const inboundCheck = await client.query(
+          `SELECT record_id, status FROM inbound_records WHERE source_type = 'PRODUCTION' AND source_id = $1`,
+          [id],
+        );
+        const completedInbound = inboundCheck.rows.find((r: any) => r.status === 'COMPLETED');
+        if (completedInbound) {
+          throw new Error('이미 입고확정된 생산계획은 취소할 수 없습니다. 입고를 먼저 취소해주세요.');
+        }
 
-      if (status === 'IN_PRODUCTION') {
-        sets.push(`approved_by = $${idx++}`);
-        vals.push(userId);
-      }
-      if (status === 'IN_PRODUCTION' && !plan.start_date) {
-        sets.push(`start_date = CURRENT_DATE`);
-      }
-      if (status === 'COMPLETED') {
-        sets.push(`end_date = CURRENT_DATE`);
-      }
-
-      vals.push(id);
-      await client.query(`UPDATE production_plans SET ${sets.join(', ')} WHERE plan_id = $${idx}`, vals);
-
-      // ── 생산완료 시 자재 자동차감 + 완제품 재고 입고 ──
-      if (status === 'COMPLETED' && plan.status !== 'COMPLETED') {
-        // 1) 자재 차감
+        // 2) 자재 복원
         const materials = await client.query(
-          'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
+          `SELECT pmu.material_id, pmu.used_qty
+           FROM production_material_usage pmu
+           WHERE pmu.plan_id = $1 AND pmu.used_qty > 0`,
           [id],
         );
         for (const mat of materials.rows) {
-          const stockCheck = await client.query('SELECT stock_qty FROM materials WHERE material_id = $1', [mat.material_id]);
-          if (stockCheck.rows.length > 0 && Number(stockCheck.rows[0].stock_qty) < Number(mat.used_qty)) {
-            console.warn(`[Production] 자재(${mat.material_id}) 재고 부족: 현재=${stockCheck.rows[0].stock_qty}, 차감=${mat.used_qty}`);
-          }
           await client.query(
-            'UPDATE materials SET stock_qty = GREATEST(0, stock_qty - $1), updated_at = NOW() WHERE material_id = $2',
+            'UPDATE materials SET stock_qty = stock_qty + $1, updated_at = NOW() WHERE material_id = $2',
             [mat.used_qty, mat.material_id],
           );
         }
 
-        // 2) 입고대기 레코드 생성 (재고는 입고확정 시 반영)
-        const totalProduced = await client.query(
-          `SELECT COALESCE(SUM(plan_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
+        // 3) 입고대기 레코드 삭제
+        await client.query(
+          `DELETE FROM inbound_records WHERE source_type = 'PRODUCTION' AND source_id = $1 AND status = 'PENDING'`,
           [id],
         );
 
-        let targetPartner = plan.partner_code;
-        if (!targetPartner) {
-          const hqResult = await client.query(
-            `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
-          );
-          targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
+        // 4) 상태 + 비용 초기화
+        await client.query(
+          `UPDATE production_plans SET status = 'CANCELLED', label_cost = 0, material_cost = 0, end_date = NULL, updated_at = NOW() WHERE plan_id = $1`,
+          [id],
+        );
+      } else {
+        // ── 일반 상태 변경 (DRAFT→IN_PRODUCTION, IN_PRODUCTION→CANCELLED 등) ──
+        const sets: string[] = ['status = $1', 'updated_at = NOW()'];
+        const vals: any[] = [status];
+        let idx = 2;
+
+        if (status === 'IN_PRODUCTION') {
+          sets.push(`approved_by = $${idx++}`);
+          vals.push(userId);
+        }
+        if (status === 'IN_PRODUCTION' && !plan.start_date) {
+          sets.push(`start_date = CURRENT_DATE`);
         }
 
-        await inboundRepository.createPending({
-          inbound_date: new Date().toISOString().slice(0, 10),
-          partner_code: targetPartner,
-          source_type: 'PRODUCTION',
-          source_id: id,
-          expected_qty: totalProduced.rows[0].total,
-          memo: `생산계획 ${plan.plan_no || id} 완료 — 입고 대기`,
-          created_by: userId,
-        }, client);
+        vals.push(id);
+        await client.query(`UPDATE production_plans SET ${sets.join(', ')} WHERE plan_id = $${idx}`, vals);
       }
 
       await client.query('COMMIT');
-
-      // 알림 생성
-      if (status === 'COMPLETED') {
-        createNotification(
-          'PRODUCTION', '생산완료',
-          `생산계획 #${plan.plan_no || id}이(가) 완료되었습니다. 입고관리에서 입고확정을 진행해주세요.`,
-          id, undefined, userId,
-        );
-      }
 
       return productionRepository.getWithItems(id);
     } catch (e) {
@@ -184,6 +169,18 @@ class ProductionService extends BaseService<ProductionPlan> {
       if (plan.status !== 'IN_PRODUCTION') throw new Error(`생산중 상태에서만 완료 처리가 가능합니다. (현재: ${plan.status})`);
       if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 잔금 지급 가능합니다.');
 
+      // 0) 자재 사용량 저장 (클라이언트에서 전달)
+      const materials_input = paymentData.materials as Array<{ material_id: number; used_qty: number }> | undefined;
+      if (materials_input && materials_input.length > 0) {
+        await client.query('DELETE FROM production_material_usage WHERE plan_id = $1', [id]);
+        for (const m of materials_input) {
+          await client.query(
+            'INSERT INTO production_material_usage (plan_id, material_id, required_qty, used_qty) VALUES ($1, $2, $3, $3)',
+            [id, m.material_id, m.used_qty],
+          );
+        }
+      }
+
       // 1) 잔금 처리
       await client.query(
         `UPDATE production_plans SET
@@ -192,43 +189,65 @@ class ProductionService extends BaseService<ProductionPlan> {
         [paymentData.balance_date || null, id],
       );
 
-      // 2) 상태 변경 IN_PRODUCTION → COMPLETED + 자재차감 + 입고
-      await client.query(
-        `UPDATE production_plans SET status = 'COMPLETED', end_date = CURRENT_DATE, updated_at = NOW()
-         WHERE plan_id = $1`,
+      // 2) 라벨 단가 조회 + 라벨비용 계산
+      const labelSetting = await client.query(
+        `SELECT code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'LABEL_UNIT_PRICE'`,
+      );
+      const labelUnitPrice = Number(labelSetting.rows[0]?.code_label || 300);
+
+      const totalProduced = await client.query(
+        `SELECT COALESCE(SUM(produced_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
         [id],
+      );
+      const labelCost = labelUnitPrice * totalProduced.rows[0].total;
+
+      // 3) 상태 변경 IN_PRODUCTION → COMPLETED + 라벨비용 저장
+      await client.query(
+        `UPDATE production_plans SET status = 'COMPLETED', end_date = CURRENT_DATE,
+         label_cost = $1, updated_at = NOW()
+         WHERE plan_id = $2`,
+        [labelCost, id],
       );
 
-      // 자재 차감
+      // 자재 차감 + 자재비용 계산
       const materials = await client.query(
-        'SELECT material_id, used_qty FROM production_material_usage WHERE plan_id = $1 AND used_qty > 0',
+        `SELECT pmu.material_id, pmu.used_qty, m.unit_price
+         FROM production_material_usage pmu
+         JOIN materials m ON pmu.material_id = m.material_id
+         WHERE pmu.plan_id = $1 AND pmu.used_qty > 0`,
         [id],
       );
+      let materialCost = 0;
       for (const mat of materials.rows) {
         await client.query(
           'UPDATE materials SET stock_qty = GREATEST(0, stock_qty - $1), updated_at = NOW() WHERE material_id = $2',
           [mat.used_qty, mat.material_id],
         );
+        materialCost += Number(mat.used_qty) * Number(mat.unit_price || 0);
       }
+      await client.query(
+        'UPDATE production_plans SET material_cost = $1 WHERE plan_id = $2',
+        [materialCost, id],
+      );
+      // 입고 대상 창고 = 항상 기본 HQ 창고 (plan.partner_code는 공장/거래처)
+      const hqResult = await client.query(
+        `SELECT partner_code FROM warehouses WHERE is_default = TRUE AND is_active = TRUE LIMIT 1`,
+      );
+      const inboundPartner = hqResult.rows[0]?.partner_code || 'HQ';
 
-      // 입고대기 생성
-      const totalProduced = await client.query(
-        `SELECT COALESCE(SUM(produced_qty), 0)::int as total FROM production_plan_items WHERE plan_id = $1`,
+      // expected_qty: produced_qty 기준, 미입력 시 plan_qty 대체
+      const expectedResult = await client.query(
+        `SELECT COALESCE(SUM(CASE WHEN produced_qty > 0 THEN produced_qty ELSE plan_qty END), 0)::int as total
+         FROM production_plan_items WHERE plan_id = $1`,
         [id],
       );
-      let targetPartner = plan.partner_code;
-      if (!targetPartner) {
-        const hqResult = await client.query(
-          `SELECT partner_code FROM partners WHERE partner_type IN ('HQ', '본사', '직영') LIMIT 1`,
-        );
-        targetPartner = hqResult.rows[0]?.partner_code || 'HQ';
-      }
+
       await inboundRepository.createPending({
         inbound_date: new Date().toISOString().slice(0, 10),
-        partner_code: targetPartner,
+        partner_code: inboundPartner,
         source_type: 'PRODUCTION',
         source_id: id,
-        expected_qty: totalProduced.rows[0].total,
+        expected_qty: expectedResult.rows[0].total,
         memo: `생산계획 ${plan.plan_no || id} 완료 — 입고 대기`,
         created_by: userId,
       }, client);

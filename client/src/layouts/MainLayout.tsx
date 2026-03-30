@@ -13,14 +13,28 @@ function getIcon(name: string): React.ReactNode {
   return IconComponent ? <IconComponent /> : null;
 }
 
-function buildMenuItems(items: MenuItem[], role: string): any[] {
+function buildMenuItems(
+  items: MenuItem[],
+  role: string,
+  hasPermission: (key: string) => boolean,
+): any[] {
   return items
-    .filter((item) => item.roles.includes(role))
+    .filter((item) => {
+      // 기본 역할 체크 (하드코딩 fallback)
+      if (!item.roles.includes(role)) return false;
+      // DB 권한 체크
+      if (item.children) {
+        // 부모: 자식 중 하나라도 권한 있으면 표시
+        return item.children.some(c => c.roles.includes(role) && hasPermission(c.key));
+      }
+      return hasPermission(item.key);
+    })
     .map((item) => {
       if (item.children) {
-        const children = buildMenuItems(item.children, role);
+        const children = item.children
+          .filter(c => c.roles.includes(role) && hasPermission(c.key))
+          .map(c => ({ key: c.key, icon: getIcon(c.icon), label: c.label }));
         if (children.length === 0) {
-          // children이 모두 필터링되면 부모를 단독 링크로 표시
           return { key: item.key, icon: getIcon(item.icon), label: item.label };
         }
         return { key: item.key, icon: getIcon(item.icon), label: item.label, children };
@@ -46,10 +60,10 @@ export default function MainLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, logout } = useAuthStore();
+  const { user, logout, hasPermission } = useAuthStore();
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
 
-  const filteredMenu = user ? buildMenuItems(menuItems, user.role) : [];
+  const filteredMenu = user ? buildMenuItems(menuItems, user.role, hasPermission) : [];
 
   const pathParts = location.pathname.split('/').filter(Boolean);
   const selectedKey = pathParts.length >= 2

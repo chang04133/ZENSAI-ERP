@@ -4,12 +4,21 @@ class SegmentRepository {
   private get pool() { return getPool(); }
 
   async list(options: any = {}) {
-    const { page = 1, limit: rawLimit = 50 } = options;
+    const { page = 1, limit: rawLimit = 50, partner_code } = options;
     const limit = Math.min(Number(rawLimit) || 50, 200);
     const offset = (page - 1) * limit;
-    const total = parseInt((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM customer_segments WHERE is_active = TRUE')).rows[0].cnt, 10);
+
+    let where = 'WHERE is_active = TRUE';
+    const params: any[] = [];
+    if (partner_code) {
+      params.push(partner_code);
+      where += ` AND (partner_code = $${params.length} OR partner_code IS NULL)`;
+    }
+
+    const total = parseInt((await this.pool.query(`SELECT COUNT(*)::int AS cnt FROM customer_segments ${where}`, params)).rows[0].cnt, 10);
     const data = (await this.pool.query(
-      `SELECT * FROM customer_segments WHERE is_active = TRUE ORDER BY created_at DESC LIMIT $1 OFFSET $2`, [limit, offset])).rows;
+      `SELECT * FROM customer_segments ${where} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, limit, offset])).rows;
     return { data, total, page, limit };
   }
 

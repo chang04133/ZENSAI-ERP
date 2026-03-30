@@ -18,24 +18,30 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
   }
 
   async list(options: any = {}) {
-    const { page = 1, limit = 20, search, partner_code, date_from, date_to, status, source_type } = options;
+    const { page = 1, limit = 20, search, partner_code, date_from, date_to, status, exclude_status, source_type } = options;
     const offset = (Number(page) - 1) * Number(limit);
     const qb = new QueryBuilder('ir');
     if (search) qb.search(['inbound_no'], search);
     if (partner_code) qb.eq('partner_code', partner_code);
     if (status) qb.eq('status', status);
+    if (!status && exclude_status) qb.notIn('status', exclude_status);
     if (source_type === 'MANUAL') qb.raw("(ir.source_type IS NULL OR ir.source_type != 'PRODUCTION')");
     else if (source_type === 'PRODUCTION') qb.eq('source_type', 'PRODUCTION');
     if (date_from) qb.raw('ir.inbound_date >= ?', date_from);
     if (date_to) qb.raw('ir.inbound_date <= ?', date_to);
     const { whereClause, params, nextIdx } = qb.build();
 
-    const countSql = `SELECT COUNT(*) FROM inbound_records ir ${whereClause}`;
-    const total = parseInt((await this.pool.query(countSql, params)).rows[0].count, 10);
+    const countSql = `
+      SELECT COUNT(*) AS cnt,
+        COALESCE(SUM((SELECT COALESCE(SUM(ii.qty),0) FROM inbound_items ii WHERE ii.record_id = ir.record_id)),0)::bigint AS sum_qty
+      FROM inbound_records ir ${whereClause}`;
+    const countRow = (await this.pool.query(countSql, params)).rows[0];
+    const total = parseInt(countRow.cnt, 10);
+    const sumQty = Number(countRow.sum_qty);
 
     const dataSql = `
       SELECT ir.*, p.partner_name,
-        pp.plan_no,
+        pp.plan_no, pp.plan_name,
         (SELECT COALESCE(SUM(ii.qty),0)::int FROM inbound_items ii WHERE ii.record_id = ir.record_id) AS total_qty,
         (SELECT COUNT(*)::int FROM inbound_items ii WHERE ii.record_id = ir.record_id) AS item_count
       FROM inbound_records ir
@@ -43,7 +49,7 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       LEFT JOIN production_plans pp ON ir.source_type = 'PRODUCTION' AND ir.source_id = pp.plan_id
       ${whereClause} ORDER BY ir.created_at DESC LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
-    return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
+    return { data: data.rows, total, sumQty, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
   }
 
   async generateNo(): Promise<string> {
@@ -54,7 +60,7 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
   async getWithItems(id: number): Promise<InboundRecord | null> {
     const rec = await this.pool.query(
       `SELECT ir.*, p.partner_name,
-         pp.plan_no
+         pp.plan_no, pp.plan_name
        FROM inbound_records ir
        LEFT JOIN partners p ON ir.partner_code = p.partner_code
        LEFT JOIN production_plans pp ON ir.source_type = 'PRODUCTION' AND ir.source_id = pp.plan_id
@@ -96,13 +102,14 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
     try {
       await client.query('BEGIN');
       const inboundNo = await this.generateNo();
+      const expectedQty = items.reduce((s, i) => s + i.qty, 0);
       const header = await client.query(
         `INSERT INTO inbound_records
-         (inbound_no, inbound_date, partner_code, memo, created_by, status)
-         VALUES ($1, $2, $3, $4, $5, 'COMPLETED')
+         (inbound_no, inbound_date, partner_code, memo, created_by, status, expected_qty)
+         VALUES ($1, $2, $3, $4, $5, 'PENDING', $6)
          RETURNING *`,
-        [inboundNo, headerData.inbound_date || new Date().toISOString().slice(0, 10),
-         headerData.partner_code, headerData.memo || null, headerData.created_by],
+        [inboundNo, headerData.inbound_date || new Date().toISOString().split('T')[0],
+         headerData.partner_code, headerData.memo || null, headerData.created_by, expectedQty],
       );
       const recordId = header.rows[0].record_id;
 
@@ -110,16 +117,15 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
         await client.query(
           `INSERT INTO inbound_items (record_id, variant_id, qty, unit_price, memo)
            VALUES ($1, $2, $3, $4, $5)`,
-          [recordId, item.variant_id, item.qty, item.unit_price || null, item.memo || null],
-        );
-        // 재고 즉시 반영
-        await inventoryRepository.applyChange(
-          headerData.partner_code, item.variant_id, item.qty,
-          'INBOUND', recordId, headerData.created_by, client,
+          [recordId, item.variant_id, item.qty, item.unit_price ?? null, item.memo || null],
         );
       }
 
       await client.query('COMMIT');
+
+      audit('inbound', String(recordId), 'INSERT', headerData.created_by,
+        null, { inbound_no: inboundNo, partner_code: headerData.partner_code, item_count: items.length });
+
       return this.getWithItems(recordId);
     } catch (e) {
       await client.query('ROLLBACK');
@@ -220,12 +226,15 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       if (rec.rows[0].status !== 'PENDING') throw new Error('대기중 상태의 입고만 확정할 수 있습니다');
       const record = rec.rows[0];
 
+      // 기존 items 삭제 (수동 입고 등록 시 저장된 items 교체)
+      await client.query('DELETE FROM inbound_items WHERE record_id = $1', [recordId]);
+
       // items 추가 + 재고 반영
       for (const item of items) {
         await client.query(
           `INSERT INTO inbound_items (record_id, variant_id, qty, unit_price, memo)
            VALUES ($1, $2, $3, $4, $5)`,
-          [recordId, item.variant_id, item.qty, item.unit_price || null, item.memo || null],
+          [recordId, item.variant_id, item.qty, item.unit_price ?? null, item.memo || null],
         );
         await inventoryRepository.applyChange(
           record.partner_code, item.variant_id, item.qty,
@@ -260,20 +269,22 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       await client.query('BEGIN');
 
       const rec = await client.query(
-        'SELECT * FROM inbound_records WHERE record_id = $1', [id],
+        'SELECT * FROM inbound_records WHERE record_id = $1 FOR UPDATE', [id],
       );
       if (rec.rows.length === 0) throw new Error('입고 기록을 찾을 수 없습니다');
       const record = rec.rows[0];
 
-      // 아이템별 재고 원복 (역방향 수량)
+      // 아이템별 재고 원복 (COMPLETED만 — PENDING은 재고가 반영된 적 없음)
       const items = await client.query(
         'SELECT * FROM inbound_items WHERE record_id = $1', [id],
       );
-      for (const item of items.rows) {
-        await inventoryRepository.applyChange(
-          record.partner_code, item.variant_id, -item.qty,
-          'INBOUND', id, userId, client,
-        );
+      if (record.status === 'COMPLETED') {
+        for (const item of items.rows) {
+          await inventoryRepository.applyChange(
+            record.partner_code, item.variant_id, -item.qty,
+            'INBOUND', id, userId, client,
+          );
+        }
       }
 
       await client.query('DELETE FROM inbound_records WHERE record_id = $1', [id]);

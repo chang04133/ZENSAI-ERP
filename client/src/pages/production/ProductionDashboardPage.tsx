@@ -66,8 +66,9 @@ export default function ProductionDashboardPage() {
       plan_qty: plan?.plan_qty || 0,
       produced_qty: plan?.produced_qty || 0,
       purchase_cost: f?.purchase_cost || 0,
+      label_cost: f?.label_cost || 0,
       material_cost: f?.material_cost || 0,
-      total_cost: (f?.purchase_cost || 0) + (f?.material_cost || 0),
+      total_cost: (f?.purchase_cost || 0) + (f?.label_cost || 0) + (f?.material_cost || 0),
     };
   }
 
@@ -139,7 +140,8 @@ export default function ProductionDashboardPage() {
                   { label: '생산 건수', value: `${fmtNum(d.plan_count)}건` },
                   { label: '계획 수량', value: `${fmtNum(d.plan_qty)}개` },
                   { label: '매입비용', value: `${fmtWon(d.purchase_cost)}원` },
-                  { label: '부자재비용', value: `${fmtWon(d.material_cost)}원` },
+                  { label: '라벨비용', value: `${fmtWon(d.label_cost)}원` },
+                  { label: '자재비용', value: `${fmtWon(d.material_cost)}원` },
                 ].map(row => (
                   <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, fontSize: 13 }}>
                     <span style={{ color: '#666' }}>{row.label}</span>
@@ -236,9 +238,6 @@ export default function ProductionDashboardPage() {
               { title: '계획', dataIndex: 'plan_no', key: 'plan', width: 110 },
               { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
                 render: (v: string) => <Tag color={CATEGORY_COLORS[v] || 'blue'}>{catLabelMap[v] || v}</Tag> },
-              { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 80, render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
-              { title: '핏', dataIndex: 'fit', key: 'fit', width: 80, render: (v: string) => v || '-' },
-              { title: '기장', dataIndex: 'length', key: 'len', width: 80, render: (v: string) => v || '-' },
               { title: '계획', dataIndex: 'plan_qty', key: 'plan_qty', width: 60 },
               { title: '생산', dataIndex: 'produced_qty', key: 'prod_qty', width: 60 },
               { title: '진행률', key: 'pct', width: 100, render: (_: any, r: any) => {

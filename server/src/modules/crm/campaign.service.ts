@@ -18,6 +18,14 @@ function createEmailSender(settings: PartnerSenderSettings): MessageSender | nul
   return new GmailSender(settings.email_user, settings.email_password);
 }
 
+function createAlimtalkSender(settings: PartnerSenderSettings): MessageSender | null {
+  if (!settings.kakao_enabled || !settings.kakao_sender_key || !settings.sms_api_key || !settings.sms_api_secret) {
+    return null;
+  }
+  const { KakaoSender } = require('./senders/kakao.sender');
+  return new KakaoSender(settings.sms_api_key, settings.sms_api_secret, settings.kakao_sender_key);
+}
+
 class CampaignService {
   /* ─── 캠페인 ─── */
 
@@ -79,13 +87,18 @@ class CampaignService {
     const settings = await campaignRepository.getSenderSettings(partnerCode);
     if (!settings) throw new Error('발송 설정이 등록되지 않았습니다. 발송 설정 메뉴에서 API 키를 등록해주세요.');
 
-    const sender: MessageSender | null = campaign.campaign_type === 'EMAIL'
-      ? createEmailSender(settings)
-      : createSmsSender(settings);
+    let sender: MessageSender | null;
+    if (campaign.campaign_type === 'EMAIL') {
+      sender = createEmailSender(settings);
+    } else if (campaign.campaign_type === 'ALIMTALK') {
+      sender = createAlimtalkSender(settings);
+    } else {
+      sender = createSmsSender(settings);
+    }
 
     if (!sender) {
-      const type = campaign.campaign_type === 'EMAIL' ? '이메일' : 'SMS';
-      throw new Error(`${type} 발송이 활성화되지 않았습니다. 발송 설정에서 활성화해주세요.`);
+      const typeLabels: Record<string, string> = { SMS: 'SMS', EMAIL: '이메일', ALIMTALK: '카카오 알림톡' };
+      throw new Error(`${typeLabels[campaign.campaign_type] || campaign.campaign_type} 발송이 활성화되지 않았습니다. 발송 설정에서 활성화해주세요.`);
     }
 
     // 1. 상태 변경 → SENDING

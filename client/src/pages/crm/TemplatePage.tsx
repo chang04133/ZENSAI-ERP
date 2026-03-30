@@ -19,6 +19,10 @@ export default function TemplatePage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
+  // 미리보기 모달
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewItem, setPreviewItem] = useState<any>(null);
+
   const load = useCallback(() => {
     setLoading(true);
     templateApi.list()
@@ -68,7 +72,12 @@ export default function TemplatePage() {
     { title: '제목', dataIndex: 'subject', key: 'subject', width: 200, ellipsis: true,
       render: (v: string) => v || '-' },
     { title: '내용 미리보기', dataIndex: 'content', key: 'content', ellipsis: true,
-      render: (v: string) => <span style={{ color: '#888' }}>{v?.substring(0, 50)}{v?.length > 50 ? '...' : ''}</span> },
+      render: (v: string, r: any) => (
+        <span style={{ color: '#888', cursor: 'pointer' }}
+          onClick={(e) => { e.stopPropagation(); setPreviewItem(r); setPreviewOpen(true); }}>
+          {v?.substring(0, 50)}{v?.length > 50 ? '...' : ''}
+        </span>
+      ) },
     { title: '생성일', dataIndex: 'created_at', key: 'created', width: 100,
       render: (v: string) => dayjs(v).format('YY.MM.DD') },
     { title: '', key: 'actions', width: 90, align: 'center' as const,
@@ -118,6 +127,30 @@ export default function TemplatePage() {
             <Input.TextArea rows={6} placeholder="메시지 내용" />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 미리보기 모달 */}
+      <Modal
+        title={previewItem?.template_name || '템플릿 미리보기'}
+        open={previewOpen}
+        onCancel={() => setPreviewOpen(false)}
+        footer={[
+          <Button key="edit" icon={<EditOutlined />} onClick={() => { setPreviewOpen(false); openForm(previewItem); }}>수정</Button>,
+          <Button key="close" type="primary" onClick={() => setPreviewOpen(false)}>닫기</Button>,
+        ]}
+        width={520}
+      >
+        {previewItem && (
+          <>
+            <div style={{ marginBottom: 12 }}>
+              <Tag color={TYPE_COLORS[previewItem.template_type]}>{previewItem.template_type}</Tag>
+              {previewItem.subject && <span style={{ marginLeft: 8, color: '#555' }}>제목: {previewItem.subject}</span>}
+            </div>
+            <div style={{ whiteSpace: 'pre-wrap', padding: 16, background: '#fafafa', borderRadius: 8, maxHeight: 400, overflow: 'auto', lineHeight: 1.7 }}>
+              {previewItem.content}
+            </div>
+          </>
+        )}
       </Modal>
     </>
   );

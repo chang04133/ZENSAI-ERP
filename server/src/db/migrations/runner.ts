@@ -35,7 +35,7 @@ export async function runMigrations(pool: Pool, migrations: Migration[]): Promis
       await client.query('BEGIN');
       await migration.up(client);  // client를 전달하여 트랜잭션 내에서 실행
       await client.query(
-        'INSERT INTO _migrations (version, name) VALUES ($1, $2)',
+        'INSERT INTO _migrations (version, name) VALUES ($1, $2) ON CONFLICT (version) DO NOTHING',
         [migration.version, migration.name],
       );
       await client.query('COMMIT');

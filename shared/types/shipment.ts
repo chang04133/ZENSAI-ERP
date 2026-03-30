@@ -1,5 +1,5 @@
-export type ShipmentRequestType = '출고' | '반품' | '수평이동';
-export type ShipmentStatus = 'PENDING' | 'SHIPPED' | 'RECEIVED' | 'CANCELLED';
+export type ShipmentRequestType = '출고' | '반품' | '수평이동' | '출고요청';
+export type ShipmentStatus = 'PENDING' | 'SHIPPED' | 'RECEIVED' | 'CANCELLED' | 'DISCREPANCY' | 'REJECTED';
 
 export interface ShipmentRequest {
   request_id: number;

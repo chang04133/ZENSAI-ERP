@@ -53,13 +53,13 @@ export default function RestockManagePage() {
   const [suggestions, setSuggestions] = useState<RestockSuggestion[]>([]);
   const [salesPeriodDays, setSalesPeriodDays] = useState(60);
   const [sugLoading, setSugLoading] = useState(false);
-  const [sugCategoryFilter, setSugCategoryFilter] = useState<string | undefined>();
-  const [sugUrgencyFilter, setSugUrgencyFilter] = useState<string | undefined>();
+  const [sugCategoryFilter, setSugCategoryFilter] = useState<string[]>([]);
+  const [sugUrgencyFilter, setSugUrgencyFilter] = useState<string[]>([]);
 
   // ── 의뢰 목록 탭 ──
   const { data: requests, total, loading: reqLoading, fetchList } = useRestockStore();
   const [reqPage, setReqPage] = useState(1);
-  const [statusFilter, setStatusFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
 
   // ── 진행관리 탭 ──
   const [progressPartnerFilter, setProgressPartnerFilter] = useState<string | undefined>();
@@ -104,7 +104,7 @@ export default function RestockManagePage() {
 
   const loadRequests = () => {
     const params: Record<string, string> = { page: String(reqPage), limit: '50' };
-    if (statusFilter) params.status = statusFilter;
+    if (statusFilter.length) params.status = statusFilter.join(',');
     if (partnerFilter) params.partner_code = partnerFilter;
     fetchList(params);
   };
@@ -161,10 +161,14 @@ export default function RestockManagePage() {
         variant_id: s.variant_id,
         request_qty: itemQtys[s.variant_id] || s.suggested_qty,
       }));
+      // 선택된 아이템 중 최고 긴급도를 priority로 전달
+      const priority = selectedItems.some(s => s.urgency === 'CRITICAL') ? 'CRITICAL'
+        : selectedItems.some(s => s.urgency === 'WARNING') ? 'WARNING' : 'NORMAL';
       await restockApi.create({
         partner_code: values.partner_code,
         expected_date: values.expected_date ? values.expected_date.format('YYYY-MM-DD') : null,
         memo: values.memo,
+        priority,
         items,
       });
       message.success('재입고 의뢰가 생성되었습니다.');
@@ -232,8 +236,8 @@ export default function RestockManagePage() {
 
   /* ── 제안 데이터: 필터 적용 ── */
   const filteredSuggestions = suggestions.filter(s => {
-    if (sugCategoryFilter && s.category !== sugCategoryFilter) return false;
-    if (sugUrgencyFilter && s.urgency !== sugUrgencyFilter) return false;
+    if (sugCategoryFilter.length && !sugCategoryFilter.includes(s.category)) return false;
+    if (sugUrgencyFilter.length && !sugUrgencyFilter.includes(s.urgency)) return false;
     return true;
   });
 
@@ -373,10 +377,10 @@ export default function RestockManagePage() {
         {tab === 'suggestions' && (
           <>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-              <Select value={sugCategoryFilter} onChange={setSugCategoryFilter} placeholder="전체" allowClear style={{ width: 120 }}
+              <Select mode="multiple" maxTagCount="responsive" value={sugCategoryFilter} onChange={setSugCategoryFilter} placeholder="전체" allowClear style={{ width: 150 }}
                 options={sugCategories.map(c => ({ label: c, value: c }))} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>긴급도</div>
-              <Select value={sugUrgencyFilter} onChange={setSugUrgencyFilter} placeholder="전체" allowClear style={{ width: 100 }}
+              <Select mode="multiple" maxTagCount="responsive" value={sugUrgencyFilter} onChange={setSugUrgencyFilter} placeholder="전체" allowClear style={{ width: 150 }}
                 options={[{ label: '위험', value: 'CRITICAL' }, { label: '주의', value: 'WARNING' }, { label: '보통', value: 'NORMAL' }]} /></div>
             <div style={{ flex: 1 }} />
             {selectedItems.length > 0 && (
@@ -421,19 +425,19 @@ export default function RestockManagePage() {
                   <SummaryCard title="긴급 보충 (7일 미만)" count={criticalCount}
                     icon={<ExclamationCircleOutlined />} bg="linear-gradient(135deg, #ff4d4f22 0%, #ff4d4f11 100%)" color="#cf1322"
                     sub={`소진 임박 품목`}
-                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter === 'CRITICAL' ? undefined : 'CRITICAL'); }} />
+                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter.includes('CRITICAL') ? [] : ['CRITICAL']); }} />
                 </Col>
                 <Col xs={24} sm={8}>
                   <SummaryCard title="주의 품목 (14일 미만)" count={warningCount}
                     icon={<WarningOutlined />} bg="linear-gradient(135deg, #fa8c1622 0%, #fa8c1611 100%)" color="#d46b08"
                     sub={`조기 발주 권장`}
-                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter === 'WARNING' ? undefined : 'WARNING'); }} />
+                    onClick={() => { setSugUrgencyFilter(sugUrgencyFilter.includes('WARNING') ? [] : ['WARNING']); }} />
                 </Col>
                 <Col xs={24} sm={8}>
                   <SummaryCard title="전체 보충 필요" count={suggestions.length}
                     icon={<AlertOutlined />} bg="linear-gradient(135deg, #1890ff22 0%, #1890ff11 100%)" color="#096dd9"
                     sub={`총 권장수량 ${totalSugQty.toLocaleString()}개`}
-                    onClick={() => { setSugUrgencyFilter(undefined); }} />
+                    onClick={() => { setSugUrgencyFilter([]); }} />
                 </Col>
               </Row>
               <Table dataSource={filteredSuggestions} columns={sugColumns} rowKey="variant_id"
@@ -454,8 +458,8 @@ export default function RestockManagePage() {
             <>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
                 <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-                  <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 120 }}
-                    options={[{ label: '전체 보기', value: '' }, ...Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))]} /></div>
+                  <Select mode="multiple" maxTagCount="responsive" value={statusFilter} onChange={(v) => { setStatusFilter(v); setReqPage(1); }} style={{ width: 180 }}
+                    placeholder="전체" allowClear options={Object.entries(STATUS_LABELS).map(([k, v]) => ({ label: v, value: k }))} /></div>
                 <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
                   <Select value={partnerFilter} onChange={setPartnerFilter} style={{ width: 150 }}
                     options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} /></div>

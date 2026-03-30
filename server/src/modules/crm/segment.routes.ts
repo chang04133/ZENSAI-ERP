@@ -1,18 +1,25 @@
 import { Router, Request, Response } from 'express';
 import { asyncHandler } from '../../core/async-handler';
 import { requireRole } from '../../middleware/role-guard';
+import { getStorePartnerCode } from '../../core/store-filter';
 import { segmentRepository } from './segment.repository';
 
 const router = Router();
-const roles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'] as const;
+const roles = ['ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'] as const;
 
 router.get('/', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
-  const data = await segmentRepository.list(req.query);
+  const storeCode = getStorePartnerCode(req);
+  const data = await segmentRepository.list({ ...req.query, partner_code: storeCode });
   res.json({ success: true, ...data });
 }));
 
 router.post('/', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
-  const data = await segmentRepository.create({ ...req.body, created_by: req.user?.userName });
+  const storeCode = getStorePartnerCode(req);
+  const data = await segmentRepository.create({
+    ...req.body,
+    created_by: req.user?.userId,
+    partner_code: storeCode || req.body.partner_code || null,
+  });
   res.json({ success: true, data });
 }));
 

@@ -67,6 +67,18 @@ export class QueryBuilder {
     return this;
   }
 
+  /** NOT IN filter (comma-separated string → array) */
+  notIn(column: string, csv: string): this {
+    if (!csv) return this;
+    const values = csv.split(',').map((v) => v.trim()).filter(Boolean);
+    if (values.length === 0) return this;
+    const placeholders = values.map((_, i) => `$${this.idx + i}`).join(', ');
+    this.conditions.push(`${this.col(column)} NOT IN (${placeholders})`);
+    values.forEach((v) => this.params.push(v));
+    this.idx += values.length;
+    return this;
+  }
+
   /** Raw condition */
   raw(condition: string, ...values: any[]): this {
     let replaced = condition;

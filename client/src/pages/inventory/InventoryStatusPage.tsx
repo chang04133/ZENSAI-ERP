@@ -7,10 +7,10 @@ import dayjs, { Dayjs } from 'dayjs';
 import { datePresets } from '../../utils/date-presets';
 import {
   InboxOutlined, ShopOutlined, TagsOutlined, SearchOutlined,
-  StopOutlined, BarChartOutlined, SkinOutlined, ColumnHeightOutlined,
+  StopOutlined, BarChartOutlined,
   SendOutlined, AlertOutlined, ThunderboltOutlined, CalendarOutlined,
   ReloadOutlined, PlusOutlined, EditOutlined, HistoryOutlined,
-  ArrowLeftOutlined,
+  ArrowLeftOutlined, WarningOutlined, ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -23,7 +23,9 @@ import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { apiFetch } from '../../core/api.client';
 const RestockManagePage = lazy(() => import('../restock/RestockManagePage'));
-import { sizeSort } from '../../utils/size-order';
+import { useProductStore } from '../../modules/product/product.store';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
+import { SALE_STATUS_COLORS } from '../../utils/constants';
 import HBar from '../../components/HBar';
 
 
@@ -39,9 +41,11 @@ const CAT_TAG_COLORS: Record<string, string> = {
 };
 const TX_TYPE_LABELS: Record<string, string> = {
   ADJUST: '수동조정', SHIPMENT: '출고', RETURN: '반품', TRANSFER: '이동', SALE: '판매', RESTOCK: '재입고',
+  INBOUND: '입고', SALE_EDIT: '매출수정', SALE_DELETE: '매출삭제', LOSS: '유실',
 };
 const TX_TYPE_COLORS: Record<string, string> = {
   ADJUST: 'purple', SHIPMENT: 'blue', RETURN: 'orange', TRANSFER: 'cyan', SALE: 'green', RESTOCK: 'magenta',
+  INBOUND: 'geekblue', SALE_EDIT: 'lime', SALE_DELETE: 'red', LOSS: 'volcano',
 };
 
 const renderQty = (qty: number) => {
@@ -91,29 +95,24 @@ function DashboardTab() {
   const [reorderData, setReorderData] = useState<{ urgent: any[]; recommend: any[] }>({ urgent: [], recommend: [] });
   const [reorderLoading, setReorderLoading] = useState(true);
 
-  // 검색/필터 (상품관리와 동일 패턴)
+  // 검색/필터
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [page, setPage] = useState(1);
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [subCategoryFilter, setSubCategoryFilter] = useState('');
+  const [partners, setPartners] = useState<any[]>([]);
+  const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
   const [yearFromFilter, setYearFromFilter] = useState('');
   const [yearToFilter, setYearToFilter] = useState('');
-  const [seasonFilter, setSeasonFilter] = useState('');
-  const [fitFilter, setFitFilter] = useState('');
-  const [lengthFilter, setLengthFilter] = useState('');
-  const [colorFilter, setColorFilter] = useState('');
-  const [sizeFilter, setSizeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
+  const [colorFilter, setColorFilter] = useState<string[]>([]);
+  const [sizeFilter, setSizeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [invData, setInvData] = useState<any[]>([]);
@@ -175,8 +174,8 @@ function DashboardTab() {
 
   // 옵션 로드 (상품관리와 동일)
   useEffect(() => {
+    partnerApi.list({ limit: '1000' }).then((result: any) => setPartners(result.data)).catch(() => {});
     codeApi.getByType('CATEGORY').then((data: any[]) => {
-      setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     codeApi.getByType('YEAR').then((data: any[]) => {
@@ -185,34 +184,26 @@ function DashboardTab() {
     codeApi.getByType('SEASON').then((data: any[]) => {
       setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
-    codeApi.getByType('FIT').then((data: any[]) => {
-      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('LENGTH').then((data: any[]) => {
-      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
     }).catch(() => {});
   }, []);
 
-  // 재고 목록 로드 (상품관리와 동일 패턴)
+  // 재고 목록 로드
   const load = async () => {
     setInvLoading(true);
     try {
       const params: Record<string, string> = { page: String(page), limit: '50' };
       if (search) params.search = search;
-      if (categoryFilter) params.category = categoryFilter;
-      if (subCategoryFilter) params.sub_category = subCategoryFilter;
+      if (partnerFilter.length) params.partner_code = partnerFilter.join(',');
+      if (categoryFilter.length) params.category = categoryFilter.join(',');
       if (yearFromFilter) params.year_from = yearFromFilter;
       if (yearToFilter) params.year_to = yearToFilter;
-      if (seasonFilter) params.season = seasonFilter;
-      if (statusFilter) params.sale_status = statusFilter;
-      if (fitFilter) params.fit = fitFilter;
-      if (lengthFilter) params.length = lengthFilter;
-      if (colorFilter) params.color = colorFilter;
-      if (sizeFilter) params.size = sizeFilter;
+      if (seasonFilter.length) params.season = seasonFilter.join(',');
+      if (statusFilter.length) params.sale_status = statusFilter.join(',');
+      if (colorFilter.length) params.color = colorFilter.join(',');
+      if (sizeFilter.length) params.size = sizeFilter.join(',');
       if (dateRange) {
         params.date_from = dateRange[0].format('YYYY-MM-DD');
         params.date_to = dateRange[1].format('YYYY-MM-DD');
@@ -224,22 +215,11 @@ function DashboardTab() {
     finally { setInvLoading(false); }
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, dateRange]);
+  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, dateRange]);
 
-  const handleCategoryFilterChange = (value: string) => {
+  const handleCategoryFilterChange = (value: string[]) => {
     setCategoryFilter(value);
-    setSubCategoryFilter('');
     setPage(1);
-    if (!value) { setSubCategoryOptions([]); return; }
-    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
-    }
   };
 
   const onSearchChange = (value: string) => {
@@ -314,8 +294,6 @@ function DashboardTab() {
   const overall = stats?.overall || {};
   const byCategory = (stats?.byCategory || []) as Array<{ category: string; product_count: number; variant_count: number; total_qty: number }>;
   const bySeason = (stats?.bySeason || []) as Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
-  const byFit = (stats?.byFit || []) as Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
-  const byLength = (stats?.byLength || []) as Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
   const byYear = (stats?.byYear || []) as Array<{ year: string; product_count: number; variant_count: number; total_qty: number }>;
   const storeColumns = [
     { title: '상품', dataIndex: 'product_name', key: 'product_name',
@@ -535,12 +513,15 @@ function DashboardTab() {
             }))}>
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => load()} />
           </AutoComplete></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={partnerFilter} onChange={(v: string[]) => { setPartnerFilter(v); setPage(1); }}
+            style={{ width: 180 }} placeholder="전체"
+            options={partners.map((p: any) => ({ label: `${p.partner_name} (${p.partner_code})`, value: p.partner_code }))} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
-          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 140 }}
+            placeholder="전체" options={categoryOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
           <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
@@ -548,25 +529,21 @@ function DashboardTab() {
           <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
-            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
-          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
-          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={seasonFilter} onChange={(v: string[]) => { setSeasonFilter(v); setPage(1); }} style={{ width: 130 }}
+            placeholder="전체" options={seasonOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
-          <Select showSearch optionFilterProp="label" value={colorFilter}
-            onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={colorFilter} onChange={(v: string[]) => { setColorFilter(v); setPage(1); }} style={{ width: 140 }}
+            placeholder="전체" options={colorOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-          <Select showSearch optionFilterProp="label" value={sizeFilter}
-            onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
-            options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={sizeFilter} onChange={(v: string[]) => { setSizeFilter(v); setPage(1); }} style={{ width: 130 }}
+            placeholder="전체" options={sizeOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={statusFilter} onChange={(v: string[]) => { setStatusFilter(v); setPage(1); }} style={{ width: 140 }}
+            placeholder="전체" options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
         <Button onClick={load}>조회</Button>
       </div>
       <Table
@@ -608,24 +585,6 @@ function DashboardTab() {
               size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
               <HBar data={bySeason.map(s => ({ label: s.season || '미지정', value: Number(s.total_qty), sub: `${s.product_count}상품 / ${Number(s.partner_count)}거래처` }))}
                 maxItems={7} onBarClick={(label) => openDrillDown(`시즌: ${label}`, { season: label === '미지정' ? '' : label })} />
-            </Card>
-          </Col>
-        </Row>
-      )}
-      {!effectiveStore && (
-        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-          <Col xs={24} md={12}>
-            <Card title={<span><SkinOutlined style={{ marginRight: 8 }} />핏별 재고현황</span>}
-              size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
-              <HBar data={byFit.map(f => ({ label: f.fit, value: Number(f.total_qty), sub: `${f.product_count}상품 / ${f.variant_count}옵션` }))}
-                maxItems={7} onBarClick={(label) => openDrillDown(`핏: ${label}`, { fit: label === '미지정' ? '' : label })} />
-            </Card>
-          </Col>
-          <Col xs={24} md={12}>
-            <Card title={<span><ColumnHeightOutlined style={{ marginRight: 8 }} />기장별 재고현황</span>}
-              size="small" style={{ borderRadius: 10, height: '100%' }} loading={statsLoading}>
-              <HBar data={byLength.map(l => ({ label: l.length, value: Number(l.total_qty), sub: `${l.product_count}상품 / ${l.variant_count}옵션` }))}
-                maxItems={7} onBarClick={(label) => openDrillDown(`기장: ${label}`, { length: label === '미지정' ? '' : label })} />
             </Card>
           </Col>
         </Row>
@@ -741,86 +700,78 @@ function DashboardTab() {
 }
 
 /* ══════════════════════════════════════════
-   Tab 2: 매장재고 (기존 StoreInventoryPage)
+   Tab 2: 매장재고 (상품관리 UI 동일)
    ══════════════════════════════════════════ */
-type StoreViewMode = 'product' | 'color' | 'size';
-
 function StoreInventoryTab() {
-  const [rawData, setRawData] = useState<any[]>([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [page, setPage] = useState(1);
+  const navigate = useNavigate();
+  const { data: products, total, loading, fetchList: fetchProducts } = useProductStore();
+  const user = useAuthStore((s) => s.user);
+  const { formatCode } = useCodeLabels();
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
+
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
-  const [partnerFilter, setPartnerFilter] = useState('');
+  const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [subCategoryFilter, setSubCategoryFilter] = useState('');
-  const [seasonFilter, setSeasonFilter] = useState('');
-  const [fitFilter, setFitFilter] = useState('');
-  const [lengthFilter, setLengthFilter] = useState('');
-  const [colorFilter, setColorFilter] = useState('');
-  const [sizeFilter, setSizeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
   const [yearFromFilter, setYearFromFilter] = useState('');
   const [yearToFilter, setYearToFilter] = useState('');
+  const [seasonFilter, setSeasonFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [colorFilter, setColorFilter] = useState('');
+  const [sizeFilter, setSizeFilter] = useState('');
+  const [sortValue, setSortValue] = useState('created_at_DESC');
+  const [partnerFilter, setPartnerFilter] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
-  const [viewMode, setViewMode] = useState<StoreViewMode>('product');
+  const [variantsMap, setVariantsMap] = useState<Record<string, any[]>>({});
+  const [variantsLoading, setVariantsLoading] = useState<Record<string, boolean>>({});
 
-  const [searchTrigger, setSearchTrigger] = useState(0);
+  useEffect(() => {
+    codeApi.getByType('CATEGORY').then((data: any[]) => {
+      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('YEAR').then((data: any[]) => {
+      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    codeApi.getByType('SEASON').then((data: any[]) => {
+      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
+    }).catch(() => {});
+    productApi.variantOptions().then((data: any) => {
+      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
+      setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
+    }).catch(() => {});
+    partnerApi.list({ limit: '1000' }).then((r: any) => setPartners(r.data || [])).catch(() => {});
+  }, []);
 
-  const handleCategoryFilterChange = (value: string) => {
-    setCategoryFilter(value);
-    setSubCategoryFilter('');
-    setPage(1);
-    if (!value) { setSubCategoryOptions([]); return; }
-    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
+  const load = (searchOverride?: string) => {
+    const params: Record<string, string> = { page: String(page), limit: '50' };
+    const s = searchOverride !== undefined ? searchOverride : search;
+    if (s) params.search = s;
+    if (categoryFilter) params.category = categoryFilter;
+    if (yearFromFilter) params.year_from = yearFromFilter;
+    if (yearToFilter) params.year_to = yearToFilter;
+    if (seasonFilter) params.season = seasonFilter;
+    if (statusFilter) params.sale_status = statusFilter;
+    if (colorFilter) params.color = colorFilter;
+    if (sizeFilter) params.size = sizeFilter;
+    if (partnerFilter) params.partner_code = partnerFilter;
+    if (dateRange) {
+      params.date_from = dateRange[0].format('YYYY-MM-DD');
+      params.date_to = dateRange[1].format('YYYY-MM-DD');
     }
+    const lastUnderscore = sortValue.lastIndexOf('_');
+    params.orderBy = sortValue.substring(0, lastUnderscore);
+    params.orderDir = sortValue.substring(lastUnderscore + 1);
+    fetchProducts(params);
   };
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const params: Record<string, string> = { page: String(page), limit: '50' };
-      if (search) params.search = search;
-      if (partnerFilter) params.partner_code = partnerFilter;
-      if (categoryFilter) params.category = categoryFilter;
-      if (subCategoryFilter) params.sub_category = subCategoryFilter;
-      if (seasonFilter) params.season = seasonFilter;
-      if (fitFilter) params.fit = fitFilter;
-      if (lengthFilter) params.length = lengthFilter;
-      if (colorFilter) params.color = colorFilter;
-      if (sizeFilter) params.size = sizeFilter;
-      if (statusFilter) params.sale_status = statusFilter;
-      if (yearFromFilter) params.year_from = yearFromFilter;
-      if (yearToFilter) params.year_to = yearToFilter;
-      if (dateRange) {
-        params.date_from = dateRange[0].format('YYYY-MM-DD');
-        params.date_to = dateRange[1].format('YYYY-MM-DD');
-      }
-      const result = await inventoryApi.list(params);
-      setRawData(result.data);
-      setTotal(result.total);
-    } catch (e: any) { message.error(e.message); }
-    finally { setLoading(false); }
-  };
+  useEffect(() => { load(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, sortValue, partnerFilter, dateRange]);
 
   const onSearchChange = (value: string) => {
     setSearch(value);
@@ -833,171 +784,76 @@ function StoreInventoryTab() {
       } catch { setSearchSuggestions([]); }
     }, 300);
   };
-  const onSearchSelect = (value: string) => { setSearch(value); setPage(1); setSearchTrigger(t => t + 1); };
+  const onSearchSelect = (value: string) => { setSearch(value); setPage(1); load(value); };
   useEffect(() => () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); }, []);
 
-  const loadPartners = async () => {
+  const handleExpand = async (expanded: boolean, record: any) => {
+    if (!expanded || variantsMap[record.product_code]) return;
+    setVariantsLoading((prev) => ({ ...prev, [record.product_code]: true }));
     try {
-      const result = await partnerApi.list({ limit: '1000' });
-      setPartners(result.data);
-    } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
+      const data = await productApi.get(record.product_code);
+      setVariantsMap((prev) => ({ ...prev, [record.product_code]: (data as any).variants || [] }));
+    } catch { message.error('변형 정보 로드 실패'); }
+    finally { setVariantsLoading((prev) => ({ ...prev, [record.product_code]: false })); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter, dateRange, searchTrigger]);
-  useEffect(() => {
-    loadPartners();
-    codeApi.getByType('CATEGORY').then((data: any[]) => {
-      setAllCategoryCodes(data);
-      setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('YEAR').then((data: any[]) => {
-      setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('SEASON').then((data: any[]) => {
-      setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('FIT').then((data: any[]) => {
-      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('LENGTH').then((data: any[]) => {
-      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    productApi.variantOptions().then((data: any) => {
-      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
-      setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
-    }).catch(() => {});
-  }, []);
-
-  const partnerOptions = partners.map((p: any) => ({
-    label: `${p.partner_name} (${p.partner_code})`,
-    value: p.partner_code,
-  }));
-
-  const displayData = useMemo(() => {
-    if (viewMode === 'product') {
-      const map: Record<string, any> = {};
-      rawData.forEach((r) => {
-        const key = `${r.partner_code}__${r.product_code}`;
-        if (!map[key]) {
-          map[key] = {
-            partner_code: r.partner_code, partner_name: r.partner_name,
-            product_code: r.product_code, product_name: r.product_name, category: r.category,
-            brand: r.brand, season: r.season, image_url: r.image_url,
-            total_qty: 0, _variants: [], _rowKey: key,
-          };
-        }
-        map[key].total_qty += Number(r.qty || 0);
-        map[key]._variants.push(r);
-      });
-      return Object.values(map).sort((a, b) => (a.product_code || '').localeCompare(b.product_code || ''));
-    }
-    if (viewMode === 'color') {
-      const map: Record<string, any> = {};
-      rawData.forEach((r) => {
-        const key = `${r.partner_code}__${r.product_code}__${r.color || '-'}`;
-        if (!map[key]) {
-          map[key] = {
-            partner_code: r.partner_code, partner_name: r.partner_name,
-            product_code: r.product_code, product_name: r.product_name, category: r.category,
-            brand: r.brand, season: r.season, image_url: r.image_url,
-            _color: r.color || '-', _colorQty: 0, _colorVariants: [], _rowKey: key,
-          };
-        }
-        map[key]._colorQty += Number(r.qty || 0);
-        map[key]._colorVariants.push(r);
-      });
-      Object.values(map).forEach((row: any) => {
-        row._colorVariants.sort((a: any, b: any) => sizeSort(a.size, b.size));
-      });
-      return Object.values(map).sort((a, b) => {
-        const pc = (a.product_code || '').localeCompare(b.product_code || '');
-        if (pc !== 0) return pc;
-        return (a._color || '').localeCompare(b._color || '');
-      });
-    }
-    return rawData
-      .map((r) => ({ ...r, _rowKey: `${r.inventory_id}` }))
-      .sort((a, b) => {
-        const pc = (a.product_code || '').localeCompare(b.product_code || '');
-        if (pc !== 0) return pc;
-        const cc = (a.color || '').localeCompare(b.color || '');
-        if (cc !== 0) return cc;
-        return sizeSort(a.size || '', b.size || '');
-      });
-  }, [viewMode, rawData]);
-
-  const imgCell = (v: string) => v
-    ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
-    : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>;
-
-  const productColumns: any[] = [
-    { title: '', dataIndex: 'image_url', key: 'image', width: 50, render: imgCell },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
-    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
-    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-    { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
-    { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, render: (v: number) => renderQty(v) },
-  ];
-  const colorColumns: any[] = [
-    { title: '', dataIndex: 'image_url', key: 'image', width: 50, render: imgCell },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
-    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
-    { title: 'Color', dataIndex: '_color', key: '_color', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'category', width: 90, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-    { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100, render: (v: number) => renderQty(v) },
-  ];
-  const sizeViewColumns: any[] = [
-    { title: '', dataIndex: 'image_url', key: 'image', width: 50, render: imgCell },
-    { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 120 },
-    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
-    { title: '색상', dataIndex: 'color', key: 'color', width: 70, render: (v: string) => <Tag>{v || '-'}</Tag> },
-    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70, render: (v: string) => <Tag>{v || '-'}</Tag> },
-    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true },
-    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-    { title: '재고', dataIndex: 'qty', key: 'qty', width: 100, render: (v: number) => renderQty(Number(v)) },
-  ];
-
-  const displayColumns = useMemo(() => {
-    if (viewMode === 'product') return productColumns;
-    if (viewMode === 'color') return colorColumns;
-    return sizeViewColumns;
-  }, [viewMode]);
-
-  const productExpandedRow = (record: any) => {
-    const variants = record._variants || [];
-    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
-    const colorMap: Record<string, any[]> = {};
-    variants.forEach((v: any) => { const c = v.color || '-'; if (!colorMap[c]) colorMap[c] = []; colorMap[c].push(v); });
-    const rows: any[] = [];
-    Object.entries(colorMap).sort(([a], [b]) => a.localeCompare(b)).forEach(([, vs]) => {
-      vs.sort((a: any, b: any) => sizeSort(a.size, b.size));
-      vs.forEach((v: any) => rows.push(v));
-    });
-    return <Table columns={[
-      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
-      { title: 'Color', dataIndex: 'color', key: 'color', width: 80, render: (v: string) => v || '-' },
-      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
-    ]} dataSource={rows} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
+  const expandedRowRender = (record: any) => {
+    const variants = variantsMap[record.product_code];
+    if (variantsLoading[record.product_code]) return <Spin size="small" style={{ padding: 16 }} />;
+    if (!variants || variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
+    return (
+      <Table
+        columns={[
+          { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
+          { title: 'Color', dataIndex: 'color', key: 'color', width: 80 },
+          { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+          { title: '재고수량', dataIndex: 'stock_qty', key: 'stock_qty', width: 90,
+            render: (v: number) => { const qty = v ?? 0; return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>; },
+          },
+          { title: '바코드', dataIndex: 'barcode', key: 'barcode', width: 150, render: (v: string) => v || '-' },
+        ]}
+        dataSource={variants}
+        rowKey="variant_id"
+        pagination={false}
+        size="small"
+        style={{ margin: 0 }}
+      />
+    );
   };
 
-  const colorExpandedRow = (record: any) => {
-    const variants = record._colorVariants || [];
-    if (variants.length === 0) return <span style={{ color: '#999', padding: 8 }}>등록된 변형이 없습니다.</span>;
-    return <Table columns={[
-      { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 180 },
-      { title: '사이즈', dataIndex: 'size', key: 'size', width: 80, render: (v: string) => <Tag>{v}</Tag> },
-      { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, render: (v: number) => renderQty(Number(v)) },
-    ]} dataSource={variants} rowKey="inventory_id" pagination={false} size="small" style={{ margin: 0 }} />;
-  };
-
-  const tableExpandable = useMemo(() => {
-    if (viewMode === 'product') return { expandedRowRender: productExpandedRow };
-    if (viewMode === 'color') return { expandedRowRender: colorExpandedRow };
-    return undefined;
-  }, [viewMode, rawData]);
+  const columns: any[] = [
+    { title: '', dataIndex: 'image_url', key: 'image_url', width: 50,
+      render: (v: string) => v
+        ? <img src={v} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 4 }} />
+        : <div style={{ width: 36, height: 36, background: '#f5f5f5', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#bfbfbf', fontSize: 10 }}>No</div>,
+    },
+    { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120,
+      render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
+    },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', width: 150, ellipsis: true },
+    { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
+    { title: '브랜드', dataIndex: 'brand', key: 'brand', width: 80 },
+    { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
+    { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
+    { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90,
+      render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
+    },
+    ...(!isStore ? [{ title: '매입가', dataIndex: 'cost_price', key: 'cost_price', width: 90,
+      render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-',
+    }] : []),
+    { title: '할인가', dataIndex: 'discount_price', key: 'discount_price', width: 90,
+      render: (v: number) => v ? <span style={{ color: '#f5222d' }}>{Number(v).toLocaleString()}원</span> : '-',
+    },
+    { title: '상태', dataIndex: 'sale_status', key: 'sale_status', width: 75,
+      render: (v: string) => <Tag color={SALE_STATUS_COLORS[v] || 'default'}>{v}</Tag>,
+    },
+    { title: '재고', dataIndex: 'total_inv_qty', key: 'total_inv_qty', width: 80,
+      render: (v: number) => {
+        const qty = Number(v || 0);
+        return <Tag color={qty > 10 ? 'blue' : qty > 0 ? 'orange' : 'red'}>{qty}</Tag>;
+      },
+    },
+  ];
 
   return (
     <>
@@ -1016,23 +872,22 @@ function StoreInventoryTab() {
             style={{ width: '100%' }}
             options={searchSuggestions.map(s => ({
               value: s.product_code,
-              label: <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
-                <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
-              </div>,
+              label: (
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{s.product_name}</span>
+                  <span style={{ color: '#888', fontSize: 12, flexShrink: 0 }}>{s.product_code} · {s.category || '-'}</span>
+                </div>
+              ),
             }))}>
-            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); setSearchTrigger(t => t + 1); }} />
+            <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => load()} />
           </AutoComplete></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장</div>
-          <Select showSearch optionFilterProp="label"
-            value={partnerFilter} onChange={(v) => { setPartnerFilter(v); setPage(1); }}
-            style={{ width: 180 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+          <Select showSearch optionFilterProp="label" value={partnerFilter}
+            onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 160 }}
+            options={[{ label: '전체 보기', value: '' }, ...partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+          <Select value={categoryFilter} onChange={(v) => { setCategoryFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
-          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
           <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
@@ -1042,12 +897,6 @@ function StoreInventoryTab() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
           <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
-          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
-          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
@@ -1059,28 +908,31 @@ function StoreInventoryTab() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
           <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
-        <Button onClick={() => { setPage(1); setSearchTrigger(t => t + 1); }}>조회</Button>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
+          <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
+            options={[
+              { label: '등록순(최신)', value: 'created_at_DESC' },
+              { label: '등록순(오래된)', value: 'created_at_ASC' },
+              { label: '재고 많은순', value: 'total_inv_qty_DESC' },
+              { label: '재고 적은순', value: 'total_inv_qty_ASC' },
+              { label: '연도 최신순', value: 'year_DESC' },
+              { label: '연도 오래된순', value: 'year_ASC' },
+              { label: '가격 높은순', value: 'base_price_DESC' },
+              { label: '가격 낮은순', value: 'base_price_ASC' },
+              { label: '상품명순', value: 'product_name_ASC' },
+            ]} /></div>
+        <Button onClick={() => load()}>조회</Button>
       </div>
-
-      {partnerFilter && rawData.length > 0 && (
-        <Card size="small" style={{ marginBottom: 16, borderRadius: 8 }}>
-          <Space size="large">
-            <span>거래처: <strong>{rawData[0]?.partner_name}</strong></span>
-            <span>품목 수: <Tag color="blue">{rawData.length}</Tag></span>
-            <span>총 재고: <Tag color="geekblue">{rawData.reduce((s, r) => s + Number(r.qty || 0), 0).toLocaleString()}개</Tag></span>
-          </Space>
-        </Card>
-      )}
-
-      <div style={{ marginBottom: 12 }}>
-        <Segmented value={viewMode} onChange={(v) => setViewMode(v as StoreViewMode)}
-          options={[{ label: '품번별', value: 'product' }, { label: '컬러별', value: 'color' }, { label: '사이즈별', value: 'size' }]} />
-      </div>
-
-      <Table columns={displayColumns} dataSource={displayData} rowKey="_rowKey"
-        loading={loading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
-        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }} expandable={tableExpandable} />
-
+      <Table
+        columns={columns}
+        dataSource={products}
+        rowKey="product_code"
+        loading={loading}
+        size="small"
+        scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
+        pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        expandable={{ expandedRowRender, onExpand: handleExpand }}
+      />
     </>
   );
 }
@@ -1091,31 +943,26 @@ function StoreInventoryTab() {
 type AdjustViewMode = 'inventory' | 'history';
 
 function AdjustTab() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const [viewMode, setViewMode] = useState<AdjustViewMode>('inventory');
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [partnerFilter, setPartnerFilter] = useState('');
-  const [categoryFilter, setCategoryFilter] = useState('');
-  const [subCategoryFilter, setSubCategoryFilter] = useState('');
-  const [seasonFilter, setSeasonFilter] = useState('');
-  const [fitFilter, setFitFilter] = useState('');
-  const [lengthFilter, setLengthFilter] = useState('');
-  const [colorFilter, setColorFilter] = useState('');
-  const [sizeFilter, setSizeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [partnerFilter, setPartnerFilter] = useState<string[]>([]);
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
+  const [colorFilter, setColorFilter] = useState<string[]>([]);
+  const [sizeFilter, setSizeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [yearFromFilter, setYearFromFilter] = useState('');
   const [yearToFilter, setYearToFilter] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
   const [partners, setPartners] = useState<any[]>([]);
@@ -1142,20 +989,9 @@ function AdjustTab() {
   const [txTypeFilter, setTxTypeFilter] = useState('');
   const [txPartnerFilter, setTxPartnerFilter] = useState('');
 
-  const handleAdjustCategoryChange = (value: string) => {
+  const handleAdjustCategoryChange = (value: string[]) => {
     setCategoryFilter(value);
-    setSubCategoryFilter('');
     setPage(1);
-    if (!value) { setSubCategoryOptions([]); return; }
-    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
-    }
   };
 
   const load = async (p?: number) => {
@@ -1164,15 +1000,12 @@ function AdjustTab() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
-      if (partnerFilter) params.partner_code = partnerFilter;
-      if (categoryFilter) params.category = categoryFilter;
-      if (subCategoryFilter) params.sub_category = subCategoryFilter;
-      if (seasonFilter) params.season = seasonFilter;
-      if (fitFilter) params.fit = fitFilter;
-      if (lengthFilter) params.length = lengthFilter;
-      if (colorFilter) params.color = colorFilter;
-      if (sizeFilter) params.size = sizeFilter;
-      if (statusFilter) params.sale_status = statusFilter;
+      if (partnerFilter.length) params.partner_code = partnerFilter.join(',');
+      if (categoryFilter.length) params.category = categoryFilter.join(',');
+      if (seasonFilter.length) params.season = seasonFilter.join(',');
+      if (colorFilter.length) params.color = colorFilter.join(',');
+      if (sizeFilter.length) params.size = sizeFilter.join(',');
+      if (statusFilter.length) params.sale_status = statusFilter.join(',');
       if (yearFromFilter) params.year_from = yearFromFilter;
       if (yearToFilter) params.year_to = yearToFilter;
       if (dateRange) {
@@ -1237,11 +1070,10 @@ function AdjustTab() {
     } catch (e: any) { message.error('거래처 목록 로드 실패: ' + e.message); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter, dateRange]);
+  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, statusFilter, dateRange]);
   useEffect(() => {
     loadPartners();
     codeApi.getByType('CATEGORY').then((data: any[]) => {
-      setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     codeApi.getByType('YEAR').then((data: any[]) => {
@@ -1249,12 +1081,6 @@ function AdjustTab() {
     }).catch(() => {});
     codeApi.getByType('SEASON').then((data: any[]) => {
       setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('FIT').then((data: any[]) => {
-      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('LENGTH').then((data: any[]) => {
-      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
@@ -1413,21 +1239,21 @@ function AdjustTab() {
               onPressEnter={() => { setTxPage(1); loadTx(1); }} style={{ width: '100%' }} />
           )}</div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
-          <Select showSearch optionFilterProp="label"
-            value={viewMode === 'inventory' ? partnerFilter : txPartnerFilter}
-            onChange={(v) => {
-              if (viewMode === 'inventory') { setPartnerFilter(v); setPage(1); }
-              else { setTxPartnerFilter(v); setTxPage(1); }
-            }} style={{ width: 180 }} options={[{ label: '전체 보기', value: '' }, ...partnerOptions]} /></div>
+          {viewMode === 'inventory' ? (
+            <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+              value={partnerFilter} onChange={(v: string[]) => { setPartnerFilter(v); setPage(1); }}
+              style={{ width: 180 }} placeholder="전체" options={partnerOptions} />
+          ) : (
+            <Select showSearch optionFilterProp="label" allowClear
+              value={txPartnerFilter} onChange={(v) => { setTxPartnerFilter(v || ''); setTxPage(1); }}
+              style={{ width: 180 }} placeholder="전체" options={partnerOptions} />
+          )}</div>
         {viewMode === 'inventory' && (
           <>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-              <Select style={{ width: 120 }} value={categoryFilter}
+              <Select mode="multiple" maxTagCount="responsive" allowClear style={{ width: 140 }} value={categoryFilter}
                 onChange={handleAdjustCategoryChange}
-                options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
-              <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-                options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
+                placeholder="전체" options={categoryOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
               <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
                 placeholder="전체" options={yearOptions} /></div>
@@ -1435,25 +1261,21 @@ function AdjustTab() {
               <Select allowClear value={yearToFilter} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
                 placeholder="전체" options={yearOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-              <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
-                options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
-              <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-                options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
-            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
-              <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
+              <Select mode="multiple" maxTagCount="responsive" allowClear
+                value={seasonFilter} onChange={(v: string[]) => { setSeasonFilter(v); setPage(1); }} style={{ width: 130 }}
+                placeholder="전체" options={seasonOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
-              <Select showSearch optionFilterProp="label" value={colorFilter}
-                onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
+              <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+                value={colorFilter} onChange={(v: string[]) => { setColorFilter(v); setPage(1); }} style={{ width: 140 }}
+                placeholder="전체" options={colorOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-              <Select showSearch optionFilterProp="label" value={sizeFilter}
-                onChange={(v) => { setSizeFilter(v); setPage(1); }} style={{ width: 110 }}
-                options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+              <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+                value={sizeFilter} onChange={(v: string[]) => { setSizeFilter(v); setPage(1); }} style={{ width: 130 }}
+                placeholder="전체" options={sizeOptions} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-              <Select value={statusFilter} onChange={(v) => { setStatusFilter(v); setPage(1); }} style={{ width: 120 }}
-                options={[{ label: '전체 보기', value: '' }, { label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
+              <Select mode="multiple" maxTagCount="responsive" allowClear
+                value={statusFilter} onChange={(v: string[]) => { setStatusFilter(v); setPage(1); }} style={{ width: 140 }}
+                placeholder="전체" options={[{ label: '판매중', value: '판매중' }, { label: '일시품절', value: '일시품절' }, { label: '단종', value: '단종' }, { label: '승인대기', value: '승인대기' }]} /></div>
           </>
         )}
         {viewMode === 'history' && (
@@ -1467,7 +1289,12 @@ function AdjustTab() {
           else { setTxPage(1); loadTx(1); }
         }}>조회</Button>
         <Button type="primary" icon={<PlusOutlined />}
-          onClick={() => { newForm.resetFields(); setVariantOptions([]); setNewModalOpen(true); }}>
+          onClick={() => {
+            newForm.resetFields();
+            setVariantOptions([]);
+            if (isStore && user?.partnerCode) newForm.setFieldsValue({ partner_code: user.partnerCode });
+            setNewModalOpen(true);
+          }}>
           신규 재고 등록
         </Button>
       </div>
@@ -1527,7 +1354,7 @@ function AdjustTab() {
       <Modal title="신규 재고 등록" open={newModalOpen} onCancel={() => setNewModalOpen(false)} onOk={() => newForm.submit()} okText="등록" cancelText="취소" width={600}>
         <Form form={newForm} layout="vertical" onFinish={handleNewInventory}>
           <Form.Item name="partner_code" label="거래처" rules={[{ required: true, message: '거래처를 선택해주세요' }]}>
-            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
+            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} disabled={isStore} />
           </Form.Item>
           <Form.Item name="variant_id" label="품목" rules={[{ required: true, message: '품목을 선택해주세요' }]}>
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}

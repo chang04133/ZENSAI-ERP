@@ -25,11 +25,15 @@ export default function CrmLayout() {
     label: item.label,
   }));
 
-  // /crm/sender-settings 등 3단계 경로도 선택되게
+  // /crm/sender-settings, /crm/:id 등 경로도 선택되게
+  const knownPaths = ['segments', 'dormant', 'after-sales', 'campaigns', 'templates', 'sender-settings', 'list'];
   const pathParts = location.pathname.split('/').filter(Boolean);
   const candidateKeys = crmMenuItems.map((m) => m.key);
-  const selectedKey = candidateKeys.find((k) => location.pathname === k || location.pathname.startsWith(k + '/'))
-    || (pathParts.length >= 2 ? '/' + pathParts.slice(0, 2).join('/') : '/crm');
+  const isCustomerDetail = pathParts.length === 2 && pathParts[0] === 'crm' && !knownPaths.includes(pathParts[1]);
+  const selectedKey = isCustomerDetail
+    ? '/crm/list'
+    : (candidateKeys.find((k) => location.pathname === k || location.pathname.startsWith(k + '/'))
+      || (pathParts.length >= 2 ? '/' + pathParts.slice(0, 2).join('/') : '/crm'));
 
   const handleLogout = async () => {
     await logout();

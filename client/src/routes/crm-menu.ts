@@ -13,4 +13,6 @@ export const crmMenuItems: CrmMenuItem[] = [
   { key: '/crm/campaigns', label: '마케팅 캠페인', icon: 'SendOutlined' },
   { key: '/crm/templates', label: '메시지 템플릿', icon: 'FileTextOutlined' },
   { key: '/crm/sender-settings', label: '발송 설정', icon: 'SettingOutlined' },
+  { key: '/crm/auto-campaigns', label: '자동 캠페인', icon: 'ClockCircleOutlined' },
+  { key: '/crm/rfm', label: 'RFM 분석', icon: 'FundOutlined' },
 ];

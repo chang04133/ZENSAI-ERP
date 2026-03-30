@@ -227,16 +227,26 @@ router.get('/my-pending-requests', authMiddleware, asyncHandler(async (req, res)
 // GET /api/notifications/general — 일반 알림 목록 (출고/생산 등)
 router.get('/general', authMiddleware, asyncHandler(async (req, res) => {
   const pool = getPool();
+  const userId = req.user!.userId;
   const pc = req.user?.partnerCode;
-  const { limit = '20' } = req.query;
-  const lim = parseInt(limit as string, 10);
+  const { limit = '5' } = req.query;
+  const lim = Math.min(parseInt(limit as string, 10) || 5, 20);
 
-  let filter = '';
+  // 본인 관련 알림만: 내가 생성했거나, 내 매장 대상이거나
+  const conditions: string[] = [];
   const params: any[] = [lim];
+
+  // 내가 만든 알림
+  conditions.push(`created_by = $${params.length + 1}`);
+  params.push(userId);
+
   if (pc) {
-    filter = 'WHERE target_partner = $2 OR target_partner IS NULL';
+    // 내 매장 대상 알림
+    conditions.push(`target_partner = $${params.length + 1}`);
     params.push(pc);
   }
+
+  const filter = `WHERE (${conditions.join(' OR ')})`;
 
   const result = await pool.query(
     `SELECT * FROM general_notifications ${filter} ORDER BY created_at DESC LIMIT $1`,

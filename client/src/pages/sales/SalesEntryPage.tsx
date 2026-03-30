@@ -7,6 +7,7 @@ import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
 import { productApi } from '../../modules/product/product.api';
+import { crmApi } from '../../modules/crm/crm.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { getToken } from '../../core/api.client';
 import { ROLES } from '../../../../shared/constants/roles';
@@ -123,6 +124,10 @@ export default function SalesEntryPage() {
   const [directReturnSearchResults, setDirectReturnSearchResults] = useState<any[]>([]);
   const directReturnBarcodeRef = useRef<InputRef>(null);
 
+  // CRM 고객 연동
+  const [customerId, setCustomerId] = useState<number | undefined>();
+  const [customerSearch, setCustomerSearch] = useState<any[]>([]);
+
   // 교환 모달 상태
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
   const [exchangeRecord, setExchangeRecord] = useState<any>(null);
@@ -148,6 +153,15 @@ export default function SalesEntryPage() {
   useEffect(() => {
     if (!isStore) {
       (async () => { try { const r = await partnerApi.list({ limit: '1000' }); setPartners(r.data); } catch (e: any) { message.error('거래처 로드 실패: ' + e.message); } })();
+    }
+  }, []);
+
+  const handleCustomerSearch = useCallback(async (value: string) => {
+    if (value.length >= 2) {
+      try {
+        const r = await crmApi.list({ search: value, limit: '20' });
+        setCustomerSearch(r.data || []);
+      } catch { setCustomerSearch([]); }
     }
   }, []);
 
@@ -258,6 +272,7 @@ export default function SalesEntryPage() {
   const removeItem = (key: number) => setItems(prev => prev.length > 1 ? prev.filter(i => i.key !== key) : prev);
 
   const handleSubmit = async () => {
+    if (submitting) return;
     if (!saleDate) { message.error('매출일을 선택해주세요'); return; }
     if (!isStore && !partnerCode) { message.error('거래처를 선택해주세요'); return; }
     const validItems = items.filter(i => i.variant_id && i.qty > 0 && i.unit_price > 0);
@@ -268,6 +283,7 @@ export default function SalesEntryPage() {
       await salesApi.createBatch({
         sale_date: saleDate.format('YYYY-MM-DD'),
         partner_code: isStore ? undefined : partnerCode,
+        customer_id: customerId || undefined,
         memo: memo.trim() || undefined,
         items: validItems.map(i => ({
           variant_id: i.variant_id,
@@ -293,6 +309,8 @@ export default function SalesEntryPage() {
     setVariantSearchMap({});
     setEntryMode('manual');
     setBarcodeInput('');
+    setCustomerId(undefined);
+    setCustomerSearch([]);
     setModalOpen(true);
   };
 
@@ -309,7 +327,7 @@ export default function SalesEntryPage() {
 
   // 수정 저장
   const handleEditSubmit = async () => {
-    if (!editRecord) return;
+    if (!editRecord || editSubmitting) return;
     setEditSubmitting(true);
     try {
       await salesApi.update(editRecord.sale_id, { qty: editQty, unit_price: editUnitPrice, sale_type: editSaleType, memo: editMemo.trim() || undefined, tax_free: editTaxFree });
@@ -349,7 +367,7 @@ export default function SalesEntryPage() {
 
   // 반품 저장
   const handleReturnSubmit = async () => {
-    if (!returnRecord) return;
+    if (!returnRecord || returnSubmitting) return;
     if (!returnReason) { message.error('반품 사유를 선택해주세요'); return; }
     setReturnSubmitting(true);
     try {
@@ -403,6 +421,7 @@ export default function SalesEntryPage() {
 
   // 직접 반품 저장
   const handleDirectReturnSubmit = async () => {
+    if (directReturnSubmitting) return;
     if (!directReturnProduct) { message.error('반품할 상품을 선택해주세요'); return; }
     if (directReturnQty <= 0) { message.error('반품 수량을 입력해주세요'); return; }
     if (!directReturnReason) { message.error('반품 사유를 선택해주세요'); return; }
@@ -443,6 +462,7 @@ export default function SalesEntryPage() {
   };
 
   const handleExchangeSubmit = async () => {
+    if (exchangeSubmitting) return;
     if (!exchangeRecord || !exchangeNewVariant) { message.error('교환 상품을 선택해주세요'); return; }
     if (!exchangeReturnReason) { message.error('교환 사유를 선택해주세요'); return; }
     setExchangeSubmitting(true);
@@ -530,19 +550,19 @@ export default function SalesEntryPage() {
     ...(isManager ? [{
       title: '관리', key: 'actions', width: 130, fixed: 'right' as const,
       render: (_: any, record: any) => {
-        // 매장 매니저: 하루 지난 매출은 수정/반품 불가, 삭제는 항상 불가
-        const isExpired = isStoreManager && record.sale_date &&
-          dayjs(record.sale_date).startOf('day').isBefore(dayjs().startOf('day'));
+        const daysAgo = record.sale_date ? dayjs().diff(dayjs(record.sale_date), 'day') : 0;
+        // 매장: 수정은 당일만, 반품/교환은 30일 이내
+        const editExpired = isStoreManager && daysAgo > 0;
+        const returnExpired = isStoreManager && daysAgo > 30;
         if (record.sale_type === '반품') {
-          // 매장매니저: 삭제 불가 (반품 건도 삭제 불가)
           if (isStoreManager) return <span style={{ color: '#999', fontSize: 12 }}>-</span>;
           return <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)}>삭제</Button>;
         }
         return (
           <Space size={4}>
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={isExpired} />
-            <Button size="small" icon={<SwapOutlined />} onClick={() => openExchangeModal(record)} style={{ color: isExpired ? undefined : '#1677ff' }} disabled={isExpired} title="교환" />
-            <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: isExpired ? undefined : '#722ed1' }} disabled={isExpired} />
+            <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={editExpired} />
+            <Button size="small" icon={<SwapOutlined />} onClick={() => openExchangeModal(record)} style={{ color: returnExpired ? undefined : '#1677ff' }} disabled={returnExpired} title={returnExpired ? '30일 초과 (본사 승인 필요)' : '교환'} />
+            <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: returnExpired ? undefined : '#722ed1' }} disabled={returnExpired} title={returnExpired ? '30일 초과 (본사 승인 필요)' : '반품'} />
             {!isStoreManager && (
               <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
             )}
@@ -709,6 +729,21 @@ export default function SalesEntryPage() {
                 value={partnerCode} onChange={setPartnerCode} style={{ width: 250 }} />
             </div>
           )}
+          <div style={{ minWidth: 200 }}>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 (CRM)</div>
+            <Select
+              showSearch placeholder="이름/전화 검색" filterOption={false} allowClear
+              value={customerId} onSearch={handleCustomerSearch}
+              onChange={(v) => setCustomerId(v)} style={{ width: 200 }}
+              notFoundContent="2자 이상 입력"
+            >
+              {customerSearch.map((c: any) => (
+                <Select.Option key={c.customer_id} value={c.customer_id}>
+                  {c.customer_name} ({c.phone}) <span style={{ color: '#888', fontSize: 11 }}>{c.customer_tier}</span>
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
           <div>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
             <Switch checked={allTaxFree} onChange={handleToggleAllTaxFree} checkedChildren="면세" unCheckedChildren="과세" />

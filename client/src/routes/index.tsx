@@ -24,22 +24,25 @@ const UserFormPage = lazy(() => import('../pages/users/UserFormPage'));
 // Codes
 const CodeManagePage = lazy(() => import('../pages/codes/CodeManagePage'));
 
+
 // Shipment
 const ShipmentDashboardPage = lazy(() => import('../pages/shipment/ShipmentDashboardPage'));
+const StoreShipmentRequestPage = lazy(() => import('../pages/shipment/StoreShipmentRequestPage'));
 const ShipmentRequestPage = lazy(() => import('../pages/shipment/ShipmentRequestPage'));
 const ReturnManagePage = lazy(() => import('../pages/shipment/ReturnManagePage'));
 const HorizontalTransferPage = lazy(() => import('../pages/shipment/HorizontalTransferPage'));
-const ShipmentHistoryPage = lazy(() => import('../pages/shipment/ShipmentHistoryPage'));
 const ShipmentViewPage = lazy(() => import('../pages/shipment/ShipmentViewPage'));
 
 // Inventory
 const InventoryStatusPage = lazy(() => import('../pages/inventory/InventoryStatusPage'));
+const StoreInventoryPage = lazy(() => import('../pages/inventory/StoreInventoryPage'));
+const InventoryTransactionLogPage = lazy(() => import('../pages/inventory/InventoryTransactionLogPage'));
+const LossManagePage = lazy(() => import('../pages/inventory/LossManagePage'));
 
 // Inbound
 const InboundDashboardPage = lazy(() => import('../pages/receiving/InboundDashboardPage'));
 const InboundPage = lazy(() => import('../pages/receiving/InboundPage'));
 const InboundViewPage = lazy(() => import('../pages/receiving/InboundViewPage'));
-const InboundHistoryPage = lazy(() => import('../pages/receiving/InboundHistoryPage'));
 
 // Sales
 const SalesDashboardPage = lazy(() => import('../pages/sales/SalesDashboardPage'));
@@ -76,6 +79,9 @@ const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
 const NoticeBoardPage = lazy(() => import('../pages/notice/NoticeBoardPage'));
 
 
+// Public (인증 불필요)
+const ConsentPage = lazy(() => import('../pages/ConsentPage'));
+
 // CRM
 const CrmPage = lazy(() => import('../pages/crm/CrmPage'));
 const CampaignListPage = lazy(() => import('../pages/crm/CampaignListPage'));
@@ -86,6 +92,8 @@ const SegmentListPage = lazy(() => import('../pages/crm/SegmentListPage'));
 const SegmentDetailPage = lazy(() => import('../pages/crm/SegmentDetailPage'));
 const DormantCustomerPage = lazy(() => import('../pages/crm/DormantCustomerPage'));
 const AfterSalesPage = lazy(() => import('../pages/crm/AfterSalesPage'));
+const AutoCampaignPage = lazy(() => import('../pages/crm/AutoCampaignPage'));
+const RfmAnalysisPage = lazy(() => import('../pages/crm/RfmAnalysisPage'));
 
 // ── Route Definition ──
 export interface AppRoute {
@@ -117,7 +125,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/products/:code', element: <ProductDetailPage />, roles: ALL },
   { path: '/products/:code/edit', element: <ProductFormPage />, roles: ADMIN_HQ },
   // Codes
-  { path: '/codes', element: <CodeManagePage />, roles: ADMIN_HQ },
+  { path: '/codes', element: <CodeManagePage />, roles: ADMIN_SYS },
 
   // Users — 매장 매니저도 접근 가능 (서버에서 자기 매장 직원만 필터)
   { path: '/users', element: <UserListPage />, roles: ADMIN_HQ_STORE },
@@ -126,17 +134,19 @@ export const appRoutes: AppRoute[] = [
 
   // Shipment
   { path: '/shipment/dashboard', element: <ShipmentDashboardPage />, roles: ADMIN_HQ_STORE },
+  { path: '/shipment/store-request', element: <StoreShipmentRequestPage />, roles: [ROLES.STORE_MANAGER] },
   { path: '/shipment/request', element: <ShipmentRequestPage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/return', element: <ReturnManagePage />, roles: ADMIN_HQ_STORE },
   { path: '/shipment/transfer', element: <HorizontalTransferPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/history', element: <ShipmentHistoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/shipment/view', element: <ShipmentViewPage />, roles: ADMIN_HQ_STORE },
+{ path: '/shipment/view', element: <ShipmentViewPage />, roles: ADMIN_HQ_STORE },
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/store', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
   { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ },
+  { path: '/inventory/loss', element: <LossManagePage />, roles: ADMIN_HQ },
+  { path: '/inventory/transactions', element: <InventoryTransactionLogPage />, roles: ADMIN_ONLY },
   // 기존 /inventory/inbound 경로 유지 (호환)
   { path: '/inventory/inbound', element: <InboundPage />, roles: ADMIN_HQ_STORE },
 
@@ -144,20 +154,19 @@ export const appRoutes: AppRoute[] = [
   { path: '/inbound/dashboard', element: <InboundDashboardPage />, roles: ADMIN_HQ_STORE },
   { path: '/inbound/register', element: <InboundPage />, roles: ADMIN_HQ },
   { path: '/inbound/view', element: <InboundViewPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inbound/history', element: <InboundHistoryPage />, roles: ADMIN_HQ_STORE },
 
   // Sales — 매출등록은 STORE_STAFF도 가능
-  { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ },
+  { path: '/sales/dashboard', element: <SalesDashboardPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/entry', element: <SalesEntryPage />, roles: ALL },
   { path: '/sales/product-sales', element: <ProductSalesPage />, roles: ALL },
-  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ALL },
+  { path: '/sales/analytics', element: <SalesAnalyticsPage />, roles: ADMIN_HQ_STORE },
   { path: '/sales/sell-through', element: <SellThroughPage />, roles: ALL },
 
-  // Production (ADMIN + HQ_MANAGER 읽기 가능)
-  { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_HQ },
-  { path: '/production/plans', element: <ProductionPlanPage />, roles: ADMIN_HQ },
-  { path: '/production/materials', element: <MaterialManagePage />, roles: ADMIN_HQ },
-  { path: '/production/payments', element: <ProductionPaymentPage />, roles: ADMIN_HQ },
+  // Production (ADMIN 전용)
+  { path: '/production', element: <ProductionDashboardPage />, roles: ADMIN_ONLY },
+  { path: '/production/plans', element: <ProductionPlanPage />, roles: ADMIN_ONLY },
+  { path: '/production/materials', element: <MaterialManagePage />, roles: ADMIN_ONLY },
+  { path: '/production/payments', element: <ProductionPaymentPage />, roles: ADMIN_ONLY },
 
   // Barcode (매장매니저 이하)
   { path: '/barcode', element: <BarcodeDashboardPage />, roles: ALL },
@@ -174,7 +183,7 @@ export const appRoutes: AppRoute[] = [
   // Notice (공지사항)
   { path: '/notices', element: <NoticeBoardPage />, roles: ALL },
 
-  // System (마스터 + 시스템관리자 전용)
+  // System (ADMIN + SYS_ADMIN)
   { path: '/system/settings', element: <SystemSettingsPage />, roles: ADMIN_SYS },
   { path: '/system/deleted-data', element: <DeletedDataPage />, roles: ADMIN_SYS },
   { path: '/system/overview', element: <SystemOverviewPage />, roles: ADMIN_SYS },
@@ -185,6 +194,7 @@ export const appRoutes: AppRoute[] = [
 export const crmRoutes: AppRoute[] = [
   { path: '', element: <CrmPage />, roles: ADMIN_HQ_STORE },
   { path: 'list', element: <CrmPage />, roles: ADMIN_HQ_STORE },
+  { path: ':id', element: <CrmPage />, roles: ADMIN_HQ_STORE },
   { path: 'segments', element: <SegmentListPage />, roles: ADMIN_HQ_STORE },
   { path: 'segments/:id', element: <SegmentDetailPage />, roles: ADMIN_HQ_STORE },
   { path: 'dormant', element: <DormantCustomerPage />, roles: ADMIN_HQ_STORE },
@@ -193,6 +203,8 @@ export const crmRoutes: AppRoute[] = [
   { path: 'campaigns/:id', element: <CampaignDetailPage />, roles: ADMIN_HQ_STORE },
   { path: 'templates', element: <TemplatePage />, roles: ADMIN_HQ_STORE },
   { path: 'sender-settings', element: <SenderSettingsPage />, roles: ADMIN_HQ_STORE },
+  { path: 'auto-campaigns', element: <AutoCampaignPage />, roles: ADMIN_HQ_STORE },
+  { path: 'rfm', element: <RfmAnalysisPage />, roles: ADMIN_HQ_STORE },
 ];
 
-export { LoginPage };
+export { LoginPage, ConsentPage };

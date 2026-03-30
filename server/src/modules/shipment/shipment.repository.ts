@@ -1,6 +1,5 @@
 import { BaseRepository } from '../../core/base.repository';
 import { ShipmentRequest } from '../../../../shared/types/shipment';
-import { getPool } from '../../db/connection';
 import { QueryBuilder } from '../../core/query-builder';
 
 export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
@@ -16,16 +15,51 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
   }
 
   async list(options: any = {}) {
-    const { page = 1, limit = 20, search, request_type, status, from_partner, to_partner, partner, date_from, date_to } = options;
+    const { search, request_type, status, exclude_status, from_partner, to_partner, partner, direction, date_from, date_to } = options;
+    const page = parseInt(options.page, 10) || 1;
+    const limit = parseInt(options.limit, 10) || 20;
     const offset = (page - 1) * limit;
     const qb = new QueryBuilder('sr');
-    if (search) qb.search(['request_no'], search);
-    if (request_type) qb.eq('request_type', request_type);
-    if (status) qb.eq('status', status);
+    if (search) {
+      // request_no 직접 검색 + 상품명/SKU 서브쿼리 검색
+      qb.raw(
+        `(sr.request_no ILIKE ? OR EXISTS (
+          SELECT 1 FROM shipment_request_items si2
+          JOIN product_variants pv2 ON si2.variant_id = pv2.variant_id
+          JOIN products p2 ON pv2.product_code = p2.product_code
+          WHERE si2.request_id = sr.request_id
+          AND (p2.product_name ILIKE ? OR pv2.sku ILIKE ? OR p2.product_code ILIKE ?)
+        ))`,
+        `%${search}%`, `%${search}%`, `%${search}%`, `%${search}%`,
+      );
+    }
+    if (request_type) {
+      if (request_type.includes(',')) {
+        const arr = request_type.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`sr.request_type IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.eq('request_type', request_type);
+      }
+    }
+    if (status) {
+      if (status.includes(',')) {
+        const arr = status.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`sr.status IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.eq('status', status);
+      }
+    }
+    if (!status && exclude_status) qb.notIn('status', exclude_status);
     if (from_partner) qb.eq('from_partner', from_partner);
     if (to_partner) qb.eq('to_partner', to_partner);
-    // 매장 사용자: 출발 또는 도착이 자기 매장인 건만
-    if (partner) qb.raw('(sr.from_partner = ? OR sr.to_partner = ?)', partner, partner);
+    // 매장 사용자: direction으로 발신/수신 구분 가능
+    if (partner && direction === 'from') {
+      qb.eq('from_partner', partner);
+    } else if (partner && direction === 'to') {
+      qb.eq('to_partner', partner);
+    } else if (partner) {
+      qb.raw('(sr.from_partner = ? OR sr.to_partner = ?)', partner, partner);
+    }
     if (date_from || date_to) qb.dateRange('request_date', date_from, date_to);
     const { whereClause, params, nextIdx } = qb.build();
 
@@ -65,46 +99,6 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     return result.rows[0].no;
   }
 
-  async createWithItems(headerData: Record<string, any>, items: Array<{ variant_id: number; request_qty: number }>): Promise<ShipmentRequest | null> {
-    const pool = getPool();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const requestNo = await this.generateNo(client);
-      const header = await client.query(
-        `INSERT INTO shipment_requests
-         (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
-          is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
-         VALUES ($1, CURRENT_DATE, $2, $3, $4, 'SHIPPED', $5, $6, $7, $8, $9, $10, $11)
-         RETURNING *`,
-        [requestNo, headerData.from_partner, headerData.to_partner || null,
-         headerData.request_type, headerData.memo || null, headerData.requested_by,
-         headerData.is_customer_claim || false, headerData.claim_type || null,
-         headerData.claim_reason || null, headerData.customer_name || null, headerData.customer_phone || null],
-      );
-      const requestId = header.rows[0].request_id;
-      for (const item of items) {
-        await client.query(
-          `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-           VALUES ($1, $2, $3, $3, 0)`,
-          [requestId, item.variant_id, item.request_qty],
-        );
-      }
-      await client.query('COMMIT');
-      return this.getWithItems(requestId);
-    } catch (e: any) {
-      await client.query('ROLLBACK');
-      if (e.code === '23503') {
-        if (e.constraint?.includes('variant')) throw new Error('존재하지 않는 상품(variant_id)이 포함되어 있습니다.');
-        if (e.constraint?.includes('partner')) throw new Error('존재하지 않는 거래처 코드입니다.');
-        throw new Error('참조 데이터가 존재하지 않습니다.');
-      }
-      throw e;
-    } finally {
-      client.release();
-    }
-  }
-
   async getWithItems(id: number): Promise<ShipmentRequest | null> {
     const req = await this.pool.query(
       `SELECT sr.*, fp.partner_name as from_partner_name, tp.partner_name as to_partner_name
@@ -127,6 +121,12 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     const conditions: string[] = [];
     const params: any[] = [];
     let idx = 1;
+    // partner가 있으면 방향별 카운트도 함께 반환
+    const directionCols = partner
+      ? `,
+        COUNT(*) FILTER (WHERE sr.from_partner = $${idx})::int as as_from_count,
+        COUNT(*) FILTER (WHERE sr.to_partner = $${idx})::int as as_to_count`
+      : '';
     if (partner) {
       conditions.push(`(sr.from_partner = $${idx} OR sr.to_partner = $${idx + 1})`);
       params.push(partner, partner);
@@ -136,8 +136,9 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     const sql = `
       SELECT sr.status, sr.request_type,
         COUNT(*)::int as count,
-        COALESCE(SUM(agg.total_request_qty), 0)::int as total_request_qty,
-        COALESCE(SUM(agg.total_shipped_qty), 0)::int as total_shipped_qty
+        COALESCE(SUM(CASE WHEN sr.status NOT IN ('CANCELLED','REJECTED') THEN agg.total_request_qty ELSE 0 END), 0)::int as total_request_qty,
+        COALESCE(SUM(CASE WHEN sr.status NOT IN ('CANCELLED','REJECTED') THEN agg.total_shipped_qty ELSE 0 END), 0)::int as total_shipped_qty
+        ${directionCols}
       FROM shipment_requests sr
       LEFT JOIN (
         SELECT request_id,

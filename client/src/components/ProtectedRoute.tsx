@@ -6,10 +6,11 @@ import { useAuthStore } from '../modules/auth/auth.store';
 interface Props {
   children: React.ReactNode;
   allowedRoles?: string[];
+  routePath?: string;
 }
 
-export default function ProtectedRoute({ children, allowedRoles }: Props) {
-  const { isAuthenticated, isLoading, user } = useAuthStore();
+export default function ProtectedRoute({ children, allowedRoles, routePath }: Props) {
+  const { isAuthenticated, isLoading, user, hasPermission } = useAuthStore();
 
   if (isLoading) {
     return (
@@ -23,7 +24,13 @@ export default function ProtectedRoute({ children, allowedRoles }: Props) {
     return <Navigate to="/login" replace />;
   }
 
+  // 하드코딩 역할 체크 (안전장치)
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Result status="403" title="403" subTitle="접근 권한이 없습니다." />;
+  }
+
+  // DB 권한 체크
+  if (routePath && !hasPermission(routePath)) {
     return <Result status="403" title="403" subTitle="접근 권한이 없습니다." />;
   }
 

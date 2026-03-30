@@ -40,18 +40,18 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       conditions.push(`pp.status NOT IN ('DRAFT', 'CANCELLED')`);
     } else if (payment_step === 'advance_paid') {
       conditions.push(`pp.advance_status = 'PAID'`);
-      conditions.push(`pp.inspect_status != 'PENDING'`);
-    } else if (payment_step === 'inspect_pending') {
-      conditions.push(`pp.advance_status = 'PAID'`);
-      conditions.push(`pp.inspect_status = 'PENDING'`);
     } else if (payment_step === 'balance_pending') {
-      conditions.push(`pp.inspect_status = 'PASS'`);
+      conditions.push(`pp.advance_status = 'PAID'`);
       conditions.push(`pp.balance_status = 'PENDING'`);
     } else if (payment_step === 'settled') {
       conditions.push(`pp.settle_status = 'SETTLED'`);
     } else if (payment_step === 'all_payment') {
       // 대금관리 대상: 초안/취소 제외
       conditions.push(`pp.status NOT IN ('DRAFT', 'CANCELLED')`);
+    } else if (payment_step === 'active_payment') {
+      // 정산 미완료 건만 (초안/취소/정산완료 제외)
+      conditions.push(`pp.status NOT IN ('DRAFT', 'CANCELLED')`);
+      conditions.push(`pp.settle_status != 'SETTLED'`);
     }
 
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
@@ -64,7 +64,7 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
              COALESCE(SUM(pi.plan_qty), 0)::int as total_plan_qty,
              COALESCE(SUM(pi.produced_qty), 0)::int as total_produced_qty,
              COUNT(pi.item_id)::int as item_count,
-             COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0)::bigint as total_cost
+             (COALESCE(SUM(pi.plan_qty * COALESCE(pi.unit_cost, 0)), 0) + COALESCE(pp.label_cost, 0) + COALESCE(pp.material_cost, 0))::bigint as total_cost
       FROM production_plans pp
       LEFT JOIN partners pt ON pp.partner_code = pt.partner_code
       LEFT JOIN users u ON pp.created_by = u.user_id
@@ -101,34 +101,12 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       const plan = planResult.rows[0];
 
       for (const item of items) {
-        // 카테고리/핏/기장으로 매칭되는 상품 자동 검색
-        const matchConds: string[] = ['p.category = $1', 'p.is_active = TRUE'];
-        const matchParams: any[] = [item.category];
-        let mi = 2;
-        if (item.sub_category) { matchConds.push(`p.sub_category = $${mi}`); matchParams.push(item.sub_category); mi++; }
-        if (item.fit) { matchConds.push(`p.fit = $${mi}`); matchParams.push(item.fit); mi++; }
-        if (item.length) { matchConds.push(`p.length = $${mi}`); matchParams.push(item.length); mi++; }
-
-        const matchResult = await client.query(
-          `SELECT product_code FROM products p WHERE ${matchConds.join(' AND ')} LIMIT 1`,
-          matchParams,
-        );
-        const matchedCode = matchResult.rows[0]?.product_code || null;
-
         await client.query(
-          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo, product_code)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          `INSERT INTO production_plan_items (plan_id, category, sub_category, fit, length, plan_qty, unit_cost, memo)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [plan.plan_id, item.category, item.sub_category || null, item.fit || null, item.length || null,
-           item.plan_qty, item.unit_cost || null, item.memo || null, matchedCode],
+           item.plan_qty, item.unit_cost || null, item.memo || null],
         );
-
-        // 매칭 상품 is_reorder = TRUE 자동 업데이트
-        if (matchedCode) {
-          await client.query(
-            `UPDATE products SET is_reorder = TRUE WHERE product_code = $1 AND is_reorder = FALSE`,
-            [matchedCode],
-          );
-        }
       }
 
       await client.query('COMMIT');
@@ -160,14 +138,19 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const items = await pool.query(itemsSql, [id]);
 
     const materialsSql = `
-      SELECT pmu.*, m.material_name, m.material_type, m.unit, m.stock_qty
+      SELECT pmu.*, m.material_name, m.material_type, m.unit, m.unit_price, m.stock_qty
       FROM production_material_usage pmu
       JOIN materials m ON pmu.material_id = m.material_id
       WHERE pmu.plan_id = $1
       ORDER BY pmu.usage_id`;
     const materials = await pool.query(materialsSql, [id]);
 
-    return { ...header.rows[0], items: items.rows, materials: materials.rows };
+    // Compute total_cost
+    const itemCost = items.rows.reduce((s: number, i: any) => s + (Number(i.plan_qty) || 0) * (Number(i.unit_cost) || 0), 0);
+    const plan = header.rows[0];
+    const totalCost = itemCost + Number(plan.label_cost || 0) + Number(plan.material_cost || 0);
+
+    return { ...plan, total_cost: totalCost, items: items.rows, materials: materials.rows };
   }
 
   async dashboardStats(): Promise<any> {
@@ -208,13 +191,12 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
         GROUP BY yr
       `, [thisYear, lastYear, twoYearsAgo]),
-      // 연도별 부자재비용 (3개년)
+      // 연도별 라벨비용+자재비용 (3개년)
       pool.query(`
         SELECT EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date))::int AS yr,
-               COALESCE(SUM(pmu.required_qty * COALESCE(m.unit_price, 0)), 0)::bigint AS material_cost
-        FROM production_material_usage pmu
-        JOIN production_plans pp ON pmu.plan_id = pp.plan_id
-        JOIN materials m ON pmu.material_id = m.material_id
+               COALESCE(SUM(pp.label_cost), 0)::bigint AS label_cost,
+               COALESCE(SUM(pp.material_cost), 0)::bigint AS material_cost
+        FROM production_plans pp
         WHERE pp.status IN ('IN_PRODUCTION','COMPLETED')
           AND EXTRACT(YEAR FROM COALESCE(pp.target_date, pp.created_at::date)) IN ($1, $2, $3)
         GROUP BY yr
@@ -265,16 +247,20 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     // 연도별 비용 조합
     const purchaseMap: Record<number, number> = {};
     for (const r of purchaseCosts.rows) purchaseMap[r.yr] = Number(r.purchase_cost);
-    const materialMap: Record<number, number> = {};
-    for (const r of materialCosts.rows) materialMap[r.yr] = Number(r.material_cost);
+    const labelMap: Record<number, number> = {};
+    const matCostMap: Record<number, number> = {};
+    for (const r of materialCosts.rows) {
+      labelMap[r.yr] = Number(r.label_cost);
+      matCostMap[r.yr] = Number(r.material_cost);
+    }
 
     return {
       statusCounts: statusCounts.rows,
       progressItems: progressItems.rows,
       financialSummary: {
-        thisYear: { year: thisYear, purchase_cost: purchaseMap[thisYear] || 0, material_cost: materialMap[thisYear] || 0 },
-        lastYear: { year: lastYear, purchase_cost: purchaseMap[lastYear] || 0, material_cost: materialMap[lastYear] || 0 },
-        twoYearsAgo: { year: twoYearsAgo, purchase_cost: purchaseMap[twoYearsAgo] || 0, material_cost: materialMap[twoYearsAgo] || 0 },
+        thisYear: { year: thisYear, purchase_cost: purchaseMap[thisYear] || 0, label_cost: labelMap[thisYear] || 0, material_cost: matCostMap[thisYear] || 0 },
+        lastYear: { year: lastYear, purchase_cost: purchaseMap[lastYear] || 0, label_cost: labelMap[lastYear] || 0, material_cost: matCostMap[lastYear] || 0 },
+        twoYearsAgo: { year: twoYearsAgo, purchase_cost: purchaseMap[twoYearsAgo] || 0, label_cost: labelMap[twoYearsAgo] || 0, material_cost: matCostMap[twoYearsAgo] || 0 },
       },
       yearlyPlanSummary: yearlyPlanSummary.rows,
       categoryProduction: categoryProduction.rows,
@@ -827,11 +813,10 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       SELECT
         COUNT(*) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED'))::int as advance_pending_count,
         COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.advance_status = 'PENDING' AND pp.status NOT IN ('DRAFT','CANCELLED')), 0)::bigint as advance_pending_amount,
-        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.inspect_status = 'PENDING')::int as inspect_pending_count,
-        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.inspect_status != 'PENDING')::int as advance_paid_count,
+        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID')::int as advance_paid_count,
         COALESCE(SUM(pp.advance_amount) FILTER (WHERE pp.advance_status = 'PAID'), 0)::bigint as advance_paid_amount,
-        COUNT(*) FILTER (WHERE pp.inspect_status = 'PASS' AND pp.balance_status = 'PENDING')::int as balance_pending_count,
-        COALESCE(SUM(pp.balance_amount) FILTER (WHERE pp.inspect_status = 'PASS' AND pp.balance_status = 'PENDING'), 0)::bigint as balance_pending_amount,
+        COUNT(*) FILTER (WHERE pp.advance_status = 'PAID' AND pp.balance_status = 'PENDING')::int as balance_pending_count,
+        COALESCE(SUM(pp.balance_amount) FILTER (WHERE pp.advance_status = 'PAID' AND pp.balance_status = 'PENDING'), 0)::bigint as balance_pending_amount,
         COUNT(*) FILTER (WHERE pp.settle_status = 'SETTLED')::int as settled_count,
         COALESCE(SUM(pp.total_amount) FILTER (WHERE pp.settle_status = 'SETTLED'), 0)::bigint as settled_amount
       FROM production_plans pp
@@ -866,26 +851,14 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
           WHERE plan_id = $6`,
           [totalAmount, advanceRate, advanceAmount, data.advance_date || null, balanceAmount, planId],
         );
-      } else if (action === 'inspect') {
-        // 검수 처리
-        if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 검수 가능합니다.');
-        if (plan.inspect_status !== 'PENDING') throw new Error('이미 검수 처리되었습니다.');
-        const inspectStatus = data.inspect_status; // 'PASS' or 'FAIL'
-        if (!['PASS', 'FAIL'].includes(inspectStatus)) throw new Error('검수 결과는 PASS 또는 FAIL이어야 합니다.');
-        await client.query(
-          `UPDATE production_plans SET
-            inspect_date = COALESCE($1::date, CURRENT_DATE), inspect_qty = $2,
-            inspect_status = $3, inspect_memo = $4, updated_at = NOW()
-          WHERE plan_id = $5`,
-          [data.inspect_date || null, data.inspect_qty || 0, inspectStatus, data.inspect_memo || null, planId],
-        );
       } else if (action === 'balance') {
         // 잔금 지급
         if (plan.advance_status !== 'PAID') throw new Error('선지급 완료 후 잔금 지급 가능합니다.');
         if (plan.balance_status === 'PAID') throw new Error('이미 잔금 지급 완료되었습니다.');
         await client.query(
           `UPDATE production_plans SET
-            balance_date = COALESCE($1::date, CURRENT_DATE), balance_status = 'PAID', updated_at = NOW()
+            balance_date = COALESCE($1::date, CURRENT_DATE), balance_status = 'PAID',
+            settle_status = 'SETTLED', updated_at = NOW()
           WHERE plan_id = $2`,
           [data.balance_date || null, planId],
         );

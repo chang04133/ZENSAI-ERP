@@ -4,6 +4,7 @@ import { Partner } from '../../../../shared/types/partner';
 import { partnerService } from './partner.service';
 import { asyncHandler } from '../../core/async-handler';
 import { audit } from '../../core/audit';
+import { getPool } from '../../db/connection';
 
 const VALID_PARTNER_TYPES = ['본사', '대리점', '직영점', '백화점', '아울렛', '온라인', '직영', '가맹'];
 
@@ -27,18 +28,32 @@ class PartnerController extends BaseController<Partner> {
       return;
     }
 
-    const { page, limit, search, scope, ...filters } = req.query;
+    const { page, limit, search, scope, is_active, ...otherFilters } = req.query;
 
-    // is_active 기본 필터: 명시적으로 지정하지 않으면 활성 거래처만
-    if (filters.is_active === undefined || filters.is_active === '') {
-      filters.is_active = 'true';
+    // scope=transfer: 창고 거래처만 반환
+    if (scope === 'transfer') {
+      const pool = getPool();
+      const result = await pool.query(`
+        SELECT p.* FROM partners p
+        INNER JOIN warehouses w ON p.partner_code = w.warehouse_code AND w.is_active = TRUE
+        WHERE p.is_active = TRUE
+        ORDER BY w.is_default DESC, p.partner_name
+      `);
+      res.json({ success: true, data: { data: result.rows, total: result.rows.length, page: 1, limit: result.rows.length, totalPages: 1 } });
+      return;
     }
+
+    // is_active 필터: 'all'이면 필터 없음, 미지정이면 활성만
+    const activeFilter = is_active === 'all' ? undefined
+      : (!is_active || is_active === '') ? 'true'
+      : is_active;
 
     const result = await partnerService.list({
       page: page ? parseInt(page as string, 10) : undefined,
       limit: limit ? parseInt(limit as string, 10) : undefined,
       search: search as string,
-      ...filters,
+      ...otherFilters,
+      ...(activeFilter !== undefined ? { is_active: activeFilter } : {}),
     });
     res.json({ success: true, data: result });
   });

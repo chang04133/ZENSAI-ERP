@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Tag, Input, Select, message, Row, Col, Steps,
-  Modal, Form, InputNumber, DatePicker, Radio, Popconfirm, Space,
+  Modal, Form, InputNumber, DatePicker, Popconfirm, Space,
 } from 'antd';
 import {
   SearchOutlined, DollarOutlined, CheckCircleOutlined,
-  AuditOutlined, BankOutlined, FileDoneOutlined,
+  BankOutlined, FileDoneOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { productionApi } from '../../modules/production/production.api';
@@ -39,13 +39,11 @@ interface Summary {
 
 const CARD_CONFIGS = [
   { key: 'advance_pending', label: '선지급 대기', icon: <DollarOutlined />, bg: '#fff7e6', text: '#fa8c16', border: '#ffd591' },
-  { key: 'advance_paid', label: '선지급 완료', icon: <BankOutlined />, bg: '#e6f7ff', text: '#1890ff', border: '#91d5ff' },
-  { key: 'inspect_pending', label: '검수 대기', icon: <AuditOutlined />, bg: '#f9f0ff', text: '#722ed1', border: '#d3adf7' },
   { key: 'balance_pending', label: '잔금 대기', icon: <DollarOutlined />, bg: '#fff1f0', text: '#cf1322', border: '#ffa39e' },
   { key: 'settled', label: '정산 완료', icon: <FileDoneOutlined />, bg: '#f6ffed', text: '#52c41a', border: '#b7eb8f' },
 ];
 
-type FilterStep = '' | 'advance_pending' | 'advance_paid' | 'inspect_pending' | 'balance_pending' | 'settled';
+type FilterStep = '' | 'advance_pending' | 'balance_pending' | 'settled';
 
 export default function ProductionPaymentPage() {
   // Data
@@ -69,12 +67,6 @@ export default function ProductionPaymentPage() {
   const [advanceForm] = Form.useForm();
   const [advanceLoading, setAdvanceLoading] = useState(false);
 
-  // Inspect modal
-  const [inspectOpen, setInspectOpen] = useState(false);
-  const [inspectPlan, setInspectPlan] = useState<ProductionPlan | null>(null);
-  const [inspectForm] = Form.useForm();
-  const [inspectLoading, setInspectLoading] = useState(false);
-
   // Balance modal
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [balancePlan, setBalancePlan] = useState<ProductionPlan | null>(null);
@@ -96,7 +88,7 @@ export default function ProductionPaymentPage() {
       if (search) params.search = search;
       if (statusFilter) params.status = statusFilter;
       // 서버사이드 대금 단계 필터
-      params.payment_step = stepFilter || 'all_payment';
+      params.payment_step = stepFilter || 'active_payment';
       const result = await productionApi.list(params);
       setData(result.data as ProductionPlan[]);
       setTotal(result.total);
@@ -121,11 +113,9 @@ export default function ProductionPaymentPage() {
   // --- Card values ---
   const cardValues = summary ? [
     { count: summary.advance_pending_count, amount: summary.advance_pending_amount },
-    { count: summary.advance_paid_count, amount: summary.advance_paid_amount },
-    { count: summary.inspect_pending_count, amount: 0 },
     { count: summary.balance_pending_count, amount: summary.balance_pending_amount },
     { count: summary.settled_count, amount: summary.settled_amount },
-  ] : Array(5).fill({ count: 0, amount: 0 });
+  ] : Array(3).fill({ count: 0, amount: 0 });
 
   // --- Advance modal ---
   const openAdvance = async (plan: ProductionPlan) => {
@@ -173,39 +163,6 @@ export default function ProductionPaymentPage() {
     finally { setAdvanceLoading(false); }
   };
 
-  // --- Inspect modal ---
-  const openInspect = async (plan: ProductionPlan) => {
-    const detail = await productionApi.get(plan.plan_id);
-    setInspectPlan(detail as ProductionPlan);
-    inspectForm.setFieldsValue({
-      inspect_qty: (detail as any).total_plan_qty || 0,
-      inspect_status: 'PASS',
-      inspect_date: dayjs(),
-      inspect_memo: '',
-    });
-    setInspectOpen(true);
-  };
-
-  const handleInspectSubmit = async () => {
-    if (!inspectPlan) return;
-    try { await inspectForm.validateFields(); } catch { return; }
-    const values = inspectForm.getFieldsValue();
-    setInspectLoading(true);
-    try {
-      await productionApi.updatePayment(inspectPlan.plan_id, {
-        action: 'inspect',
-        inspect_qty: values.inspect_qty,
-        inspect_status: values.inspect_status,
-        inspect_date: values.inspect_date?.format('YYYY-MM-DD'),
-        inspect_memo: values.inspect_memo,
-      });
-      message.success('검수 처리 완료');
-      setInspectOpen(false);
-      refreshAll();
-    } catch (e: any) { message.error(e.message); }
-    finally { setInspectLoading(false); }
-  };
-
   // --- Balance modal ---
   const openBalance = (plan: ProductionPlan) => {
     setBalancePlan(plan);
@@ -239,9 +196,8 @@ export default function ProductionPaymentPage() {
 
   // --- Step indicator ---
   const getPaymentStep = (r: ProductionPlan) => {
-    if (r.settle_status === 'SETTLED') return 4;
-    if (r.balance_status === 'PAID') return 3;
-    if (r.inspect_status === 'PASS') return 2;
+    if (r.settle_status === 'SETTLED') return 3;
+    if (r.balance_status === 'PAID') return 2;
     if (r.advance_status === 'PAID') return 1;
     return 0;
   };
@@ -259,12 +215,6 @@ export default function ProductionPaymentPage() {
     { title: '선지급', key: 'advance', width: 110, align: 'right' as const,
       render: (_: unknown, r: ProductionPlan) => {
         if (r.advance_status === 'PAID') return <Tag color="blue">{fmtNum(r.advance_amount || 0)}원</Tag>;
-        return <span style={{ color: '#ccc' }}>대기</span>;
-      }},
-    { title: '검수', key: 'inspect', width: 80,
-      render: (_: unknown, r: ProductionPlan) => {
-        if (r.inspect_status === 'PASS') return <Tag color="green">합격 ({r.inspect_qty})</Tag>;
-        if (r.inspect_status === 'FAIL') return <Tag color="red">불합격</Tag>;
         return <span style={{ color: '#ccc' }}>대기</span>;
       }},
     { title: '잔금', key: 'balance', width: 110, align: 'right' as const,
@@ -285,7 +235,6 @@ export default function ProductionPaymentPage() {
             { title: '' },
             { title: '' },
             { title: '' },
-            { title: '' },
           ]}
         />
       )},
@@ -299,11 +248,8 @@ export default function ProductionPaymentPage() {
             </Popconfirm>
           );
         }
-        if (r.inspect_status === 'PASS' && r.balance_status === 'PENDING') {
+        if (r.advance_status === 'PAID' && r.balance_status === 'PENDING') {
           return <Button size="small" icon={<BankOutlined />} onClick={() => openBalance(r)}>잔금지급</Button>;
-        }
-        if (r.advance_status === 'PAID' && r.inspect_status === 'PENDING') {
-          return <Button size="small" icon={<AuditOutlined />} onClick={() => openInspect(r)}>검수</Button>;
         }
         if (r.advance_status === 'PENDING') {
           return <Button size="small" type="primary" icon={<DollarOutlined />} onClick={() => openAdvance(r)}>선지급</Button>;
@@ -352,7 +298,6 @@ export default function ProductionPaymentPage() {
       <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fafafa', borderRadius: 8 }}>
         <Steps size="small" items={[
           { title: '선지급', description: `${summary?.advance_pending_count || 0}건 대기`, icon: <DollarOutlined /> },
-          { title: '물량검수', description: `${summary?.inspect_pending_count || 0}건 대기`, icon: <AuditOutlined /> },
           { title: '잔금지급', description: `${summary?.balance_pending_count || 0}건 대기`, icon: <BankOutlined /> },
           { title: '정산완료', description: `${summary?.settled_count || 0}건`, icon: <CheckCircleOutlined /> },
         ]} />
@@ -429,36 +374,7 @@ export default function ProductionPaymentPage() {
         </Form>
       </Modal>
 
-      {/* 검수 모달 */}
-      <Modal title="물량 검수" open={inspectOpen} onCancel={() => setInspectOpen(false)}
-        onOk={handleInspectSubmit} okText="검수 처리" confirmLoading={inspectLoading} width={500}>
-        {inspectPlan && (
-          <div style={{ marginBottom: 16, padding: 10, background: '#f5f5f5', borderRadius: 6 }}>
-            <strong>{inspectPlan.plan_no}</strong> — {inspectPlan.plan_name}
-            <div style={{ fontSize: 12, color: '#666', marginTop: 4 }}>
-              계획수량: <strong>{inspectPlan.total_plan_qty}</strong> /
-              생산수량: <strong>{inspectPlan.total_produced_qty}</strong>
-            </div>
-          </div>
-        )}
-        <Form form={inspectForm} layout="vertical">
-          <Form.Item name="inspect_qty" label="검수수량" rules={[{ required: true }]}>
-            <InputNumber style={{ width: '100%' }} min={0} addonAfter="개" />
-          </Form.Item>
-          <Form.Item name="inspect_status" label="검수 결과" rules={[{ required: true }]}>
-            <Radio.Group>
-              <Radio.Button value="PASS" style={{ color: '#52c41a' }}>합격</Radio.Button>
-              <Radio.Button value="FAIL" style={{ color: '#ff4d4f' }}>불합격</Radio.Button>
-            </Radio.Group>
-          </Form.Item>
-          <Form.Item name="inspect_date" label="검수일">
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="inspect_memo" label="검수 메모">
-            <Input.TextArea rows={2} placeholder="특이사항 입력" />
-          </Form.Item>
-        </Form>
-      </Modal>
+
 
       {/* 잔금 모달 */}
       <Modal title="잔금 지급" open={balanceOpen} onCancel={() => setBalanceOpen(false)}

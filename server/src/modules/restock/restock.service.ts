@@ -3,6 +3,7 @@ import { RestockRequest } from '../../../../shared/types/restock';
 import { restockRepository } from './restock.repository';
 import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
+import { createNotification } from '../../core/notify';
 
 class RestockService extends BaseService<RestockRequest> {
   constructor() {
@@ -12,7 +13,17 @@ class RestockService extends BaseService<RestockRequest> {
   async generateNo() { return restockRepository.generateNo(); }
   async getWithItems(id: number) { return restockRepository.getWithItems(id); }
   async createWithItems(headerData: Record<string, any>, items: any[]) {
-    return restockRepository.createWithItems(headerData, items);
+    const result = await restockRepository.createWithItems(headerData, items);
+    if (result) {
+      const priority = headerData.priority || 'NORMAL';
+      const label = priority === 'CRITICAL' ? '긴급 재입고 의뢰' : priority === 'WARNING' ? '주의 재입고 의뢰' : '재입고 의뢰';
+      createNotification(
+        'RESTOCK', label,
+        `${label} #${result.request_no} (${items.length}건)이 등록되었습니다.`,
+        result.request_id, undefined, headerData.requested_by,
+      );
+    }
+    return result;
   }
   async getRestockSuggestions() {
     return restockRepository.getRestockSuggestions();
@@ -59,6 +70,18 @@ class RestockService extends BaseService<RestockRequest> {
       }
 
       await client.query('COMMIT');
+
+      // 상태 변경 알림
+      if (data.status && data.status !== oldStatus) {
+        const STATUS_LABELS: Record<string, string> = { APPROVED: '승인', ORDERED: '발주', RECEIVED: '입고완료', CANCELLED: '취소' };
+        const label = STATUS_LABELS[data.status] || data.status;
+        createNotification(
+          'RESTOCK', `재입고 ${label}`,
+          `재입고 의뢰 #${current.request_no}이(가) ${label} 처리되었습니다.`,
+          id, undefined, userId,
+        );
+      }
+
       return restockRepository.getWithItems(id);
     } catch (e) {
       await client.query('ROLLBACK');

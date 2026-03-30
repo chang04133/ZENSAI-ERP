@@ -1,5 +1,5 @@
 import { Modal, Table, Tag, Button, Timeline, Space } from 'antd';
-import { PrinterOutlined, CheckCircleOutlined, ClockCircleOutlined, SendOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { PrinterOutlined, CheckCircleOutlined, ClockCircleOutlined, SendOutlined, CloseCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { STATUS_COLORS, STATUS_LABELS } from './ShipmentConstants';
 
 interface Props {
@@ -20,6 +20,15 @@ function StatusTimeline({ status }: { status: string }) {
       <Timeline items={[
         { color: 'gray', children: '의뢰등록' },
         { color: 'red', dot: <CloseCircleOutlined />, children: <strong>취소됨</strong> },
+      ]} />
+    );
+  }
+  if (status === 'DISCREPANCY') {
+    return (
+      <Timeline items={[
+        { color: 'gray', dot: <ClockCircleOutlined />, children: '의뢰등록' },
+        { color: 'blue', dot: <SendOutlined />, children: '출고확인' },
+        { color: 'orange', dot: <ExclamationCircleOutlined />, children: <strong>수량불일치</strong> },
       ]} />
     );
   }

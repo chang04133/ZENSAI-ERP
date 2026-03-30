@@ -77,7 +77,7 @@ router.get('/income-statement', ...adminOnly, asyncHandler(async (req: Request, 
   if (month) prevYearParams.push(month);
   const prevRevSql = `
     SELECT COALESCE(SUM(total_price), 0)::bigint AS amount
-    FROM sales WHERE ${dateFilter.replace('$1', '$1')}
+    FROM sales WHERE ${dateFilter}
   `;
   const prevRevenue = Number((await pool.query(prevRevSql, prevYearParams)).rows[0].amount);
 
@@ -405,6 +405,9 @@ router.post('/ar', ...adminOnly, asyncHandler(async (req: Request, res: Response
   if (!partner_code || !ar_date || !amount) {
     res.status(400).json({ success: false, error: 'partner_code, ar_date, amount 필수' }); return;
   }
+  if (typeof amount !== 'number' || amount <= 0) {
+    res.status(400).json({ success: false, error: '금액은 0보다 큰 숫자여야 합니다.' }); return;
+  }
   const pool = getPool();
   const result = await pool.query(
     `INSERT INTO accounts_receivable (partner_code, ar_date, amount, due_date, memo, created_by)
@@ -417,6 +420,21 @@ router.post('/ar', ...adminOnly, asyncHandler(async (req: Request, res: Response
 router.put('/ar/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const { status, paid_amount, memo } = req.body;
   const pool = getPool();
+
+  // paid_amount 검증: 원금 초과 방지
+  if (paid_amount !== undefined) {
+    const orig = await pool.query('SELECT amount FROM accounts_receivable WHERE ar_id = $1', [req.params.id]);
+    if (orig.rows.length === 0) {
+      res.status(404).json({ success: false, error: '미수금을 찾을 수 없습니다.' }); return;
+    }
+    if (Number(paid_amount) < 0) {
+      res.status(400).json({ success: false, error: '지급액은 0 이상이어야 합니다.' }); return;
+    }
+    if (Number(paid_amount) > Number(orig.rows[0].amount)) {
+      res.status(400).json({ success: false, error: '지급액이 원금을 초과할 수 없습니다.' }); return;
+    }
+  }
+
   const sets: string[] = ['updated_at = NOW()'];
   const params: any[] = [];
   let idx = 1;
@@ -472,6 +490,9 @@ router.post('/ap', ...adminOnly, asyncHandler(async (req: Request, res: Response
   if (!ap_date || !amount) {
     res.status(400).json({ success: false, error: 'ap_date, amount 필수' }); return;
   }
+  if (typeof amount !== 'number' || amount <= 0) {
+    res.status(400).json({ success: false, error: '금액은 0보다 큰 숫자여야 합니다.' }); return;
+  }
   const pool = getPool();
   const result = await pool.query(
     `INSERT INTO accounts_payable (partner_code, ap_date, amount, due_date, category, memo, created_by)
@@ -484,6 +505,21 @@ router.post('/ap', ...adminOnly, asyncHandler(async (req: Request, res: Response
 router.put('/ap/:id', ...adminOnly, asyncHandler(async (req: Request, res: Response) => {
   const { status, paid_amount, memo } = req.body;
   const pool = getPool();
+
+  // paid_amount 검증: 원금 초과 방지
+  if (paid_amount !== undefined) {
+    const orig = await pool.query('SELECT amount FROM accounts_payable WHERE ap_id = $1', [req.params.id]);
+    if (orig.rows.length === 0) {
+      res.status(404).json({ success: false, error: '미지급금을 찾을 수 없습니다.' }); return;
+    }
+    if (Number(paid_amount) < 0) {
+      res.status(400).json({ success: false, error: '지급액은 0 이상이어야 합니다.' }); return;
+    }
+    if (Number(paid_amount) > Number(orig.rows[0].amount)) {
+      res.status(400).json({ success: false, error: '지급액이 원금을 초과할 수 없습니다.' }); return;
+    }
+  }
+
   const sets: string[] = ['updated_at = NOW()'];
   const params: any[] = [];
   let idx = 1;

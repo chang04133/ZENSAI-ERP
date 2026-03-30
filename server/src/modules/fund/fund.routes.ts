@@ -267,10 +267,9 @@ router.get('/financial-statements/auto-data', ...adminOnly, asyncHandler(async (
 
   // 1) 매출 데이터 (sales 테이블에서)
   const salesResult = await pool.query(
-    `SELECT COALESCE(SUM(total_amount), 0)::bigint AS total_revenue
+    `SELECT COALESCE(SUM(total_price), 0)::bigint AS total_revenue
      FROM sales
-     WHERE sale_date >= $1 AND sale_date <= $2
-       AND is_deleted = FALSE`,
+     WHERE sale_date >= $1 AND sale_date <= $2`,
     [dateFrom, dateTo],
   );
   const totalRevenue = Number(salesResult.rows[0]?.total_revenue || 0);

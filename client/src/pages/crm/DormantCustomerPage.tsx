@@ -4,6 +4,8 @@ import { SearchOutlined, UserSwitchOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { crmApi } from '../../modules/crm/crm.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const TIER_COLORS: Record<string, string> = {
   VVIP: 'gold',
@@ -14,6 +16,8 @@ const TIER_COLORS: Record<string, string> = {
 
 export default function DormantCustomerPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
@@ -129,7 +133,12 @@ export default function DormantCustomerPage() {
 
   return (
     <div>
-      <h2>휴면 고객 관리</h2>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+        <h2 style={{ margin: 0 }}>휴면 고객 관리</h2>
+        {isStore && user?.partnerName && (
+          <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px' }}>{user.partnerName}</Tag>
+        )}
+      </div>
       {dormantMonths > 0 && (
         <Alert
           type="info"

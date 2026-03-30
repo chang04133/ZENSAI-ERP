@@ -19,6 +19,7 @@ export interface InboundRecord {
   item_count?: number;
   // joined
   plan_no?: string;
+  plan_name?: string;
   // 생산계획 품목 (PENDING + PRODUCTION 소스일 때)
   production_items?: Array<{
     item_id: number; category: string; sub_category: string | null;

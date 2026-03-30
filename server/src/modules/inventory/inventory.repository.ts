@@ -32,36 +32,76 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     }
 
     const qb = new QueryBuilder('i');
-    if (partner_code) qb.eq('partner_code', partner_code);
+    // 다중 값 필터 헬퍼 (콤마 구분)
+    const multiEq = (col: string, val: string | undefined) => {
+      if (!val) return;
+      if (val === 'NULL') { qb.raw(`${col} IS NULL`); return; }
+      if (val.includes(',')) {
+        const arr = val.split(',').map(s => s.trim()).filter(Boolean);
+        qb.raw(`${col} IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.raw(`${col} = ?`, val);
+      }
+    };
+    if (partner_code) {
+      if (partner_code.includes(',')) {
+        const arr = partner_code.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`i.partner_code IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.eq('partner_code', partner_code);
+      }
+    }
     if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
-    if (category) qb.raw('p.category = ?', category);
-    if (sub_category) qb.raw('p.sub_category = ?', sub_category);
-    if (sale_status) qb.raw('p.sale_status = ?', sale_status);
-    if (season === 'NULL') qb.raw('p.season IS NULL');
-    else if (season) qb.raw('p.season = ?', season);
-    if (size) qb.raw('pv.size = ?', size);
-    if (color) qb.raw('pv.color ILIKE ?', `%${color}%`);
-    if (fit === 'NULL') qb.raw('p.fit IS NULL');
-    else if (fit) qb.raw('p.fit = ?', fit);
-    if (length === 'NULL') qb.raw('p.length IS NULL');
-    else if (length) qb.raw('p.length = ?', length);
+    multiEq('p.category', category);
+    multiEq('p.sub_category', sub_category);
+    multiEq('p.sale_status', sale_status);
+    multiEq('p.season', season);
+    if (size) {
+      if (size.includes(',')) {
+        const arr = size.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`pv.size IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.raw('pv.size = ?', size);
+      }
+    }
+    if (color) {
+      if (color.includes(',')) {
+        const arr = color.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`(${arr.map(() => 'pv.color ILIKE ?').join(' OR ')})`, ...arr.map((c: string) => `%${c}%`));
+      } else {
+        qb.raw('pv.color ILIKE ?', `%${color}%`);
+      }
+    }
+    multiEq('p.fit', fit);
+    multiEq('p.length', length);
     if (year === 'NULL') qb.raw('p.year IS NULL');
     else if (year) qb.raw('p.year = ?', year);
     if (year_from) qb.raw('p.year >= ?', year_from);
     if (year_to) qb.raw('p.year <= ?', year_to);
     if (date_from) qb.raw('p.created_at >= ?::date', date_from);
     if (date_to) qb.raw('p.created_at < ?::date + INTERVAL \'1 day\'', date_to);
-    if (stock_level === 'zero') qb.raw('i.qty = 0');
-    else if (stock_level === 'low') qb.raw('i.qty > 0 AND i.qty <= ?', lowThreshold);
-    else if (stock_level === 'medium') qb.raw('i.qty > ? AND i.qty <= ?', lowThreshold, medThreshold);
-    else if (stock_level === 'good') qb.raw('i.qty > ?', medThreshold);
+    if (stock_level) {
+      const levels = String(stock_level).split(',').map((s: string) => s.trim()).filter(Boolean);
+      const conds: string[] = [];
+      const cArgs: any[] = [];
+      for (const lv of levels) {
+        if (lv === 'zero') conds.push('i.qty = 0');
+        else if (lv === 'low') { conds.push('(i.qty > 0 AND i.qty <= ?)'); cArgs.push(lowThreshold); }
+        else if (lv === 'medium') { conds.push('(i.qty > ? AND i.qty <= ?)'); cArgs.push(lowThreshold, medThreshold); }
+        else if (lv === 'good') { conds.push('(i.qty > ?)'); cArgs.push(medThreshold); }
+      }
+      if (conds.length > 0) qb.raw(`(${conds.join(' OR ')})`, ...cArgs);
+      else qb.raw('i.qty > 0');
+    } else {
+      qb.raw('i.qty > 0');
+    }
     const { whereClause, params, nextIdx } = qb.build();
 
     const baseSql = `
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      JOIN partners pt ON i.partner_code = pt.partner_code
+      JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
       ${whereClause}`;
 
     const countSql = `SELECT COUNT(*) ${baseSql}`;
@@ -99,7 +139,26 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const lockKey = Buffer.from(`${partnerCode}:${variantId}`).reduce((h, b) => (h * 31 + b) | 0, 0);
     await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
 
-    // 음수 재고 허용 — GREATEST(0,...) 제거하여 정확한 재고 추적
+    // 재고 차감 시 음수 방지: 현재 재고 확인 후 부족하면 에러
+    if (qtyChange < 0) {
+      const cur = await client.query(
+        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+        [partnerCode, variantId],
+      );
+      const currentQty = cur.rows[0] ? Number(cur.rows[0].qty) : 0;
+      if (currentQty + qtyChange < 0) {
+        // variant 정보 조회하여 에러 메시지에 포함
+        const vInfo = await client.query(
+          `SELECT pv.sku, p.product_name, pv.color, pv.size
+           FROM product_variants pv JOIN products p ON pv.product_code = p.product_code
+           WHERE pv.variant_id = $1`, [variantId],
+        );
+        const v = vInfo.rows[0];
+        const desc = v ? `${v.product_name} (${v.color}/${v.size})` : `variant#${variantId}`;
+        throw new Error(`재고 부족: ${desc} — 현재 ${currentQty}개, 필요 ${Math.abs(qtyChange)}개`);
+      }
+    }
+
     await client.query(
       `INSERT INTO inventory (partner_code, variant_id, qty)
        VALUES ($1, $2, $3)
@@ -110,21 +169,15 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
       [partnerCode, variantId],
     );
-    // S-10: rows[0] 존재 확인
     if (!inv.rows[0]) {
       throw new Error(`재고 레코드를 찾을 수 없습니다: ${partnerCode}/${variantId}`);
     }
     const qtyAfter = inv.rows[0].qty;
 
-    // 음수 재고 경고 로깅
-    const negMemo = qtyAfter < 0
-      ? `[AUTO] 음수재고 경고: ${qtyAfter}개 (${txType}, ref=${refId})`
-      : null;
-
     await client.query(
       `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by, memo)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId, negMemo],
+      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId, null],
     );
   }
 
@@ -140,7 +193,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE) ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.category, '미분류')
       ORDER BY total_qty DESC`;
@@ -159,7 +212,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE) ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.fit, '미지정')
       ORDER BY total_qty DESC`;
@@ -178,7 +231,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE) ${pcJoin}
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY COALESCE(p.length, '미지정')
       ORDER BY total_qty DESC`;
@@ -202,7 +255,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         COALESCE(SUM(i.qty), 0)::int AS total_qty
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
-      LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+      LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE) ${pcJoin}
       LEFT JOIN master_codes mc ON mc.code_type = 'YEAR' AND mc.code_value = p.year AND mc.is_active = TRUE
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
       GROUP BY
@@ -290,6 +343,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         COUNT(*) FILTER (WHERE i.qty = 0)::int AS zero_stock_count
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
+      JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
       WHERE pv.is_active = TRUE ${pcFilter}`;
     return (await this.pool.query(sql, params)).rows[0];
   }
@@ -320,13 +374,13 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                 'qty', o.qty
               ) ORDER BY o.qty DESC), '[]'::json)
               FROM inventory o
-              JOIN partners op ON o.partner_code = op.partner_code
+              JOIN partners op ON o.partner_code = op.partner_code AND op.is_active = TRUE
               WHERE o.variant_id = i.variant_id AND o.partner_code != i.partner_code AND o.qty > 0
              ) AS other_locations
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      JOIN partners pt ON i.partner_code = pt.partner_code
+      JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
         AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         AND i.qty < COALESCE(p.low_stock_threshold, $1)
@@ -369,13 +423,13 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                 'qty', o.qty
               ) ORDER BY o.qty DESC), '[]'::json)
               FROM inventory o
-              JOIN partners op ON o.partner_code = op.partner_code
+              JOIN partners op ON o.partner_code = op.partner_code AND op.is_active = TRUE
               WHERE o.variant_id = i.variant_id AND o.partner_code != i.partner_code AND o.qty > 0
              ) AS other_locations
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      JOIN partners pt ON i.partner_code = pt.partner_code
+      JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
       WHERE p.is_active = TRUE AND pv.is_active = TRUE
         AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
         AND i.qty > COALESCE(p.low_stock_threshold, $1)
@@ -405,7 +459,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                COUNT(DISTINCT i.partner_code)::int AS partner_count
         FROM products p
         JOIN product_variants pv ON p.product_code = pv.product_code
-        LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${pcJoin}
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE) ${pcJoin}
         WHERE p.is_active = TRUE AND pv.is_active = TRUE
         GROUP BY p.season
       )
@@ -434,6 +488,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       FROM products p
       JOIN product_variants pv ON p.product_code = pv.product_code
       LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        AND i.partner_code IN (SELECT partner_code FROM partners WHERE is_active = TRUE)
       LEFT JOIN partners pt ON i.partner_code = pt.partner_code
       ${whereClause} AND p.is_active = TRUE AND pv.is_active = TRUE`;
 
@@ -503,14 +558,30 @@ export class InventoryRepository extends BaseRepository<Inventory> {
 
   /** 재고 거래이력 조회 */
   async listTransactions(options: any = {}) {
-    const { page = 1, limit: rawLimit = 20, partner_code, variant_id, tx_type, search } = options;
+    const { page = 1, limit: rawLimit = 20, partner_code, variant_id, tx_type, search, date_from, date_to } = options;
     const limit = Math.min(Number(rawLimit) || 20, 200); // S-8: limit 상한 200
     const offset = (Number(page) - 1) * limit;
     const qb = new QueryBuilder('t');
-    if (partner_code) qb.eq('partner_code', partner_code);
+    if (partner_code) {
+      if (String(partner_code).includes(',')) {
+        const arr = String(partner_code).split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`t.partner_code IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.eq('partner_code', partner_code);
+      }
+    }
     if (variant_id) qb.eq('variant_id', variant_id);
-    if (tx_type) qb.eq('tx_type', tx_type);
-    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ?)', `%${search}%`, `%${search}%`);
+    if (tx_type) {
+      if (tx_type.includes(',')) {
+        const arr = tx_type.split(',').map((s: string) => s.trim()).filter(Boolean);
+        qb.raw(`tx_type IN (${arr.map(() => '?').join(', ')})`, ...arr);
+      } else {
+        qb.eq('tx_type', tx_type);
+      }
+    }
+    if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
+    if (date_from) qb.raw('t.created_at >= ?', `${date_from}T00:00:00`);
+    if (date_to) qb.raw('t.created_at <= ?', `${date_to}T23:59:59`);
     const { whereClause, params, nextIdx } = qb.build();
 
     const baseSql = `
@@ -522,7 +593,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
 
     const total = parseInt((await this.pool.query(`SELECT COUNT(*) ${baseSql}`, params)).rows[0].count, 10);
     const dataSql = `
-      SELECT t.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+      SELECT t.*, pt.partner_name, pt.partner_type, pv.sku, pv.color, pv.size, p.product_name, p.product_code
       ${baseSql}
       ORDER BY t.created_at DESC
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
@@ -593,6 +664,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                SUM(i.qty)::int AS current_stock
         FROM product_variants pv
         JOIN inventory i ON pv.variant_id = i.variant_id ${invPartnerFilter}
+        JOIN partners ipt ON i.partner_code = ipt.partner_code AND ipt.is_active = TRUE
         WHERE pv.is_active = TRUE
         GROUP BY pv.product_code
         HAVING SUM(i.qty) > 0
@@ -609,6 +681,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       total_inv AS (
         SELECT SUM(i.qty)::int AS total_qty
         FROM inventory i
+        JOIN partners tipt ON i.partner_code = tipt.partner_code AND tipt.is_active = TRUE
         ${partnerCode ? `WHERE i.partner_code = $${partnerIdx}` : ''}
       )
       SELECT p.product_code, p.product_name, p.category, p.season, p.year,
@@ -639,8 +712,11 @@ export class InventoryRepository extends BaseRepository<Inventory> {
                  COUNT(*) FILTER (WHERE si.qty <= $3)::int AS broken_cnt
           FROM product_variants spv
           JOIN inventory si ON spv.variant_id = si.variant_id
-          JOIN partners sp ON si.partner_code = sp.partner_code AND sp.partner_type != '본사'
+          JOIN partners sp ON si.partner_code = sp.partner_code AND sp.is_active = TRUE
+          LEFT JOIN warehouses wh ON si.partner_code = wh.warehouse_code
+
           WHERE spv.product_code = p.product_code AND spv.is_active = TRUE AND spv.size != 'FREE'
+            AND wh.warehouse_code IS NULL
           GROUP BY si.partner_code
           HAVING (
             SELECT COUNT(DISTINCT pv2.size)

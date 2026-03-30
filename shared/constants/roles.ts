@@ -10,7 +10,7 @@ export type RoleName = (typeof ROLES)[keyof typeof ROLES];
 
 export const ROLE_LABELS: Record<string, string> = {
   ADMIN: '마스터계정',
-  SYS_ADMIN: '부마스터 계정',
+  SYS_ADMIN: '시스템관리자',
   HQ_MANAGER: '본사 매니저',
   STORE_MANAGER: '매장 매니저',
   STORE_STAFF: '매장 직원',

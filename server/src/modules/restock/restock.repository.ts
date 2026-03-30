@@ -54,11 +54,11 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       const requestNo = await this.generateNo();
       const header = await client.query(
         `INSERT INTO restock_requests
-         (request_no, request_date, partner_code, status, expected_date, memo, requested_by)
-         VALUES ($1, CURRENT_DATE, $2, 'DRAFT', $3, $4, $5)
+         (request_no, request_date, partner_code, status, priority, expected_date, memo, requested_by)
+         VALUES ($1, CURRENT_DATE, $2, 'DRAFT', $3, $4, $5, $6)
          RETURNING *`,
-        [requestNo, headerData.partner_code, headerData.expected_date || null,
-         headerData.memo || null, headerData.requested_by],
+        [requestNo, headerData.partner_code, headerData.priority || 'NORMAL',
+         headerData.expected_date || null, headerData.memo || null, headerData.requested_by],
       );
       const requestId = header.rows[0].request_id;
       for (const item of items) {

@@ -1,14 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Table, Tag, Button, Select, Input, Space, Modal, Form,
-  InputNumber, DatePicker, message, Popconfirm, Card, Row, Col,
+  DatePicker, message, Popconfirm, Card, Row, Col,
 } from 'antd';
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ToolOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
-import { afterSalesApi } from '../../modules/crm/crm.api';
+import { crmApi, afterSalesApi } from '../../modules/crm/crm.api';
 
 const STATUS_COLORS: Record<string, string> = {
   '접수': 'blue',
@@ -50,6 +50,27 @@ export default function AfterSalesPage() {
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
 
+  /* ── 고객 검색 ── */
+  const [customerOptions, setCustomerOptions] = useState<{ label: string; value: number }[]>([]);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  const handleCustomerSearch = (keyword: string) => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (!keyword || keyword.length < 1) { setCustomerOptions([]); return; }
+    searchTimerRef.current = setTimeout(async () => {
+      setCustomerSearching(true);
+      try {
+        const r = await crmApi.list({ search: keyword, limit: '20' });
+        setCustomerOptions((r.data || []).map((c: any) => ({
+          label: `${c.customer_name} (${c.phone || '-'})`,
+          value: c.customer_id,
+        })));
+      } catch { /* ignore */ }
+      finally { setCustomerSearching(false); }
+    }, 300);
+  };
+
   /* ══════════ 데이터 로드 ══════════ */
   const loadStats = useCallback(() => {
     afterSalesApi.stats()
@@ -85,11 +106,16 @@ export default function AfterSalesPage() {
         received_date: record.received_date ? dayjs(record.received_date) : null,
         completed_date: record.completed_date ? dayjs(record.completed_date) : null,
       });
+      setCustomerOptions([{
+        label: record.customer_name || `고객 #${record.customer_id}`,
+        value: record.customer_id,
+      }]);
     } else {
       form.setFieldsValue({
         service_type: '수선',
         received_date: dayjs(),
       });
+      setCustomerOptions([]);
     }
     setModalOpen(true);
   };
@@ -304,9 +330,17 @@ export default function AfterSalesPage() {
         <Form form={form} layout="vertical" onFinish={handleSubmit}>
           <Row gutter={16}>
             <Col span={12}>
-              <Form.Item name="customer_id" label="고객ID"
-                rules={[{ required: true, message: '고객ID를 입력하세요' }]}>
-                <InputNumber style={{ width: '100%' }} min={1} placeholder="고객 ID" />
+              <Form.Item name="customer_id" label="고객"
+                rules={[{ required: true, message: '고객을 선택하세요' }]}>
+                <Select
+                  showSearch
+                  filterOption={false}
+                  placeholder="이름/전화번호 검색"
+                  onSearch={handleCustomerSearch}
+                  loading={customerSearching}
+                  options={customerOptions}
+                  notFoundContent={customerSearching ? '검색중...' : '이름 또는 전화번호를 입력하세요'}
+                />
               </Form.Item>
             </Col>
             <Col span={12}>

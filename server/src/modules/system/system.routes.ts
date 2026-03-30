@@ -184,4 +184,56 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
+// ═══ 권한 관리 ═══
+
+// GET /api/system/permissions — ADMIN: 전체 역할별 권한 조회
+router.get('/permissions', ...admin, asyncHandler(async (_req, res) => {
+  const pool = getPool();
+  const result = await pool.query(
+    `SELECT group_id, group_name, description, permissions FROM role_groups ORDER BY group_id`,
+  );
+  res.json({ success: true, data: result.rows });
+}));
+
+// PUT /api/system/permissions — ADMIN: 역할별 권한 일괄 업데이트
+router.put('/permissions', ...admin, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const permissions = req.body.permissions as Record<string, Record<string, boolean>>;
+  if (!permissions || typeof permissions !== 'object') {
+    res.status(400).json({ success: false, error: '유효하지 않은 권한 데이터입니다.' });
+    return;
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (const [groupName, perms] of Object.entries(permissions)) {
+      await client.query(
+        `UPDATE role_groups SET permissions = $1::jsonb WHERE group_name = $2`,
+        [JSON.stringify(perms), groupName],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+  res.json({ success: true });
+}));
+
+// GET /api/system/my-permissions — 인증 사용자: 자기 역할의 권한 조회
+router.get('/my-permissions', authMiddleware, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const role = req.user?.role;
+  if (!role) { res.status(401).json({ success: false, error: '인증 정보가 없습니다.' }); return; }
+
+  const result = await pool.query(
+    `SELECT permissions FROM role_groups WHERE group_name = $1`, [role],
+  );
+  const perms = result.rows[0]?.permissions || {};
+  res.json({ success: true, data: perms });
+}));
+
 export default router;

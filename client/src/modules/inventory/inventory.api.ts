@@ -25,6 +25,18 @@ export const inventoryApi = {
     return data.data as { data: Inventory[]; total: number; sumQty: number; page: number; limit: number; totalPages: number };
   },
 
+  /** 매장별 재고 요약 */
+  byPartner: async (params?: Record<string, string>) => {
+    const query = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/inventory/by-partner${query}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{
+      partner_code: string; partner_name: string; partner_type: string;
+      total_qty: number; sku_count: number; product_count: number; zero_stock_count: number;
+    }>;
+  },
+
   dashboardStats: async (scope?: 'all', partnerCode?: string) => {
     const params = new URLSearchParams();
     if (scope) params.set('scope', scope);
@@ -37,8 +49,6 @@ export const inventoryApi = {
       overall: { total_qty: number; total_items: number; total_partners: number; zero_stock_count: number };
       byCategory: Array<{ category: string; product_count: number; variant_count: number; total_qty: number }>;
       bySeason: Array<{ season: string; product_count: number; variant_count: number; total_qty: number; partner_count: number }>;
-      byFit: Array<{ fit: string; product_count: number; variant_count: number; total_qty: number }>;
-      byLength: Array<{ length: string; product_count: number; variant_count: number; total_qty: number }>;
       byYear: Array<{ year: string; product_count: number; variant_count: number; total_qty: number }>;
       isStore: boolean;
     };
@@ -100,6 +110,31 @@ export const inventoryApi = {
       recommend: Array<any>;
       isStore: boolean;
     };
+  },
+
+  lossHistory: async (params?: Record<string, string>) => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    const res = await apiFetch(`/api/inventory/loss-history${q}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as {
+      data: Array<{
+        tx_id: number; ref_id: number; partner_code: string; variant_id: number;
+        loss_qty: number; created_at: string; created_by: string; memo: string; loss_type: string;
+        sku: string; color: string; size: string; product_name: string; product_code: string;
+        category: string; partner_name: string; request_no: string;
+      }>;
+      total: number; page: number; limit: number; totalPages: number;
+      summary: { total_count: number; total_loss_qty: number; variant_count: number };
+      byCategory: Array<{ loss_type: string; count: number; qty: number }>;
+    };
+  },
+
+  registerLoss: async (body: { partner_code: string; variant_id: number; qty: number; loss_type: string; memo?: string }) => {
+    const res = await apiFetch('/api/inventory/register-loss', { method: 'POST', body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
   },
 
   transactions: async (params?: Record<string, string>) => {

@@ -16,7 +16,7 @@ export const salesApi = {
   create: async (body: any) => {
     return parse(await apiFetch('/api/sales', { method: 'POST', body: JSON.stringify(body) }));
   },
-  createBatch: async (body: { sale_date: string; partner_code?: string; memo?: string; items: any[] }) => {
+  createBatch: async (body: { sale_date: string; partner_code?: string; customer_id?: number; memo?: string; items: any[] }) => {
     return parse(await apiFetch('/api/sales/batch', { method: 'POST', body: JSON.stringify(body) }));
   },
 

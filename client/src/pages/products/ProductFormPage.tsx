@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Form, Input, InputNumber, Select, Switch, Button, Card, Space, Divider, Upload, Image, Table, Tag, message } from 'antd';
 import { MinusCircleOutlined, PlusOutlined, UploadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -28,36 +28,15 @@ export default function ProductFormPage() {
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(isEdit);
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
   const [brandOptions, setBrandOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [imageUploading, setImageUploading] = useState(false);
   const [allMaterials, setAllMaterials] = useState<any[]>([]);
   const [productMaterials, setProductMaterials] = useState<Array<{ material_id: number; usage_qty: number }>>([]);
   const [materialSaving, setMaterialSaving] = useState(false);
   const [partnerOptions, setPartnerOptions] = useState<{ label: string; value: string }[]>([]);
-
-  const updateSubCategories = useCallback((categoryValue: string | undefined, allCats: any[]) => {
-    if (!categoryValue) {
-      setSubCategoryOptions([]);
-      return;
-    }
-    const parent = allCats.find((c: any) => c.code_value === categoryValue && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCats
-          .filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
-    }
-  }, []);
 
   useEffect(() => {
     materialApi.list({ limit: '500' }).then((res: any) => {
@@ -73,7 +52,6 @@ export default function ProductFormPage() {
     codeApi.getAll().then((data: any) => {
       const toOpts = (items: any[]) => (items || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
       const allCats = data.CATEGORY || [];
-      setAllCategoryCodes(allCats);
       setCategoryOptions(allCats.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
       setBrandOptions(toOpts(data.BRAND));
 
@@ -85,9 +63,6 @@ export default function ProductFormPage() {
       );
       // 시즌 옵션 (순수 시즌만)
       setSeasonOptions(toOpts(data.SEASON));
-
-      setFitOptions(toOpts(data.FIT));
-      setLengthOptions(toOpts(data.LENGTH));
     }).catch(() => {});
   }, []);
 
@@ -103,9 +78,6 @@ export default function ProductFormPage() {
         .then(([data, mats]) => {
           form.setFieldsValue(data);
           if ((data as any).image_url) setImageUrl((data as any).image_url);
-          if (data.category && allCategoryCodes.length > 0) {
-            updateSubCategories(data.category, allCategoryCodes);
-          }
           setProductMaterials(mats.map((m: any) => ({ material_id: m.material_id, usage_qty: Number(m.usage_qty) })));
           setProductLoaded(true);
         })
@@ -114,15 +86,8 @@ export default function ProductFormPage() {
     }
   }, [code, isEdit, productLoaded]);
 
-  // 카테고리 코드 로드 후 세부카테고리 업데이트
-  useEffect(() => {
-    if (productLoaded && allCategoryCodes.length > 0) {
-      const cat = form.getFieldValue('category');
-      if (cat) updateSubCategories(cat, allCategoryCodes);
-    }
-  }, [allCategoryCodes, productLoaded]);
-
   const handleImageUpload = async (file: File) => {
+    if (imageUploading) return false;
     if (!isEdit || !code) {
       message.info('상품 등록 후 이미지를 업로드할 수 있습니다.');
       return false;
@@ -173,12 +138,8 @@ export default function ProductFormPage() {
     );
   };
 
-  const handleCategoryChange = (value: string) => {
-    form.setFieldValue('sub_category', undefined);
-    updateSubCategories(value, allCategoryCodes);
-  };
-
   const onFinish = async (values: any) => {
+    if (loading) return;
     setLoading(true);
     try {
       const productCode = isEdit ? code! : values.product_code;
@@ -247,10 +208,7 @@ export default function ProductFormPage() {
 
           <Space style={{ display: 'flex' }} align="start" wrap>
             <Form.Item name="category" label="카테고리">
-              <Select showSearch allowClear placeholder="카테고리 선택" options={categoryOptions} optionFilterProp="label" style={{ width: 160 }} onChange={handleCategoryChange} />
-            </Form.Item>
-            <Form.Item name="sub_category" label="세부카테고리">
-              <Select showSearch allowClear placeholder="세부카테고리" options={subCategoryOptions} optionFilterProp="label" style={{ width: 160 }} disabled={subCategoryOptions.length === 0} />
+              <Select showSearch allowClear placeholder="카테고리 선택" options={categoryOptions} optionFilterProp="label" style={{ width: 160 }} />
             </Form.Item>
             <Form.Item name="brand" label="브랜드">
               <Select showSearch allowClear placeholder="브랜드 선택" options={brandOptions} optionFilterProp="label" style={{ width: 160 }} />
@@ -260,12 +218,6 @@ export default function ProductFormPage() {
             </Form.Item>
             <Form.Item name="season" label="시즌">
               <Select showSearch allowClear placeholder="시즌 선택" options={seasonOptions} optionFilterProp="label" style={{ width: 120 }} />
-            </Form.Item>
-            <Form.Item name="fit" label="핏">
-              <Select showSearch allowClear placeholder="핏 선택" options={fitOptions} optionFilterProp="label" style={{ width: 160 }} />
-            </Form.Item>
-            <Form.Item name="length" label="기장">
-              <Select showSearch allowClear placeholder="기장 선택" options={lengthOptions} optionFilterProp="label" style={{ width: 160 }} />
             </Form.Item>
           </Space>
 

@@ -4,7 +4,7 @@ import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, TruckOutlined,
   CheckOutlined, BellOutlined, SendOutlined,
-  SwapOutlined, ReloadOutlined, PercentageOutlined,
+  SwapOutlined, ReloadOutlined, PercentageOutlined, WarningOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
@@ -14,10 +14,10 @@ import { salesApi } from '../modules/sales/sales.api';
 import dayjs from 'dayjs';
 
 const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red',
+  PENDING: 'default', SHIPPED: 'green', RECEIVED: 'cyan', CANCELLED: 'red', DISCREPANCY: 'orange',
 };
 const STATUS_LABELS: Record<string, string> = {
-  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '입고완료', CANCELLED: '취소',
+  PENDING: '대기', SHIPPED: '출고완료', RECEIVED: '수령완료', CANCELLED: '취소', DISCREPANCY: '수량불일치',
 };
 
 /* ── Styled Stat Card ── */
@@ -72,11 +72,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [notifications, setNotifications] = useState<any[]>([]);
   const [notiLoading, setNotiLoading] = useState(false);
+  const [generalNotifs, setGeneralNotifs] = useState<any[]>([]);
 
   const [sellThrough, setSellThrough] = useState<any>(null);
 
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.HQ_MANAGER;
+  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   const loadSellThrough = async () => {
     try {
@@ -105,6 +106,14 @@ export default function DashboardPage() {
       if (data.success) setNotifications(data.data);
     } catch (e: any) { message.error('알림 로드 실패: ' + e.message); }
     finally { setNotiLoading(false); }
+  };
+
+  const loadGeneralNotifs = async () => {
+    try {
+      const res = await apiFetch('/api/notifications/general?limit=5');
+      const data = await safeJson(res);
+      if (data.success) setGeneralNotifs(data.data);
+    } catch { /* ignore */ }
   };
 
   const handleMarkRead = async (id: number) => {
@@ -151,7 +160,7 @@ export default function DashboardPage() {
     } catch (e: any) { message.error('처리 실패: ' + e.message); }
   };
 
-  useEffect(() => { loadStats(); loadNotifications(); loadSellThrough(); if (isStore) loadMyPendingRequests(); }, []);
+  useEffect(() => { loadStats(); loadNotifications(); loadGeneralNotifs(); if (!isStore) loadSellThrough(); if (isStore) loadMyPendingRequests(); }, []);
 
   // 재고 요청 (매장 매니저용)
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
@@ -201,9 +210,10 @@ export default function DashboardPage() {
 
 
   const pa = stats?.pendingActions || {};
+  const discrepancyCount = pa.discrepancies?.length || 0;
   const totalPendingActions = isStore
-    ? (pa.shipmentsToProcess?.length || 0) + (pa.shipmentsToReceive?.length || 0) + (pa.restockPending?.length || 0)
-    : (stats?.pendingApprovals?.length || 0) + (pa.pendingRestocks?.length || 0) + (pa.shippedAwaitingReceipt?.length || 0);
+    ? (pa.shipmentsToProcess?.length || 0) + (pa.shipmentsToReceive?.length || 0) + (pa.restockPending?.length || 0) + discrepancyCount
+    : (stats?.pendingApprovals?.length || 0) + (pa.pendingRestocks?.length || 0) + (pa.shippedAwaitingReceipt?.length || 0) + discrepancyCount;
 
   const pendingCount = Number(stats?.shipments?.pending || 0);
   const shippedCount = Number(stats?.shipments?.shipped || 0);
@@ -297,7 +307,7 @@ export default function DashboardPage() {
               <div style={{ marginBottom: 6 }}>
                 <span style={{ fontSize: 14, color: 'rgba(255,255,255,0.8)' }}>
                   {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
-                  {isStore && stats?.partnerCode ? ` &middot; ${stats.partnerCode}` : ''}
+                  {isStore && stats?.partnerCode ? ` · ${stats.partnerCode}` : ''}
                 </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
@@ -321,7 +331,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToProcess || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/store')}
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -346,7 +356,7 @@ export default function DashboardPage() {
                   {(pa.shipmentsToReceive || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/store')}
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -371,7 +381,7 @@ export default function DashboardPage() {
                   {(pa.restockPending || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/restock/progress')}
+                        onClick={() => navigate('/inventory/restock')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -393,6 +403,31 @@ export default function DashboardPage() {
                       </div>
                     </Col>
                   )}
+                  {discrepancyCount > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <WarningOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수량불일치</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#ea580c', lineHeight: 1.1 }}>{discrepancyCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#ea580c', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
                 </Row>
               )}
 
@@ -402,7 +437,7 @@ export default function DashboardPage() {
                   {(stats?.pendingApprovals || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/request')}
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -427,7 +462,7 @@ export default function DashboardPage() {
                   {(pa.pendingRestocks || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/restock/progress')}
+                        onClick={() => navigate('/inventory/restock')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -452,7 +487,7 @@ export default function DashboardPage() {
                   {(pa.shippedAwaitingReceipt || []).length > 0 && (
                     <Col xs={24} sm={8}>
                       <div
-                        onClick={() => navigate('/shipment/process')}
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
                         style={{
                           background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
                           cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
@@ -471,6 +506,31 @@ export default function DashboardPage() {
                           </div>
                         </div>
                         <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                      </div>
+                    </Col>
+                  )}
+                  {discrepancyCount > 0 && (
+                    <Col xs={24} sm={8}>
+                      <div
+                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                        style={{
+                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
+                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
+                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <WarningOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수량불일치</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#ea580c', lineHeight: 1.1 }}>{discrepancyCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#ea580c', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
                       </div>
                     </Col>
                   )}
@@ -581,7 +641,7 @@ export default function DashboardPage() {
               {[
                 { label: '대기', count: pendingCount, color: '#6366f1' },
                 { label: '출고완료', count: shippedCount, color: '#10b981' },
-                { label: '입고완료', count: receivedCount, color: '#06b6d4' },
+                { label: '수령완료', count: receivedCount, color: '#06b6d4' },
               ].map((s) => (
                 <div key={s.label}>
                   <div style={{ fontSize: 24, fontWeight: 700, color: s.color }}>{s.count}</div>
@@ -609,8 +669,8 @@ export default function DashboardPage() {
         </Col>
       </Row>
 
-      {/* 판매율 분석 요약 */}
-      {sellThrough && (
+      {/* 판매율 분석 요약 (본사만) */}
+      {isAdmin && sellThrough && (
         <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
           <Col span={24}>
             <Card
@@ -710,7 +770,41 @@ export default function DashboardPage() {
         </Row>
       )}
 
-      {/* 할일 섹션은 위로 이동됨 */}
+      {/* 일반 알림 (재입고/출고/생산) */}
+      {generalNotifs.length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title={<span><BellOutlined style={{ color: '#fa8c16', marginRight: 8 }} />최근 알림 <Badge count={generalNotifs.length} style={{ backgroundColor: '#fa8c16', marginLeft: 8 }} /></span>}
+              size="small" style={{ borderRadius: 10, borderLeft: '4px solid #fa8c16' }}
+            >
+              <Table
+                columns={[
+                  { title: '유형', dataIndex: 'type', key: 'type', width: 90,
+                    render: (v: string) => {
+                      const colors: Record<string, string> = { RESTOCK: 'volcano', SHIPMENT: 'blue', PRODUCTION: 'purple' };
+                      const labels: Record<string, string> = { RESTOCK: '재입고', SHIPMENT: '출고', PRODUCTION: '생산' };
+                      return <Tag color={colors[v] || 'default'}>{labels[v] || v}</Tag>;
+                    },
+                  },
+                  { title: '제목', dataIndex: 'title', key: 'title', width: 160,
+                    render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span>,
+                  },
+                  { title: '내용', dataIndex: 'message', key: 'message', ellipsis: true },
+                  { title: '시간', dataIndex: 'created_at', key: 'created_at', width: 140,
+                    render: (v: string) => v ? dayjs(v).format('MM-DD HH:mm') : '-',
+                  },
+                ]}
+                dataSource={generalNotifs}
+                rowKey="id"
+                pagination={false}
+                size="small"
+                scroll={{ x: 600 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* Tables */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

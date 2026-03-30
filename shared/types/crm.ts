@@ -58,7 +58,7 @@ export interface CustomerPurchase {
 export interface MarketingCampaign {
   campaign_id: number;
   campaign_name: string;
-  campaign_type: 'SMS' | 'EMAIL';
+  campaign_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
   status: 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'CANCELLED';
   subject: string | null;
   content: string;
@@ -91,7 +91,7 @@ export interface CampaignRecipient {
 export interface MessageTemplate {
   template_id: number;
   template_name: string;
-  template_type: 'SMS' | 'EMAIL';
+  template_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
   subject: string | null;
   content: string;
   created_by: string | null;
@@ -110,6 +110,8 @@ export interface PartnerSenderSettings {
   email_user: string | null;
   email_password: string | null;
   email_enabled: boolean;
+  kakao_sender_key: string | null;
+  kakao_enabled: boolean;
   updated_by: string | null;
   updated_at: string;
 }
@@ -215,4 +217,114 @@ export interface PurchasePattern {
   avg_purchase_cycle_days: number | null;
   preferred_payment: string | null;
   monthly_trend: Array<{ month: string; count: number; amount: number }>;
+}
+
+/* ═══════════════ 등급 규칙 / 이력 ═══════════════ */
+
+export interface CustomerTierRule {
+  rule_id: number;
+  tier_name: string;
+  min_amount: number;
+  min_purchase_count: number;
+  description: string | null;
+  sort_order: number;
+  is_active: boolean;
+}
+
+export interface CustomerTierHistory {
+  history_id: number;
+  customer_id: number;
+  customer_name?: string;
+  old_tier: string | null;
+  new_tier: string;
+  total_amount: number;
+  changed_by: string;
+  created_at: string;
+}
+
+/* ═══════════════ 자동 캠페인 ═══════════════ */
+
+export interface AutoCampaign {
+  auto_campaign_id: number;
+  campaign_name: string;
+  trigger_type: 'BIRTHDAY' | 'ANNIVERSARY' | 'DORMANT_ALERT';
+  campaign_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
+  subject: string | null;
+  content: string;
+  days_before: number;
+  is_active: boolean;
+  partner_code: string | null;
+  send_time: string;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AutoCampaignLog {
+  log_id: number;
+  auto_campaign_id: number;
+  customer_id: number;
+  customer_name?: string;
+  phone?: string;
+  campaign_name?: string;
+  sent_at: string;
+  status: string;
+  error_message: string | null;
+}
+
+/* ═══════════════ 포인트 ═══════════════ */
+
+export interface CustomerPoints {
+  customer_id: number;
+  total_earned: number;
+  available_points: number;
+  used_points: number;
+  expired_points: number;
+  updated_at: string;
+}
+
+export interface PointTransaction {
+  transaction_id: number;
+  customer_id: number;
+  tx_type: 'EARN' | 'USE' | 'EXPIRE' | 'ADJUST' | 'CANCEL';
+  points: number;
+  balance_after: number;
+  description: string | null;
+  related_sale_id: number | null;
+  expires_at: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
+/* ═══════════════ RFM 분석 ═══════════════ */
+
+export interface CustomerRfmScore {
+  customer_id: number;
+  customer_name?: string;
+  phone?: string;
+  customer_tier?: string;
+  partner_code?: string;
+  partner_name?: string;
+  recency_days: number;
+  recency_score: number;
+  frequency_count: number;
+  frequency_score: number;
+  monetary_amount: number;
+  monetary_score: number;
+  rfm_score: number;
+  rfm_segment: string;
+  calculated_at: string;
+}
+
+export interface RfmSegment {
+  segment_code: string;
+  segment_name: string;
+  description: string | null;
+  min_r: number;
+  min_f: number;
+  min_m: number;
+  color: string;
+  sort_order: number;
+  customer_count?: number;
+  avg_monetary?: number;
 }

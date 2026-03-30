@@ -14,6 +14,6 @@ router.get('/', authMiddleware, inboundController.list);
 router.get('/:id', authMiddleware, inboundController.getById);
 router.post('/', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), inboundController.create);
 router.put('/:id/confirm', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), inboundController.confirm);
-router.delete('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), inboundController.remove);
+router.delete('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), inboundController.remove);
 
 export default router;

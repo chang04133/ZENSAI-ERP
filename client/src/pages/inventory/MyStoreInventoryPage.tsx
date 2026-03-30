@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Segmented, AutoComplete, message } from 'antd';
-import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined, ShopOutlined } from '@ant-design/icons';
+import { SearchOutlined, InboxOutlined, WarningOutlined, ReloadOutlined, ShopOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -12,7 +12,6 @@ import { sizeSort } from '../../utils/size-order';
 import { useCodeLabels } from '../../hooks/useCodeLabels';
 
 const STOCK_LEVELS = [
-  { label: '전체', value: '' },
   { label: '품절', value: 'zero' },
   { label: '부족', value: 'low' },
   { label: '보통', value: 'medium' },
@@ -40,26 +39,19 @@ export default function MyStoreInventoryPage() {
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
-  const [category, setCategory] = useState('');
-  const [subCategoryFilter, setSubCategoryFilter] = useState('');
-  const [season, setSeason] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
   const [yearFromFilter, setYearFromFilter] = useState('');
   const [yearToFilter, setYearToFilter] = useState('');
-  const [fitFilter, setFitFilter] = useState('');
-  const [lengthFilter, setLengthFilter] = useState('');
-  const [size, setSize] = useState('');
-  const [color, setColor] = useState('');
-  const [stockLevel, setStockLevel] = useState('');
+  const [sizeFilter, setSizeFilter] = useState<string[]>([]);
+  const [colorFilter, setColorFilter] = useState<string[]>([]);
+  const [stockLevelFilter, setStockLevelFilter] = useState<string[]>([]);
   const [sortValue, setSortValue] = useState('qty_ASC');
 
   // Dynamic filter options (상품관리와 동일)
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
 
@@ -69,11 +61,7 @@ export default function MyStoreInventoryPage() {
   // 코드 옵션 로드 (상품관리와 동일)
   useEffect(() => {
     codeApi.getByType('CATEGORY').then((data: any[]) => {
-      setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('FIT').then((data: any[]) => {
-      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     codeApi.getByType('YEAR').then((data: any[]) => {
       setYearOptions(data.filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value)).map((c: any) => ({ label: c.code_label, value: c.code_value })));
@@ -81,29 +69,15 @@ export default function MyStoreInventoryPage() {
     codeApi.getByType('SEASON').then((data: any[]) => {
       setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
-    codeApi.getByType('LENGTH').then((data: any[]) => {
-      setLengthOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
     productApi.variantOptions().then((data: any) => {
       setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
       setSizeOptions((data.sizes || []).map((s: string) => ({ label: s, value: s })));
     }).catch(() => {});
   }, []);
 
-  const handleCategoryFilterChange = (value: string) => {
-    setCategory(value);
-    setSubCategoryFilter('');
+  const handleCategoryFilterChange = (value: string[]) => {
+    setCategoryFilter(value);
     setPage(1);
-    if (!value) { setSubCategoryOptions([]); return; }
-    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
-    }
   };
 
   const load = useCallback(async (p?: number, searchOverride?: string) => {
@@ -115,16 +89,13 @@ export default function MyStoreInventoryPage() {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (isHqOrAbove && selectedPartner) params.partner_code = selectedPartner;
       if (s) params.search = s;
-      if (category) params.category = category;
-      if (subCategoryFilter) params.sub_category = subCategoryFilter;
-      if (season) params.season = season;
+      if (categoryFilter.length) params.category = categoryFilter.join(',');
+      if (seasonFilter.length) params.season = seasonFilter.join(',');
       if (yearFromFilter) params.year_from = yearFromFilter;
       if (yearToFilter) params.year_to = yearToFilter;
-      if (fitFilter) params.fit = fitFilter;
-      if (lengthFilter) params.length = lengthFilter;
-      if (size) params.size = size;
-      if (color) params.color = color;
-      if (stockLevel) params.stock_level = stockLevel;
+      if (sizeFilter.length) params.size = sizeFilter.join(',');
+      if (colorFilter.length) params.color = colorFilter.join(',');
+      if (stockLevelFilter.length) params.stock_level = stockLevelFilter.join(',');
       // Parse sort
       const lastUnderscore = sortValue.lastIndexOf('_');
       params.sort_field = sortValue.substring(0, lastUnderscore);
@@ -135,7 +106,7 @@ export default function MyStoreInventoryPage() {
       setSumQty(result.sumQty ?? 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, category, subCategoryFilter, season, yearFromFilter, yearToFilter, fitFilter, lengthFilter, size, color, stockLevel, sortValue, isHqOrAbove, selectedPartner]);
+  }, [page, search, categoryFilter, seasonFilter, yearFromFilter, yearToFilter, sizeFilter, colorFilter, stockLevelFilter, sortValue, isHqOrAbove, selectedPartner]);
 
   const loadStats = useCallback(async () => {
     if (isHqOrAbove && !selectedPartner) return;
@@ -156,7 +127,7 @@ export default function MyStoreInventoryPage() {
   }, [isHqOrAbove]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
-  useEffect(() => { load(); }, [page, category, subCategoryFilter, season, yearFromFilter, yearToFilter, fitFilter, lengthFilter, size, color, stockLevel, sortValue, selectedPartner]);
+  useEffect(() => { load(); }, [page, categoryFilter, seasonFilter, yearFromFilter, yearToFilter, sizeFilter, colorFilter, stockLevelFilter, sortValue, selectedPartner]);
 
   const doSearch = () => { setPage(1); load(1); };
 
@@ -183,11 +154,10 @@ export default function MyStoreInventoryPage() {
   }, []);
 
   const resetFilters = () => {
-    setSearch(''); setCategory(''); setSubCategoryFilter('');
-    setSeason(''); setYearFromFilter(''); setYearToFilter('');
-    setFitFilter(''); setLengthFilter('');
-    setSize(''); setColor(''); setStockLevel('');
-    setSortValue('qty_ASC'); setSubCategoryOptions([]);
+    setSearch(''); setCategoryFilter([]);
+    setSeasonFilter([]); setYearFromFilter(''); setYearToFilter('');
+    setSizeFilter([]); setColorFilter([]); setStockLevelFilter([]);
+    setSortValue('qty_ASC');
     setPage(1);
   };
 
@@ -200,8 +170,8 @@ export default function MyStoreInventoryPage() {
         if (!map[key]) {
           map[key] = {
             product_code: r.product_code, product_name: r.product_name, category: r.category,
-            sub_category: r.sub_category, brand: r.brand, season: r.season, year: r.year,
-            fit: r.fit, length: r.length, base_price: r.base_price, image_url: r.image_url,
+            brand: r.brand, season: r.season, year: r.year,
+            base_price: r.base_price, image_url: r.image_url,
             total_qty: 0, _variants: [],
           };
         }
@@ -218,8 +188,8 @@ export default function MyStoreInventoryPage() {
         if (!map[key]) {
           map[key] = {
             product_code: r.product_code, product_name: r.product_name, category: r.category,
-            sub_category: r.sub_category, brand: r.brand, season: r.season, year: r.year,
-            fit: r.fit, length: r.length, base_price: r.base_price, image_url: r.image_url,
+            brand: r.brand, season: r.season, year: r.year,
+            base_price: r.base_price, image_url: r.image_url,
             _color: r.color || '-', _colorQty: 0, _colorVariants: [], _rowKey: key,
           };
         }
@@ -259,11 +229,8 @@ export default function MyStoreInventoryPage() {
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
-    { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 90, ellipsis: true, render: (v: string) => v || '-' },
     { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
-    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
-    { title: '기장', dataIndex: 'length', key: 'length', width: 65, render: (v: string) => v ? <Tag color="volcano">{formatCode('LENGTH', v)}</Tag> : '-' },
     { title: '기본가', dataIndex: 'base_price', key: 'base_price', width: 90, render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
     { title: '총 재고', dataIndex: 'total_qty', key: 'total_qty', width: 100, render: (v: number) => renderQty(v) },
   ];
@@ -280,7 +247,6 @@ export default function MyStoreInventoryPage() {
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
-    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
     { title: '재고', dataIndex: '_colorQty', key: '_colorQty', width: 100, render: (v: number) => renderQty(v) },
   ];
 
@@ -389,7 +355,7 @@ export default function MyStoreInventoryPage() {
           </Col>
           <Col xs={12} sm={6}>
             <Card size="small" styles={{ body: { padding: '12px 16px' } }}>
-              <Statistic title="품목 수" value={overall.total_items} suffix="종" valueStyle={{ fontSize: 22 }} prefix={<SkinOutlined />} />
+              <Statistic title="품목 수" value={overall.total_items} suffix="종" valueStyle={{ fontSize: 22 }} prefix={<InboxOutlined />} />
             </Card>
           </Col>
           <Col xs={12} sm={6}>
@@ -404,9 +370,9 @@ export default function MyStoreInventoryPage() {
                 {byCategory.map((c: any) => (
                   <Tag
                     key={c.category}
-                    color={category === c.category ? 'blue' : undefined}
+                    color={categoryFilter.includes(c.category) ? 'blue' : undefined}
                     style={{ cursor: 'pointer', margin: 0 }}
-                    onClick={() => { setCategory(prev => prev === c.category ? '' : c.category); setPage(1); }}
+                    onClick={() => { setCategoryFilter(prev => prev.includes(c.category) ? prev.filter(x => x !== c.category) : [...prev, c.category]); setPage(1); }}
                   >
                     {c.category} ({c.total_qty})
                   </Tag>
@@ -437,11 +403,9 @@ export default function MyStoreInventoryPage() {
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={doSearch} allowClear />
           </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select value={category} onChange={handleCategoryFilterChange} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
-          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!category} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 140 }}
+            placeholder="전체" options={categoryOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
           <Select allowClear value={yearFromFilter || undefined} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
@@ -449,25 +413,22 @@ export default function MyStoreInventoryPage() {
           <Select allowClear value={yearToFilter || undefined} onChange={(v) => { setYearToFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select value={season} onChange={(v) => { setSeason(v); setPage(1); }} style={{ width: 110 }}
-            options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
-          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기장</div>
-          <Select value={lengthFilter} onChange={(v) => { setLengthFilter(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...lengthOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={seasonFilter} onChange={(v: string[]) => { setSeasonFilter(v); setPage(1); }} style={{ width: 130 }}
+            placeholder="전체" options={seasonOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
-          <Select showSearch optionFilterProp="label" value={color}
-            onChange={(v) => { setColor(v); setPage(1); }} style={{ width: 120 }}
-            options={[{ label: '전체 보기', value: '' }, ...colorOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={colorFilter} onChange={(v: string[]) => { setColorFilter(v); setPage(1); }} style={{ width: 140 }}
+            placeholder="전체" options={colorOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-          <Select showSearch optionFilterProp="label" value={size}
-            onChange={(v) => { setSize(v); setPage(1); }} style={{ width: 110 }}
-            options={[{ label: '전체 보기', value: '' }, ...sizeOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={sizeFilter} onChange={(v: string[]) => { setSizeFilter(v); setPage(1); }} style={{ width: 130 }}
+            placeholder="전체" options={sizeOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>재고상태</div>
-          <Select value={stockLevel} onChange={(v) => { setStockLevel(v); setPage(1); }}
-            style={{ width: 130 }} options={STOCK_LEVELS} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={stockLevelFilter} onChange={(v: string[]) => { setStockLevelFilter(v); setPage(1); }}
+            style={{ width: 150 }} placeholder="전체"
+            options={[{ label: '품절', value: 'zero' }, { label: '부족', value: 'low' }, { label: '보통', value: 'medium' }, { label: '충분', value: 'good' }]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>정렬</div>
           <Select value={sortValue} onChange={(v) => { setSortValue(v); setPage(1); }} style={{ width: 150 }}
             options={[

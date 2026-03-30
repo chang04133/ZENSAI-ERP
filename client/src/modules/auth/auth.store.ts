@@ -1,26 +1,42 @@
 import { create } from 'zustand';
 import { loginApi, logoutApi, getMeApi } from './auth.api';
-import { getToken, clearTokens } from '../../core/api.client';
+import { getToken, clearTokens, apiFetch } from '../../core/api.client';
 import type { TokenPayload } from '../../../../shared/types/auth';
 
 interface AuthState {
   user: TokenPayload | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  permissions: Record<string, boolean>;
   login: (userId: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  loadPermissions: () => Promise<void>;
+  hasPermission: (key: string) => boolean;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
+async function fetchMyPermissions(): Promise<Record<string, boolean>> {
+  try {
+    const res = await apiFetch('/api/system/my-permissions');
+    const data = await res.json();
+    if (data.success) return data.data;
+  } catch { /* ignore */ }
+  return {};
+}
+
+export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   isAuthenticated: false,
   isLoading: true,
+  permissions: {},
 
   login: async (userId, password) => {
     try {
       const data = await loginApi(userId, password);
       set({ user: data.user, isAuthenticated: true });
+      // 로그인 후 권한 로드
+      const perms = await fetchMyPermissions();
+      set({ permissions: perms });
       return { success: true };
     } catch (error: any) {
       return { success: false, error: error.message };
@@ -31,8 +47,23 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       await logoutApi();
     } finally {
-      set({ user: null, isAuthenticated: false });
+      set({ user: null, isAuthenticated: false, permissions: {} });
     }
+  },
+
+  loadPermissions: async () => {
+    const perms = await fetchMyPermissions();
+    set({ permissions: perms });
+  },
+
+  hasPermission: (key: string) => {
+    const { user, permissions } = get();
+    if (!user) return false;
+    // ADMIN은 항상 모든 권한
+    if (user.role === 'ADMIN') return true;
+    // permissions에 키가 없으면 기본 허용 (초기 마이그레이션 전 호환)
+    if (!(key in permissions)) return true;
+    return permissions[key] === true;
   },
 
   checkAuth: async () => {
@@ -62,7 +93,8 @@ export const useAuthStore = create<AuthState>((set) => ({
             try {
               const user = await getMeApi();
               if (user.userId === account[0]) {
-                set({ user, isAuthenticated: true, isLoading: false });
+                const perms = await fetchMyPermissions();
+                set({ user, isAuthenticated: true, isLoading: false, permissions: perms });
                 return;
               }
               clearTokens();
@@ -72,7 +104,8 @@ export const useAuthStore = create<AuthState>((set) => ({
           }
           try {
             const data = await loginApi(account[0], account[1]);
-            set({ user: data.user, isAuthenticated: true, isLoading: false });
+            const perms = await fetchMyPermissions();
+            set({ user: data.user, isAuthenticated: true, isLoading: false, permissions: perms });
             return;
           } catch {
             set({ isLoading: false, isAuthenticated: false, user: null });
@@ -87,7 +120,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       }
       try {
         const user = await getMeApi();
-        set({ user, isAuthenticated: true, isLoading: false });
+        const perms = await fetchMyPermissions();
+        set({ user, isAuthenticated: true, isLoading: false, permissions: perms });
       } catch {
         clearTokens();
         set({ user: null, isAuthenticated: false, isLoading: false });

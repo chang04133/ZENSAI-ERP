@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, Table, Tag, Button, Modal, Form, Input, Select, InputNumber, Space, Popconfirm, Tabs, message } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, WarningOutlined, SearchOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import { materialApi } from '../../modules/production/material.api';
 import type { Material } from '../../../../shared/types/production';
 
@@ -20,7 +20,6 @@ export default function MaterialManagePage() {
   const [adjustOpen, setAdjustOpen] = useState(false);
   const [adjustItem, setAdjustItem] = useState<Material | null>(null);
   const [adjustQty, setAdjustQty] = useState<number>(0);
-  const [lowStock, setLowStock] = useState<Material[]>([]);
   const [summary, setSummary] = useState<any[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [form] = Form.useForm();
@@ -39,9 +38,9 @@ export default function MaterialManagePage() {
 
   const loadExtra = async () => {
     try {
-      const [ls, sm] = await Promise.all([materialApi.lowStock(), materialApi.summary()]);
-      setLowStock(ls); setSummary(sm);
-    } catch (e: any) { console.error('부자재 부가정보 로드 실패:', e); }
+      const sm = await materialApi.summary();
+      setSummary(sm);
+    } catch (e: any) { console.error('생산라벨 부가정보 로드 실패:', e); }
   };
 
   useEffect(() => { load(); }, [load]);
@@ -107,12 +106,12 @@ export default function MaterialManagePage() {
       render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
     { title: '재고', dataIndex: 'stock_qty', key: 'stock', width: 80,
       render: (v: number, r: Material) => (
-        <span style={{ color: v <= r.min_stock_qty ? '#ef4444' : '#333', fontWeight: v <= r.min_stock_qty ? 700 : 400 }}>
-          {v} {r.unit}
+        <span style={{ color: Number(v) <= Number(r.min_stock_qty) ? '#ef4444' : '#333', fontWeight: Number(v) <= Number(r.min_stock_qty) ? 700 : 400 }}>
+          {Math.round(Number(v))} {r.unit}
         </span>
       )},
     { title: '최소재고', dataIndex: 'min_stock_qty', key: 'min', width: 80,
-      render: (v: number, r: Material) => `${v} ${r.unit}` },
+      render: (v: number, r: Material) => `${Math.round(Number(v))} ${r.unit}` },
     { title: '공급처', dataIndex: 'supplier', key: 'supplier', width: 120, ellipsis: true,
       render: (v: string) => v || '-' },
     { title: '관리', key: 'action', width: 180, render: (_: any, r: Material) => (
@@ -149,31 +148,6 @@ export default function MaterialManagePage() {
           </Card>
           </>
         )},
-        { key: 'lowstock', label: (
-          <span><WarningOutlined style={{ color: '#ef4444' }} /> 부족 자재 {lowStock.length > 0 && <Tag color="red">{lowStock.length}</Tag>}</span>
-        ), children: (
-          <Card>
-            <Table columns={[
-              { title: '자재코드', dataIndex: 'material_code', key: 'code', width: 100 },
-              { title: '자재명', dataIndex: 'material_name', key: 'name' },
-              { title: '유형', dataIndex: 'material_type', key: 'type', width: 70, render: (v: string) => <Tag color={TYPE_COLORS[v]}>{TYPE_LABELS[v] || v}</Tag> },
-              { title: '현재 재고', key: 'stock', width: 100, render: (_: any, r: Material) => (
-                <span style={{ color: r.stock_qty === 0 ? '#ef4444' : '#f59e0b', fontWeight: 700 }}>
-                  {r.stock_qty} {r.unit}
-                </span>
-              )},
-              { title: '최소 재고', key: 'min', width: 100, render: (_: any, r: Material) => `${r.min_stock_qty} ${r.unit}` },
-              { title: '부족량', key: 'diff', width: 100, render: (_: any, r: Material) => {
-                const diff = r.min_stock_qty - r.stock_qty;
-                return diff > 0 ? <Tag color="red">-{diff} {r.unit}</Tag> : <Tag color="green">충분</Tag>;
-              }},
-              { title: '공급처', dataIndex: 'supplier', key: 'supplier', width: 120, render: (v: string) => v || '-' },
-              { title: '입고', key: 'action', width: 80, render: (_: any, r: Material) => (
-                <Button size="small" type="primary" onClick={() => { setAdjustItem(r); setAdjustQty(0); setAdjustOpen(true); }}>입고</Button>
-              )},
-            ]} dataSource={lowStock} rowKey="material_id" pagination={false} size="small" />
-          </Card>
-        )},
         { key: 'summary', label: '유형별 요약', children: (
           <Card>
             <Table columns={[
@@ -199,9 +173,9 @@ export default function MaterialManagePage() {
                 {MATERIAL_TYPES.map(t => <Select.Option key={t} value={t}>{TYPE_LABELS[t]}</Select.Option>)}
               </Select>
             </Form.Item>
-            <Form.Item name="unit" label="단위" initialValue="ea" style={{ width: 100 }}>
+            <Form.Item name="unit" label="단위" initialValue="개" style={{ width: 100 }}>
               <Select>
-                {['ea', 'm', 'yard', 'kg', 'roll'].map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}
+                {['개', 'm', 'yard', 'kg', 'roll'].map(u => <Select.Option key={u} value={u}>{u}</Select.Option>)}
               </Select>
             </Form.Item>
             <Form.Item name="unit_price" label="원가(원)">

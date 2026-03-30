@@ -41,7 +41,7 @@ export default function InboundViewPage() {
   const [expandLoading, setExpandLoading] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
+    apiFetch('/api/partners?limit=1000&scope=transfer').then(r => r.json()).then(d => {
       if (d.success) setPartners(d.data?.data || d.data || []);
     }).catch(() => {});
   }, []);
@@ -117,8 +117,8 @@ export default function InboundViewPage() {
 
   const columns = [
     { title: '입고번호', dataIndex: 'inbound_no', key: 'inbound_no', width: 140 },
-    { title: '입고일', dataIndex: 'inbound_date', key: 'inbound_date', width: 100,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+    { title: '입고일', dataIndex: 'inbound_date', key: 'inbound_date', width: 120,
+      render: (v: string) => v ? dayjs(v).format('MM.DD HH:mm') : '-' },
     { title: '상태', dataIndex: 'status', key: 'status', width: 80,
       render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v] || v}</Tag> },
     { title: '출처', dataIndex: 'source_type', key: 'source_type', width: 120,

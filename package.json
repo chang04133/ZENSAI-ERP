@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "cd server && npm run dev",
-    "dev:client": "cd client && npm run dev",
+    "dev:client": "cd client && npx vite --force",
     "dev:master": "cd client && npx vite --port 5172",
     "dev:store": "cd client && npx vite --port 5174",
     "dev:staff": "cd client && npx vite --port 5175",

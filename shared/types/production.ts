@@ -30,6 +30,8 @@ export interface ProductionPlan {
   balance_date?: string | null;
   balance_status?: string;
   settle_status?: string;
+  label_cost?: number;
+  material_cost?: number;
   // Joined fields
   partner_name?: string;
   created_by_name?: string;
@@ -83,5 +85,6 @@ export interface ProductionMaterialUsage {
   material_name?: string;
   material_type?: string;
   unit?: string;
+  unit_price?: number;
   stock_qty?: number;
 }

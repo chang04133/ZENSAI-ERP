@@ -250,6 +250,7 @@ export default function SenderSettingsPage() {
 
   const [smsForm] = Form.useForm();
   const [emailForm] = Form.useForm();
+  const [kakaoForm] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [selectedPartner, setSelectedPartner] = useState<string>(user?.partnerCode || '');
@@ -286,9 +287,14 @@ export default function SenderSettingsPage() {
             email_password: '',
             email_enabled: data.email_enabled || false,
           });
+          kakaoForm.setFieldsValue({
+            kakao_sender_key: data.kakao_sender_key || '',
+            kakao_enabled: data.kakao_enabled || false,
+          });
         } else {
           smsForm.resetFields();
           emailForm.resetFields();
+          kakaoForm.resetFields();
         }
       })
       .catch((e: any) => message.error(e.message))
@@ -346,6 +352,27 @@ export default function SenderSettingsPage() {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleSaveKakao = async (values: any) => {
+    const partnerCode = isStore ? user?.partnerCode : selectedPartner;
+    if (!partnerCode) { message.warning('매장을 선택해주세요.'); return; }
+    setSaving(true);
+    try {
+      const payload: any = {
+        partner_code: partnerCode,
+        kakao_sender_key: values.kakao_sender_key || null,
+        kakao_enabled: values.kakao_enabled || false,
+      };
+      const res = await senderSettingsApi.save(payload);
+      if (res.success) {
+        message.success('카카오 알림톡 설정이 저장되었습니다.');
+        setCurrentSettings(res.data);
+      } else {
+        message.error(res.message || '저장 실패');
+      }
+    } catch (e: any) { message.error(e.message); }
+    finally { setSaving(false); }
   };
 
   const loadQr = async () => {
@@ -484,6 +511,11 @@ export default function SenderSettingsPage() {
                       ? <Tag color="green">활성</Tag>
                       : <Tag>비활성</Tag>}
                   </Descriptions.Item>
+                  <Descriptions.Item label="알림톡">
+                    {currentSettings?.kakao_enabled
+                      ? <Tag color="green">활성</Tag>
+                      : <Tag>비활성</Tag>}
+                  </Descriptions.Item>
                   {currentSettings?.updated_by && (
                     <Descriptions.Item label="마지막 수정">
                       {currentSettings.updated_by} ({currentSettings.updated_at?.substring(0, 10)})
@@ -546,6 +578,7 @@ export default function SenderSettingsPage() {
                 size="small"
                 title={<><MailOutlined /> 이메일 설정 (Gmail SMTP)</>}
                 loading={loading}
+                style={{ marginBottom: 16 }}
                 extra={
                   <Button type="link" size="small" icon={<QuestionCircleOutlined />} onClick={() => setActiveTab('guide')}>
                     가이드 보기
@@ -566,6 +599,32 @@ export default function SenderSettingsPage() {
                   </Form.Item>
                   <Button type="primary" htmlType="submit" loading={saving} icon={<SaveOutlined />}>
                     이메일 설정 저장
+                  </Button>
+                </Form>
+              </Card>
+
+              {/* 카카오 알림톡 설정 */}
+              <Card
+                size="small"
+                title={<><MessageOutlined /> 카카오 알림톡 설정</>}
+                loading={loading}
+              >
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                  message="카카오 알림톡은 CoolSMS를 통해 발송됩니다."
+                  description="CoolSMS에서 카카오 비즈메시지 연동 후 Sender Key를 입력하세요. SMS 설정(API Key/Secret)이 선행되어야 합니다."
+                />
+                <Form form={kakaoForm} layout="vertical" onFinish={handleSaveKakao}>
+                  <Form.Item name="kakao_sender_key" label="카카오 Sender Key">
+                    <Input placeholder="CoolSMS 카카오 Sender Key" />
+                  </Form.Item>
+                  <Form.Item name="kakao_enabled" label="알림톡 활성화" valuePropName="checked">
+                    <Switch checkedChildren="ON" unCheckedChildren="OFF" />
+                  </Form.Item>
+                  <Button type="primary" htmlType="submit" loading={saving} icon={<SaveOutlined />}>
+                    알림톡 설정 저장
                   </Button>
                 </Form>
               </Card>

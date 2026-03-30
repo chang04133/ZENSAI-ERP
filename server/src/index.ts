@@ -16,6 +16,17 @@ async function start() {
     // Seed default data
     await seedDefaults(getPool());
 
+    // Start CRM scheduler (auto-campaigns, point expiry)
+    if (config.nodeEnv === 'production' || process.env.ENABLE_SCHEDULER === 'true') {
+      try {
+        const { initCrmScheduler } = await import('./scheduler/crm-scheduler');
+        initCrmScheduler();
+        console.log('CRM 스케줄러 초기화 완료');
+      } catch (e) {
+        console.warn('CRM 스케줄러 초기화 실패 (node-cron 미설치 가능):', e);
+      }
+    }
+
     // Start server
     app.listen(config.port, () => {
       console.log(`ZENSAI ERP 서버 시작: http://localhost:${config.port}`);

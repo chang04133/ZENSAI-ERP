@@ -3,6 +3,7 @@ export interface TokenPayload {
   userName: string;
   role: string;
   partnerCode: string | null;
+  partnerName: string | null;
 }
 
 export interface LoginRequest {

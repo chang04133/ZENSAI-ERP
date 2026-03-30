@@ -32,6 +32,9 @@ import fundRoutes from './modules/fund/fund.routes';
 import financialRoutes from './modules/fund/financial.routes';
 import inboundExcelRoutes from './modules/inbound/inbound-excel.routes';
 import inboundRoutes from './modules/inbound/inbound.routes';
+import warehouseRoutes from './modules/warehouse/warehouse.routes';
+import crmRoutes from './modules/crm/crm.routes';
+import consentRoutes from './modules/crm/consent.routes';
 
 const app = express();
 
@@ -115,6 +118,9 @@ app.use('/api/funds', fundRoutes);
 app.use('/api/financial', financialRoutes);
 app.use('/api/inbounds', inboundExcelRoutes);  // Excel routes first
 app.use('/api/inbounds', inboundRoutes);
+app.use('/api/warehouses', warehouseRoutes);
+app.use('/api/crm', crmRoutes);
+app.use('/api/consent', consentRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

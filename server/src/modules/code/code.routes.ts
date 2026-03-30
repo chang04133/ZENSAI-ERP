@@ -62,7 +62,7 @@ router.put('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), asyncHandl
   res.json({ success: true, data: result.rows[0] });
 }));
 
-// M-1: SYS_ADMIN 추가 + M-3: isNaN + M-23: 감사로그 + M-25: rowCount 체크
+// M-3: isNaN + M-23: 감사로그 + M-25: rowCount 체크
 router.delete('/:id', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), asyncHandler(async (req, res) => {
   const id = parseInt(req.params.id as string, 10);
   if (isNaN(id)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }

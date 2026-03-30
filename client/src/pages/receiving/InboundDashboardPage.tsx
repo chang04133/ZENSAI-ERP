@@ -47,7 +47,7 @@ interface ConfirmItem {
 
 export default function InboundDashboardPage() {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user?.role as any);
+  const isAdmin = user && [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user.role as any);
   const isHQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user?.role as any);
 
   // Summary
@@ -64,7 +64,7 @@ export default function InboundDashboardPage() {
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [partnerFilter, setPartnerFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>('PENDING');
   const [sourceFilter, setSourceFilter] = useState<string>('');
   const [loadTrigger, setLoadTrigger] = useState(0);
   const triggerLoad = () => { setPage(1); setLoadTrigger((p) => p + 1); };
@@ -243,8 +243,8 @@ export default function InboundDashboardPage() {
         ? <Tag color="orange">대기중</Tag>
         : <Tag color="green">완료</Tag>,
     },
-    { title: '입고일', dataIndex: 'inbound_date', width: 110,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+    { title: '입고일', dataIndex: 'inbound_date', width: 120,
+      render: (v: string) => v ? dayjs(v).format('MM.DD HH:mm') : '-' },
     { title: '거래처', dataIndex: 'partner_name', width: 130, ellipsis: true,
       render: (v: string, r: any) => (
         <a onClick={(e) => { e.stopPropagation(); handlePartnerClick(r.partner_code); }}
@@ -490,32 +490,6 @@ export default function InboundDashboardPage() {
             )}
             {detailData.status === 'PENDING' && (
               <>
-                {detailData.production_items && detailData.production_items.length > 0 && (
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, marginBottom: 8, color: '#722ed1' }}>
-                      생산계획 품목 ({detailData.production_items.length}건)
-                    </div>
-                    <Table
-                      dataSource={detailData.production_items}
-                      rowKey="item_id"
-                      size="small"
-                      pagination={false}
-                      columns={[
-                        { title: '카테고리', dataIndex: 'category', width: 90 },
-                        { title: '세부', dataIndex: 'sub_category', width: 80, render: (v: string | null) => v || '-' },
-                        { title: '핏', dataIndex: 'fit', width: 70, render: (v: string | null) => v || '-' },
-                        { title: '기장', dataIndex: 'length', width: 70, render: (v: string | null) => v || '-' },
-                        { title: '품번', dataIndex: 'product_code', width: 120, render: (v: string | null) => v || '-' },
-                        { title: '상품명', dataIndex: 'product_name', width: 150, ellipsis: true, render: (v: string | null) => v || '-' },
-                        { title: '계획수량', dataIndex: 'plan_qty', width: 90, align: 'right' as const,
-                          render: (v: number) => <strong>{fmt(v)}</strong> },
-                      ]}
-                    />
-                    <div style={{ marginTop: 4, textAlign: 'right', color: '#722ed1', fontSize: 12 }}>
-                      총 계획수량: <strong>{fmt(detailData.production_items.reduce((s, i) => s + i.plan_qty, 0))}</strong>개
-                    </div>
-                  </div>
-                )}
                 <div style={{ padding: 16, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16' }}>
                   입고확정 버튼을 눌러 품목을 추가하고 재고를 반영하세요.
                 </div>
@@ -551,34 +525,6 @@ export default function InboundDashboardPage() {
               )}
             </Row>
             {confirmRecord.memo && <div style={{ marginBottom: 12, color: '#666' }}>비고: {confirmRecord.memo}</div>}
-
-            {/* 생산계획 품목 참고 (생산입고인 경우) */}
-            {confirmRecord.production_items && confirmRecord.production_items.length > 0 && (
-              <div style={{ marginBottom: 16, padding: 12, background: '#f9f0ff', borderRadius: 8, border: '1px solid #d3adf7' }}>
-                <div style={{ fontWeight: 600, marginBottom: 8, color: '#722ed1', fontSize: 13 }}>
-                  생산계획 품목 (참고)
-                </div>
-                <Table
-                  dataSource={confirmRecord.production_items}
-                  rowKey="item_id"
-                  size="small"
-                  pagination={false}
-                  columns={[
-                    { title: '카테고리', dataIndex: 'category', width: 80 },
-                    { title: '세부', dataIndex: 'sub_category', width: 70, render: (v: string | null) => v || '-' },
-                    { title: '핏', dataIndex: 'fit', width: 60, render: (v: string | null) => v || '-' },
-                    { title: '품번', dataIndex: 'product_code', width: 110, render: (v: string | null) => v || '-' },
-                    { title: '상품명', dataIndex: 'product_name', width: 130, ellipsis: true, render: (v: string | null) => v || '-' },
-                    { title: '계획수량', dataIndex: 'plan_qty', width: 80, align: 'right' as const,
-                      render: (v: number) => <strong style={{ color: '#722ed1' }}>{fmt(v)}</strong> },
-                  ]}
-                />
-                <div style={{ marginTop: 4, fontSize: 11, color: '#722ed1' }}>
-                  아래에서 variant(색상/사이즈)를 검색하여 수량을 분배해주세요.
-                  총 입고수량이 예상수량({fmt(confirmRecord.expected_qty || 0)}개)과 일치해야 확정됩니다.
-                </div>
-              </div>
-            )}
 
             {/* 상품 검색 */}
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>

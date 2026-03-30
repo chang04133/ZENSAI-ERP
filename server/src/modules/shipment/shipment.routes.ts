@@ -15,7 +15,7 @@ router.put('/:id/receive', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ
 shipmentController.registerCrudRoutes(router, {
   readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
   writeRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
-  requiredFields: ['request_type', 'from_partner'],
+  requiredFields: ['request_type'],
   entityName: '출고',
 });
 

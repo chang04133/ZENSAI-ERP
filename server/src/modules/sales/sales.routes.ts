@@ -320,6 +320,13 @@ router.post('/batch',
     const globalTaxFree = !!tax_free;
     const pool = getPool();
 
+    // 거래처 활성 상태 검증
+    const partnerCheck = await pool.query('SELECT is_active, partner_name FROM partners WHERE partner_code = $1', [pc]);
+    if (partnerCheck.rows[0] && !partnerCheck.rows[0].is_active) {
+      res.status(400).json({ success: false, error: `비활성 거래처(${partnerCheck.rows[0].partner_name})에 매출을 등록할 수 없습니다.` });
+      return;
+    }
+
     // 재고 부족 경고 수집
     const warnings: string[] = [];
     for (const item of items) {
@@ -355,10 +362,11 @@ router.post('/batch',
         }
         const total_price = Math.round(qty * unit_price);
         const itemTaxFree = items[i].tax_free !== undefined ? !!items[i].tax_free : globalTaxFree;
+        const batchCustomerId = req.body.customer_id || null;
         const sale = await client.query(
-          `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree, memo || null],
+          `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo, customer_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree, memo || null, batchCustomerId],
         );
         await inventoryRepository.applyChange(
           pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
@@ -371,6 +379,33 @@ router.post('/batch',
         return;
       }
       await client.query('COMMIT');
+
+      // 고객 연동 (벌크)
+      const batchCid = req.body.customer_id;
+      if (batchCid) {
+        try {
+          for (const s of results) {
+            const vInfo = await pool.query(
+              `SELECT pv.color, pv.size, p.product_name FROM product_variants pv JOIN products p ON pv.product_code = p.product_code WHERE pv.variant_id = $1`,
+              [s.variant_id],
+            );
+            const v = vInfo.rows[0];
+            if (v) {
+              await pool.query(
+                `INSERT INTO customer_purchases (customer_id, partner_code, purchase_date, product_name, variant_info, qty, unit_price, total_price, sale_id, auto_created, created_by)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10)`,
+                [batchCid, pc, sale_date, v.product_name, `${v.color || ''}/${v.size || ''}`, s.qty, s.unit_price, s.total_price, s.sale_id, req.user!.userId],
+              );
+            }
+          }
+          const { crmService } = await import('../crm/crm.service');
+          await crmService.recalculateTier(batchCid).catch(() => {});
+          const totalAmount = results.reduce((sum: number, s: any) => sum + Number(s.total_price), 0);
+          const { pointsService } = await import('../crm/points.service');
+          await pointsService.earn(batchCid, null, totalAmount, req.user!.userId).catch(() => {});
+        } catch { /* CRM 연동 실패해도 매출은 유지 */ }
+      }
+
       res.status(201).json({ success: true, data: results, ...(warnings.length > 0 && { warnings }), ...(skipped.length > 0 && { skipped }) });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -399,6 +434,13 @@ router.post('/',
     const total_price = Math.round(qty * unit_price);
     const pool = getPool();
 
+    // 거래처 활성 상태 검증
+    const partnerCheck = await pool.query('SELECT is_active, partner_name FROM partners WHERE partner_code = $1', [pc]);
+    if (partnerCheck.rows[0] && !partnerCheck.rows[0].is_active) {
+      res.status(400).json({ success: false, error: `비활성 거래처(${partnerCheck.rows[0].partner_name})에 매출을 등록할 수 없습니다.` });
+      return;
+    }
+
     // 재고 부족 경고
     const warnings: string[] = [];
     const stockResult = await pool.query(
@@ -413,15 +455,39 @@ router.post('/',
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const customerId = req.body.customer_id || null;
       const sale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', !!tax_free, memo || null],
+        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo, customer_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', !!tax_free, memo || null, customerId],
       );
       await inventoryRepository.applyChange(
         pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
       );
       await client.query('COMMIT');
+
+      // 고객 연동: 구매이력 자동 생성 + 등급 재계산 + 포인트 적립
+      if (customerId) {
+        try {
+          const vInfo = await pool.query(
+            `SELECT pv.color, pv.size, p.product_name FROM product_variants pv JOIN products p ON pv.product_code = p.product_code WHERE pv.variant_id = $1`,
+            [variant_id],
+          );
+          const v = vInfo.rows[0];
+          if (v) {
+            await pool.query(
+              `INSERT INTO customer_purchases (customer_id, partner_code, purchase_date, product_name, variant_info, qty, unit_price, total_price, sale_id, auto_created, created_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10)`,
+              [customerId, pc, sale_date, v.product_name, `${v.color || ''}/${v.size || ''}`, qty, unit_price, total_price, sale.rows[0].sale_id, req.user!.userId],
+            );
+          }
+          const { crmService } = await import('../crm/crm.service');
+          await crmService.recalculateTier(customerId).catch(() => {});
+          const { pointsService } = await import('../crm/points.service');
+          await pointsService.earn(customerId, sale.rows[0].sale_id, total_price, req.user!.userId).catch(() => {});
+        } catch { /* CRM 연동 실패해도 매출은 유지 */ }
+      }
+
       res.status(201).json({ success: true, data: sale.rows[0], ...(warnings.length > 0 && { warnings }) });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -646,14 +712,15 @@ router.post('/:id/return',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 당일 매출만 반품 가능
-      if (req.user?.role === 'STORE_MANAGER') {
-        const dayCheck = await client.query(
-          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
+      // 반품 기간 제한: 판매일 기준 30일 이내 (ADMIN/HQ_MANAGER는 무제한)
+      const role = req.user?.role;
+      if (role === 'STORE_MANAGER' || role === 'STORE_STAFF') {
+        const dateCheck = await client.query(
+          `SELECT (CURRENT_DATE - sale_date::date) AS days_ago FROM sales WHERE sale_id = $1`, [saleId],
         );
-        if (!dayCheck.rows[0]?.is_today) {
+        if (dateCheck.rows[0]?.days_ago > 30) {
           await client.query('ROLLBACK');
-          res.status(403).json({ success: false, error: '당일 매출만 반품 처리할 수 있습니다.' });
+          res.status(403).json({ success: false, error: '판매일로부터 30일이 지난 매출은 본사 승인이 필요합니다.' });
           return;
         }
       }
@@ -732,6 +799,17 @@ router.post('/:id/exchange',
         return;
       }
       const old = orig.rows[0];
+
+      // 교환 기간 제한: 판매일 기준 30일 이내 (ADMIN/HQ_MANAGER는 무제한)
+      const exRole = req.user?.role;
+      if (exRole === 'STORE_MANAGER' || exRole === 'STORE_STAFF') {
+        const daysAgo = Math.floor((Date.now() - new Date(old.sale_date).getTime()) / (1000 * 60 * 60 * 24));
+        if (daysAgo > 30) {
+          await client.query('ROLLBACK');
+          res.status(403).json({ success: false, error: '판매일로부터 30일이 지난 매출은 본사 승인이 필요합니다.' });
+          return;
+        }
+      }
 
       // 반품 처리 (원본 상품)
       const returnTotal = Math.round(old.qty * old.unit_price);

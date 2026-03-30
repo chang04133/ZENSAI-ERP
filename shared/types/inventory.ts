@@ -19,7 +19,9 @@ export interface Inventory {
   warning?: string;
 }
 
-export type TxType = 'SHIPMENT' | 'RETURN' | 'TRANSFER' | 'ADJUST' | 'SALE' | 'SALE_EDIT' | 'SALE_DELETE' | 'RESTOCK' | 'PRODUCTION' | 'INBOUND';
+export type TxType = 'SHIPMENT' | 'RETURN' | 'TRANSFER' | 'ADJUST' | 'SALE' | 'SALE_EDIT' | 'SALE_DELETE' | 'RESTOCK' | 'PRODUCTION' | 'INBOUND' | 'LOSS';
+
+export type LossType = 'LOST' | 'DISPOSE' | 'GIFT' | 'EMP_DISCOUNT';
 
 export interface InventoryTransaction {
   tx_id: number;
@@ -32,4 +34,5 @@ export interface InventoryTransaction {
   created_by: string | null;
   created_at: string;
   memo?: string | null;
+  loss_type?: LossType | null;
 }

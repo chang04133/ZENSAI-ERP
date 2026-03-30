@@ -9,8 +9,9 @@ import { getPool } from '../db/connection';
 async function findUserForLogin(userId: string) {
   const pool = getPool();
   const result = await pool.query(
-    `SELECT u.user_id, u.user_name, u.password_hash, u.partner_code, u.is_active, rg.group_name AS role_name
+    `SELECT u.user_id, u.user_name, u.password_hash, u.partner_code, u.is_active, rg.group_name AS role_name, p.partner_name
      FROM users u JOIN role_groups rg ON u.role_group = rg.group_id
+     LEFT JOIN partners p ON u.partner_code = p.partner_code
      WHERE u.user_id = $1`,
     [userId],
   );
@@ -66,6 +67,11 @@ router.post('/login', async (req, res) => {
       return;
     }
 
+    if (!user.password_hash) {
+      res.status(401).json({ success: false, error: '비밀번호가 설정되지 않았습니다. 관리자에게 문의하세요.' });
+      return;
+    }
+
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
       res.status(401).json({ success: false, error: '아이디 또는 비밀번호가 올바르지 않습니다.' });
@@ -78,6 +84,7 @@ router.post('/login', async (req, res) => {
       userName: user.user_name,
       role: user.role_name,
       partnerCode: user.partner_code,
+      partnerName: user.partner_name || null,
     };
     const accessToken = signAccessToken(payload);
     const refreshToken = generateRefreshToken();
@@ -98,6 +105,7 @@ router.post('/login', async (req, res) => {
           userName: user.user_name,
           role: user.role_name,
           partnerCode: user.partner_code,
+          partnerName: user.partner_name || null,
         },
       },
     });
@@ -138,6 +146,7 @@ router.post('/refresh', async (req, res) => {
       userName: user.user_name,
       role: user.role_name,
       partnerCode: user.partner_code,
+      partnerName: user.partner_name || null,
     };
     const newAccessToken = signAccessToken(payload);
     const newRefreshToken = generateRefreshToken();

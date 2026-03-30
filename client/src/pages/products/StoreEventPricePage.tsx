@@ -25,22 +25,17 @@ export default function StoreEventPricePage() {
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] = useState('');
-  const [subCategoryFilter, setSubCategoryFilter] = useState('');
   const [yearFromFilter, setYearFromFilter] = useState('');
   const [yearToFilter, setYearToFilter] = useState('');
   const [seasonFilter, setSeasonFilter] = useState('');
-  const [fitFilter, setFitFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [sortValue, setSortValue] = useState('created_at_DESC');
 
   // 필터 옵션
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [allCategoryCodes, setAllCategoryCodes] = useState<any[]>([]);
-  const [subCategoryOptions, setSubCategoryOptions] = useState<{ label: string; value: string }[]>([]);
   const [yearOptions, setYearOptions] = useState<{ label: string; value: string }[]>([]);
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
   const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
   const [sizeOptions, setSizeOptions] = useState<{ label: string; value: string }[]>([]);
 
@@ -80,7 +75,6 @@ export default function StoreEventPricePage() {
       setPartners((r.data || []).filter((p: any) => p.partner_type !== '본사' && p.is_active));
     }).catch(() => {});
     codeApi.getByType('CATEGORY').then((data: any[]) => {
-      setAllCategoryCodes(data);
       setCategoryOptions(data.filter((c: any) => !c.parent_code && c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     codeApi.getByType('YEAR').then((data: any[]) => {
@@ -88,9 +82,6 @@ export default function StoreEventPricePage() {
     }).catch(() => {});
     codeApi.getByType('SEASON').then((data: any[]) => {
       setSeasonOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
-    }).catch(() => {});
-    codeApi.getByType('FIT').then((data: any[]) => {
-      setFitOptions(data.filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value })));
     }).catch(() => {});
     productApi.variantOptions().then((d: any) => {
       setColorOptions((d.colors || []).map((c: string) => ({ label: c, value: c })));
@@ -103,23 +94,6 @@ export default function StoreEventPricePage() {
     partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code })),
     [partners],
   );
-
-  // 카테고리 → 세부 연동
-  const handleCategoryFilterChange = (value: string) => {
-    setCategoryFilter(value);
-    setSubCategoryFilter('');
-    setPage(1);
-    if (!value) { setSubCategoryOptions([]); return; }
-    const parent = allCategoryCodes.find((c: any) => c.code_value === value && !c.parent_code);
-    if (parent) {
-      setSubCategoryOptions(
-        allCategoryCodes.filter((c: any) => c.parent_code === parent.code_id && c.is_active)
-          .map((c: any) => ({ label: c.code_label, value: c.code_value })),
-      );
-    } else {
-      setSubCategoryOptions([]);
-    }
-  };
 
   // 검색 자동완성
   const onSearchChange = (value: string) => {
@@ -149,11 +123,9 @@ export default function StoreEventPricePage() {
       const s = searchOverride !== undefined ? searchOverride : search;
       if (s.trim()) params.search = s.trim();
       if (categoryFilter) params.category = categoryFilter;
-      if (subCategoryFilter) params.sub_category = subCategoryFilter;
       if (yearFromFilter) params.year_from = yearFromFilter;
       if (yearToFilter) params.year_to = yearToFilter;
       if (seasonFilter) params.season = seasonFilter;
-      if (fitFilter) params.fit = fitFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
       const lastUnderscore = sortValue.lastIndexOf('_');
@@ -164,9 +136,9 @@ export default function StoreEventPricePage() {
       setTotal(result.total || 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue]);
+  }, [page, search, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, sortValue]);
 
-  useEffect(() => { loadAll(); }, [page, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, colorFilter, sizeFilter, sortValue]);
+  useEffect(() => { loadAll(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, sortValue]);
 
   // 선택 캐시
   const handleRowSelect = (keys: string[]) => {
@@ -308,10 +280,8 @@ export default function StoreEventPricePage() {
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120 },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
-    { title: '세부', dataIndex: 'sub_category', key: 'sub_category', width: 80, render: (v: string) => v || '-' },
     { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
-    { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v ? <Tag color="geekblue">{formatCode('FIT', v)}</Tag> : '-' },
     {
       title: '정상가', dataIndex: 'base_price', key: 'base_price', width: 90,
       render: (v: number) => v ? Number(v).toLocaleString() : '-',
@@ -389,11 +359,8 @@ export default function StoreEventPricePage() {
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); loadAll(1); }} />
           </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
+          <Select value={categoryFilter} onChange={(v) => { setCategoryFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>세부</div>
-          <Select value={subCategoryFilter} onChange={(v) => { setSubCategoryFilter(v); setPage(1); }} style={{ width: 140 }}
-            options={[{ label: '전체 보기', value: '' }, ...subCategoryOptions]} disabled={!categoryFilter} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>연도(부터)</div>
           <Select allowClear value={yearFromFilter} onChange={(v) => { setYearFromFilter(v || ''); setPage(1); }} style={{ width: 90 }}
             placeholder="전체" options={yearOptions} /></div>
@@ -403,9 +370,6 @@ export default function StoreEventPricePage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
           <Select value={seasonFilter} onChange={(v) => { setSeasonFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체', value: '' }, ...seasonOptions]} /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>핏</div>
-          <Select value={fitFilter} onChange={(v) => { setFitFilter(v); setPage(1); }} style={{ width: 130 }}
-            options={[{ label: '전체 보기', value: '' }, ...fitOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
           <Select showSearch optionFilterProp="label" value={colorFilter}
             onChange={(v) => { setColorFilter(v); setPage(1); }} style={{ width: 120 }}

@@ -3,6 +3,7 @@ import { Table, Button, Input, Select, Space, Tag, Card, Row, Col, Statistic, Se
 import { SearchOutlined, InboxOutlined, WarningOutlined, SkinOutlined, ReloadOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
+import { productApi } from '../../modules/product/product.api';
 import { sizeSort } from '../../utils/size-order';
 import { CATEGORY_OPTIONS, SIZE_OPTIONS } from '../../utils/constants';
 import { useCodeLabels } from '../../hooks/useCodeLabels';
@@ -19,15 +20,19 @@ export default function WarehouseInventoryPage() {
 
   // Filters
   const [search, setSearch] = useState('');
-  const [category, setCategory] = useState('');
-  const [season, setSeason] = useState('');
-  const [size, setSize] = useState('');
-  const [color, setColor] = useState('');
+  const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
+  const [seasonFilter, setSeasonFilter] = useState<string[]>([]);
+  const [sizeFilter, setSizeFilter] = useState<string[]>([]);
+  const [colorFilter, setColorFilter] = useState<string[]>([]);
   const [sortField, setSortField] = useState('qty');
   const [sortDir, setSortDir] = useState<'ASC' | 'DESC'>('DESC');
   const [seasonOptions, setSeasonOptions] = useState<{ label: string; value: string }[]>([]);
+  const [colorOptions, setColorOptions] = useState<{ label: string; value: string }[]>([]);
 
   useEffect(() => {
+    productApi.variantOptions().then((data: any) => {
+      setColorOptions((data.colors || []).map((c: string) => ({ label: c, value: c })));
+    }).catch(() => {});
     inventoryApi.summaryBySeason().then((d: any) => {
       const seasons = (Array.isArray(d) ? d : d?.data || []).filter((s: any) => s.season);
       setSeasonOptions(seasons.map((s: any) => ({ label: `${s.season} (${s.total_qty}개)`, value: s.season })));
@@ -40,25 +45,25 @@ export default function WarehouseInventoryPage() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50', sort_field: sortField, sort_dir: sortDir };
       if (search) params.search = search;
-      if (category) params.category = category;
-      if (season) params.season = season;
-      if (size) params.size = size;
-      if (color) params.color = color;
+      if (categoryFilter.length) params.category = categoryFilter.join(',');
+      if (seasonFilter.length) params.season = seasonFilter.join(',');
+      if (sizeFilter.length) params.size = sizeFilter.join(',');
+      if (colorFilter.length) params.color = colorFilter.join(',');
       const result = await inventoryApi.warehouseList(params);
       setRawData(result.data);
       setTotal(result.total);
       setSumQty(result.sumQty ?? 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, category, season, size, color, sortField, sortDir]);
+  }, [page, search, categoryFilter, seasonFilter, sizeFilter, colorFilter, sortField, sortDir]);
 
-  useEffect(() => { load(); }, [page, sortField, sortDir, category, season, size, color]);
+  useEffect(() => { load(); }, [page, sortField, sortDir, categoryFilter, seasonFilter, sizeFilter, colorFilter]);
 
   const doSearch = () => { setPage(1); load(1); };
 
   const resetFilters = () => {
-    setSearch(''); setCategory(''); setSeason('');
-    setSize(''); setColor('');
+    setSearch(''); setCategoryFilter([]); setSeasonFilter([]);
+    setSizeFilter([]); setColorFilter([]);
     setSortField('qty'); setSortDir('DESC');
     setPage(1);
   };
@@ -246,27 +251,31 @@ export default function WarehouseInventoryPage() {
       </Row>
 
       {/* Filters */}
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Input
-          size="small" placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
-          value={search} onChange={(e) => setSearch(e.target.value)}
-          onPressEnter={doSearch} style={{ width: 220 }}
-          allowClear
-        />
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
+        <div style={{ minWidth: 200, maxWidth: 280 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
+          <Input placeholder="상품명/SKU/품번 검색" prefix={<SearchOutlined />}
+            value={search} onChange={(e) => setSearch(e.target.value)}
+            onPressEnter={doSearch} style={{ width: '100%' }} allowClear /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
-          <Select size="small" value={category} onChange={(v) => { setCategory(v); setPage(1); }}
-            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...CATEGORY_OPTIONS]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={categoryFilter} onChange={(v: string[]) => { setCategoryFilter(v); setPage(1); }}
+            style={{ width: 140 }} placeholder="전체" options={CATEGORY_OPTIONS} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
-          <Select size="small" value={season} onChange={(v) => { setSeason(v); setPage(1); }}
-            style={{ width: 110 }} options={[{ label: '전체 보기', value: '' }, ...seasonOptions]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={seasonFilter} onChange={(v: string[]) => { setSeasonFilter(v); setPage(1); }}
+            style={{ width: 140 }} placeholder="전체" options={seasonOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>사이즈</div>
-          <Select size="small" value={size} onChange={(v) => { setSize(v); setPage(1); }}
-            style={{ width: 100 }} options={[{ label: '전체 보기', value: '' }, ...SIZE_OPTIONS]} /></div>
-        <Input size="small" placeholder="색상" value={color} onChange={(e) => setColor(e.target.value)}
-          onPressEnter={doSearch} style={{ width: 90 }} allowClear />
-        <Button size="small" onClick={doSearch} type="primary">조회</Button>
-        <Button size="small" icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
-      </Space>
+          <Select mode="multiple" maxTagCount="responsive" allowClear
+            value={sizeFilter} onChange={(v: string[]) => { setSizeFilter(v); setPage(1); }}
+            style={{ width: 130 }} placeholder="전체" options={SIZE_OPTIONS} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>색상</div>
+          <Select mode="multiple" maxTagCount="responsive" allowClear showSearch optionFilterProp="label"
+            value={colorFilter} onChange={(v: string[]) => { setColorFilter(v); setPage(1); }}
+            style={{ width: 140 }} placeholder="전체"
+            options={colorOptions} /></div>
+        <Button onClick={doSearch} type="primary">조회</Button>
+        <Button icon={<ReloadOutlined />} onClick={resetFilters}>초기화</Button>
+      </div>
 
       {/* View Mode */}
       <div style={{ marginBottom: 12 }}>

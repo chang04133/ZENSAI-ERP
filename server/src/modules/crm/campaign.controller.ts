@@ -18,7 +18,7 @@ class CampaignController {
 
   detail = asyncHandler(async (req: Request, res: Response) => {
     const campaign = await campaignService.getWithStats(Number(req.params.id));
-    if (!campaign) { res.status(404).json({ success: false, message: '캠페인을 찾을 수 없습니다.' }); return; }
+    if (!campaign) { res.status(404).json({ success: false, error: '캠페인을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: campaign });
   });
 
@@ -93,7 +93,7 @@ class CampaignController {
 
   getSenderSettings = asyncHandler(async (req: Request, res: Response) => {
     const partnerCode = getStorePartnerCode(req) || req.query.partner_code as string;
-    if (!partnerCode) { res.status(400).json({ success: false, message: '매장 코드가 필요합니다.' }); return; }
+    if (!partnerCode) { res.status(400).json({ success: false, error: '매장 코드가 필요합니다.' }); return; }
     const data = await campaignService.getSenderSettings(partnerCode);
     // 비밀번호/시크릿 마스킹
     if (data) {
@@ -105,7 +105,7 @@ class CampaignController {
 
   upsertSenderSettings = asyncHandler(async (req: Request, res: Response) => {
     const partnerCode = getStorePartnerCode(req) || req.body.partner_code;
-    if (!partnerCode) { res.status(400).json({ success: false, message: '매장 코드가 필요합니다.' }); return; }
+    if (!partnerCode) { res.status(400).json({ success: false, error: '매장 코드가 필요합니다.' }); return; }
     const updatedBy = req.user?.userId || 'system';
     const result = await campaignService.upsertSenderSettings(partnerCode, req.body, updatedBy);
     // 저장 결과도 마스킹
@@ -118,7 +118,7 @@ class CampaignController {
 
   consentQr = asyncHandler(async (req: Request, res: Response) => {
     const partnerCode = getStorePartnerCode(req) || req.query.partner_code as string;
-    if (!partnerCode) { res.status(400).json({ success: false, message: '매장 코드가 필요합니다.' }); return; }
+    if (!partnerCode) { res.status(400).json({ success: false, error: '매장 코드가 필요합니다.' }); return; }
     const baseUrl = config.nodeEnv === 'production'
       ? (config.corsOrigins?.split(',')[0]?.trim() || config.clientUrl)
       : config.clientUrl;

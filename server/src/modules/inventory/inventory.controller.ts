@@ -13,18 +13,73 @@ class InventoryController extends BaseController<Inventory> {
 
   list = asyncHandler(async (req: Request, res: Response) => {
     const query: any = { ...req.query };
+    // 매장 사용자는 무조건 자기 매장으로 제한 (partner_code 파라미터 무시)
     const pc = getStorePartnerCode(req);
     if (pc) query.partner_code = pc;
     const result = await inventoryService.listWithDetails(query);
     res.json({ success: true, data: result });
   });
 
+  /** 매장별 재고 요약: 거래처별 총 수량/SKU수/상품수 */
+  byPartner = asyncHandler(async (req: Request, res: Response) => {
+    const pool = getPool();
+    const role = req.user?.role;
+    const isHq = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
+    if (!isHq) {
+      res.status(403).json({ success: false, error: '접근 권한이 없습니다.' });
+      return;
+    }
+
+    const { category, season, year } = req.query;
+    const params: any[] = [];
+    let idx = 1;
+    const joinConds: string[] = [];
+
+    const addMulti = (col: string, val: string | undefined) => {
+      if (!val) return;
+      const str = String(val);
+      if (str.includes(',')) {
+        const arr = str.split(',').map(s => s.trim()).filter(Boolean);
+        joinConds.push(`${col} IN (${arr.map(() => `$${idx++}`).join(', ')})`);
+        params.push(...arr);
+      } else {
+        joinConds.push(`${col} = $${idx}`); params.push(str); idx++;
+      }
+    };
+    addMulti('p.category', category as string | undefined);
+    addMulti('p.season', season as string | undefined);
+    addMulti('p.year', year as string | undefined);
+
+    const extraJoin = joinConds.length > 0 ? ' AND ' + joinConds.join(' AND ') : '';
+
+    const sql = `
+      SELECT
+        pt.partner_code,
+        pt.partner_name,
+        pt.partner_type,
+        COALESCE(SUM(i.qty), 0)::int AS total_qty,
+        COUNT(DISTINCT pv.variant_id)::int AS sku_count,
+        COUNT(DISTINCT p.product_code)::int AS product_count,
+        COALESCE(SUM(CASE WHEN i.qty = 0 THEN 1 ELSE 0 END), 0)::int AS zero_stock_count
+      FROM partners pt
+      LEFT JOIN inventory i ON pt.partner_code = i.partner_code
+      LEFT JOIN product_variants pv ON i.variant_id = pv.variant_id AND pv.is_active = TRUE
+      LEFT JOIN products p ON pv.product_code = p.product_code AND p.is_active = TRUE${extraJoin}
+      WHERE pt.is_active = TRUE
+      GROUP BY pt.partner_code, pt.partner_name, pt.partner_type
+      ORDER BY COALESCE(SUM(i.qty), 0) DESC
+    `;
+
+    const result = await pool.query(sql, params);
+    res.json({ success: true, data: result.rows });
+  });
+
   /** 창고(본사) 재고 조회 — 매장매니저도 읽기 가능 */
   warehouseList = asyncHandler(async (req: Request, res: Response) => {
     const pool = getPool();
-    // 본사 파트너코드 조회
+    // 기본 창고 파트너코드 조회
     const hqResult = await pool.query(
-      "SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE LIMIT 1",
+      "SELECT partner_code FROM warehouses WHERE is_default = TRUE AND is_active = TRUE LIMIT 1",
     );
     if (hqResult.rows.length === 0) {
       res.json({ success: true, data: { data: [], total: 0, sumQty: 0, page: 1, limit: 50, totalPages: 0 } });
@@ -66,7 +121,7 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    // S-1: scope=all은 ADMIN/SYS_ADMIN/HQ_MANAGER만 허용
+    // S-1: scope=all은 ADMIN/HQ_MANAGER만 허용
     const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
     // HQ 이상: partner_code 쿼리 파라미터로 특정 매장 조회 가능
     const explicitPartner = req.query.partner_code as string | undefined;
@@ -91,7 +146,7 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    // S-1: scope=all은 ADMIN/SYS_ADMIN/HQ_MANAGER만 허용
+    // S-1: scope=all은 ADMIN/HQ_MANAGER만 허용
     const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
     const partnerCode = canSeeAll ? undefined
       : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
@@ -309,11 +364,15 @@ class InventoryController extends BaseController<Inventory> {
     // 거래처 / 변형 존재 여부 확인
     const pool = getPool();
     const [partnerCheck, variantCheck] = await Promise.all([
-      pool.query('SELECT 1 FROM partners WHERE partner_code = $1', [partner_code]),
+      pool.query('SELECT is_active, partner_name FROM partners WHERE partner_code = $1', [partner_code]),
       pool.query('SELECT 1 FROM product_variants WHERE variant_id = $1 AND is_active = TRUE', [Number(variant_id)]),
     ]);
     if (partnerCheck.rows.length === 0) {
       res.status(400).json({ success: false, error: '존재하지 않는 거래처 코드입니다.' });
+      return;
+    }
+    if (!partnerCheck.rows[0].is_active) {
+      res.status(400).json({ success: false, error: `비활성 거래처(${partnerCheck.rows[0].partner_name})의 재고를 조정할 수 없습니다.` });
       return;
     }
     if (variantCheck.rows.length === 0) {
@@ -322,6 +381,140 @@ class InventoryController extends BaseController<Inventory> {
     }
     const result = await inventoryService.adjust(partner_code, variant_id, qty_change, req.user!.userId, memo);
     res.json({ success: true, data: result });
+  });
+
+  /** 재고처리 조회 (LOSS 트랜잭션 - 유실/폐기/증정/직원할인) */
+  lossHistory = asyncHandler(async (req: Request, res: Response) => {
+    const pool = getPool();
+    const pc = getStorePartnerCode(req);
+    const { date_from, date_to, search, loss_type } = req.query;
+    const page = parseInt(req.query.page as string, 10) || 1;
+    const limit = parseInt(req.query.limit as string, 10) || 50;
+    const offset = (page - 1) * limit;
+
+    const conditions: string[] = ["it.tx_type = 'LOSS'"];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (pc) { conditions.push(`it.partner_code = $${idx}`); params.push(pc); idx++; }
+    if (loss_type) { conditions.push(`it.loss_type = $${idx}`); params.push(loss_type); idx++; }
+    if (date_from) { conditions.push(`it.created_at >= $${idx}::date`); params.push(date_from); idx++; }
+    if (date_to) { conditions.push(`it.created_at < ($${idx}::date + 1)`); params.push(date_to); idx++; }
+    if (search) {
+      conditions.push(`(p.product_name ILIKE $${idx} OR pv.sku ILIKE $${idx} OR p.product_code ILIKE $${idx})`);
+      params.push(`%${search}%`); idx++;
+    }
+
+    const whereClause = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
+    const joinClause = `
+      JOIN product_variants pv ON it.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code`;
+
+    const countSql = `SELECT COUNT(*) FROM inventory_transactions it ${joinClause} ${whereClause}`;
+    const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT it.tx_id, it.ref_id, it.partner_code, it.variant_id, it.loss_type,
+             ABS(it.qty_change)::int as loss_qty, it.created_at, it.created_by, it.memo,
+             pv.sku, pv.color, pv.size, p.product_name, p.product_code, p.category,
+             pt.partner_name,
+             sr.request_no
+      FROM inventory_transactions it
+      ${joinClause}
+      JOIN partners pt ON it.partner_code = pt.partner_code
+      LEFT JOIN shipment_requests sr ON it.ref_id = sr.request_id
+      ${whereClause}
+      ORDER BY it.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}`;
+    const data = await pool.query(dataSql, [...params, limit, offset]);
+
+    // 요약 통계 (JOIN 포함)
+    const summarySql = `
+      SELECT COUNT(*)::int as total_count,
+             COALESCE(SUM(ABS(it.qty_change)), 0)::int as total_loss_qty,
+             COUNT(DISTINCT it.variant_id)::int as variant_count
+      FROM inventory_transactions it ${joinClause} ${whereClause}`;
+    const summary = (await pool.query(summarySql, params)).rows[0];
+
+    // 카테고리별 집계 (전체 기간, 필터 무관)
+    const catConditions: string[] = ["it.tx_type = 'LOSS'"];
+    const catParams: any[] = [];
+    if (pc) { catConditions.push(`it.partner_code = $1`); catParams.push(pc); }
+    const catWhere = catConditions.length > 0 ? 'WHERE ' + catConditions.join(' AND ') : '';
+    const byCategorySql = `
+      SELECT COALESCE(it.loss_type, 'LOST') as loss_type,
+             COUNT(*)::int as count,
+             COALESCE(SUM(ABS(it.qty_change)), 0)::int as qty
+      FROM inventory_transactions it ${catWhere}
+      GROUP BY COALESCE(it.loss_type, 'LOST')`;
+    const byCategory = (await pool.query(byCategorySql, catParams)).rows;
+
+    res.json({
+      success: true,
+      data: { data: data.rows, total, page, limit, totalPages: Math.ceil(total / limit), summary, byCategory },
+    });
+  });
+
+  /** 재고처리 등록 (유실/폐기/증정/직원할인) */
+  registerLoss = asyncHandler(async (req: Request, res: Response) => {
+    const { partner_code, variant_id, qty, loss_type, memo } = req.body;
+    const VALID_LOSS_TYPES = ['LOST', 'DISPOSE', 'GIFT', 'EMP_DISCOUNT'];
+    if (!partner_code) { res.status(400).json({ success: false, error: '거래처코드는 필수입니다.' }); return; }
+    if (!variant_id || Number(variant_id) <= 0) { res.status(400).json({ success: false, error: '상품을 선택해주세요.' }); return; }
+    if (!qty || Number(qty) <= 0) { res.status(400).json({ success: false, error: '수량은 1 이상이어야 합니다.' }); return; }
+    if (!loss_type || !VALID_LOSS_TYPES.includes(loss_type)) {
+      res.status(400).json({ success: false, error: '유효한 처리유형을 선택해주세요.' }); return;
+    }
+    // 매장매니저: 자기 매장만
+    const role = req.user?.role;
+    if (role === 'STORE_MANAGER' && req.user?.partnerCode && partner_code !== req.user.partnerCode) {
+      res.status(403).json({ success: false, error: '자신의 매장만 처리할 수 있습니다.' }); return;
+    }
+
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const qtyChange = -Math.abs(Number(qty));
+
+      // 현재 재고 확인
+      const cur = await client.query(
+        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2 FOR UPDATE',
+        [partner_code, Number(variant_id)],
+      );
+      const currentQty = cur.rows[0] ? Number(cur.rows[0].qty) : 0;
+      if (currentQty + qtyChange < 0) {
+        throw new Error(`재고 부족: 현재 ${currentQty}개, 요청 ${Math.abs(qtyChange)}개`);
+      }
+
+      // 재고 차감
+      await client.query(
+        `INSERT INTO inventory (partner_code, variant_id, qty)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = inventory.qty + $3, updated_at = NOW()`,
+        [partner_code, Number(variant_id), qtyChange],
+      );
+      const inv = await client.query(
+        'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+        [partner_code, Number(variant_id)],
+      );
+      const qtyAfter = inv.rows[0]?.qty || 0;
+
+      // 트랜잭션 기록
+      await client.query(
+        `INSERT INTO inventory_transactions (tx_type, partner_code, variant_id, qty_change, qty_after, created_by, memo, loss_type)
+         VALUES ('LOSS', $1, $2, $3, $4, $5, $6, $7)`,
+        [partner_code, Number(variant_id), qtyChange, qtyAfter, req.user!.userId, memo || null, loss_type],
+      );
+
+      await client.query('COMMIT');
+      res.json({ success: true, data: { qty_after: qtyAfter } });
+    } catch (e: any) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   });
 
   /** 재고 거래이력 조회 */

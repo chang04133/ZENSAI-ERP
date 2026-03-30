@@ -11,7 +11,7 @@ const router = Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
 
 // GET /excel/template — 생산계획 엑셀 템플릿 다운로드
-router.get('/excel/template', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'), (_req, res) => {
+router.get('/excel/template', authMiddleware, requireRole('ADMIN'), (_req, res) => {
   const wb = XLSX.utils.book_new();
 
   const templateData = [
@@ -57,7 +57,7 @@ router.get('/excel/template', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN'),
 // POST /excel/upload — 생산계획 엑셀 업로드
 router.post('/excel/upload',
   authMiddleware,
-  requireRole('ADMIN', 'SYS_ADMIN'),
+  requireRole('ADMIN'),
   upload.single('file'),
   asyncHandler(async (req, res) => {
     if (!req.file) { res.status(400).json({ success: false, error: '파일이 없습니다.' }); return; }

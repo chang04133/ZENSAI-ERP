@@ -4,7 +4,7 @@ import { requireRole } from '../../middleware/role-guard';
 import { asRepository } from './as.repository';
 
 const router = Router();
-const roles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'] as const;
+const roles = ['ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'] as const;
 
 router.get('/stats', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
   const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user?.partnerCode || undefined : (req.query.partner_code as string) || undefined;
@@ -20,7 +20,7 @@ router.get('/', requireRole(...roles), asyncHandler(async (req: Request, res: Re
 }));
 
 router.post('/', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
-  const data = await asRepository.create({ ...req.body, created_by: req.user?.userName });
+  const data = await asRepository.create({ ...req.body, created_by: req.user?.userId });
   res.json({ success: true, data });
 }));
 

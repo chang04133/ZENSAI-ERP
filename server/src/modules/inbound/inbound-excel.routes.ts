@@ -48,12 +48,20 @@ router.post('/excel/upload',
   asyncHandler(async (req, res) => {
     if (!req.file) { res.status(400).json({ success: false, error: '파일이 없습니다.' }); return; }
 
+    const pool = getPool();
     const partnerCode = (req.body?.partner_code || '').trim();
-    const inboundDate = (req.body?.inbound_date || '').trim() || new Date().toISOString().slice(0, 10);
+    const inboundDate = (req.body?.inbound_date || '').trim() || new Date().toISOString().split('T')[0];
     const memo = (req.body?.memo || '').trim() || null;
 
     if (!partnerCode) {
       res.status(400).json({ success: false, error: '거래처를 선택해주세요.' });
+      return;
+    }
+
+    // 거래처 DB 존재 확인
+    const partnerCheck = await pool.query('SELECT 1 FROM partners WHERE partner_code = $1', [partnerCode]);
+    if (partnerCheck.rows.length === 0) {
+      res.status(400).json({ success: false, error: `거래처 '${partnerCode}'이(가) 존재하지 않습니다.` });
       return;
     }
 
@@ -62,7 +70,6 @@ router.post('/excel/upload',
     if (rows.length === 0) { res.status(400).json({ success: false, error: '데이터가 없습니다.' }); return; }
 
     // SKU 목록 수집
-    const pool = getPool();
     const skuSet = new Set<string>();
     for (const row of rows) {
       const sku = String(row['SKU'] || '').trim();
@@ -88,6 +95,7 @@ router.post('/excel/upload',
     const items: Array<{ variant_id: number; qty: number; unit_price?: number; memo?: string }> = [];
     const errors: string[] = [];
     let skipped = 0;
+    const processedSkus = new Set<string>();
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
@@ -104,6 +112,9 @@ router.post('/excel/upload',
 
       const variantId = skuToVariant.get(sku);
       if (!variantId) { errors.push(`${rowNum}행: SKU를 찾을 수 없습니다 (${sku})`); continue; }
+
+      if (processedSkus.has(sku)) { errors.push(`${rowNum}행: 중복 SKU입니다 (${sku})`); continue; }
+      processedSkus.add(sku);
 
       items.push({ variant_id: variantId, qty, unit_price: unitPrice, memo: itemMemo });
     }

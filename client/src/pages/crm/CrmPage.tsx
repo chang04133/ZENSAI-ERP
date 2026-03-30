@@ -9,7 +9,7 @@ import {
   PlusOutlined, ShoppingCartOutlined, PhoneOutlined, MailOutlined,
   DownloadOutlined, UploadOutlined, TagsOutlined, CloseOutlined,
   ToolOutlined, UserSwitchOutlined, MessageOutlined, EyeOutlined,
-  HistoryOutlined,
+  HistoryOutlined, SyncOutlined, GiftOutlined, StarOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
@@ -35,6 +35,8 @@ const PAYMENT_OPTIONS = [
 /* ═══════════════════════════════════ 대시보드 ═══════════════════════════════════ */
 function DashboardView() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [dormantCount, setDormantCount] = useState(0);
@@ -61,6 +63,11 @@ function DashboardView() {
 
   return (
     <>
+      {isStore && user?.partnerName && (
+        <div style={{ marginBottom: 12 }}>
+          <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px' }}>현재 매장: {user.partnerName}</Tag>
+        </div>
+      )}
       <Row gutter={[16, 16]}>
         <Col xs={24} sm={12} lg={6}>
           <StatCard title="총 고객수" value={stats.totalCustomers} icon={<TeamOutlined />}
@@ -93,6 +100,19 @@ function DashboardView() {
           <StatCard title="A/S 처리중" value={asOpenCount} icon={<ToolOutlined />}
             bg="linear-gradient(135deg, #f97316 0%, #fb923c 100%)" color="#fff"
             onClick={() => navigate('/crm/after-sales')} />
+        </Col>
+        <Col xs={24} sm={12} lg={6}>
+          <Card size="small" style={{ borderRadius: 10, height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Space direction="vertical" align="center" size={8}>
+              <Button icon={<SyncOutlined />} onClick={async () => {
+                try {
+                  const r = await crmApi.recalculateAllTiers();
+                  message.success(`등급 재계산 완료: ${r.data?.updated || 0}명 변경`);
+                } catch (e: any) { message.error(e.message); }
+              }}>등급 전체 재계산</Button>
+              <span style={{ fontSize: 11, color: '#888' }}>구매 데이터 기반 자동 산정</span>
+            </Space>
+          </Card>
         </Col>
       </Row>
 
@@ -300,14 +320,16 @@ function CustomerListView() {
           <Select value={tierFilter} onChange={(v) => { setTierFilter(v); setPage(1); }} style={{ width: 110 }}
             options={[{ label: '전체', value: '' }, { label: 'VVIP', value: 'VVIP' }, { label: 'VIP', value: 'VIP' }, { label: '일반', value: '일반' }, { label: '신규', value: '신규' }]} />
         </div>
-        {!isStore && (
+        {!isStore ? (
           <div>
             <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장</div>
             <Select showSearch optionFilterProp="label" value={partnerFilter}
               onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 140 }}
               options={[{ label: '전체', value: '' }, ...partners.map(p => ({ label: p.partner_name, value: p.partner_code }))]} />
           </div>
-        )}
+        ) : user?.partnerName ? (
+          <Tag color="blue" style={{ fontSize: 13, padding: '4px 10px', lineHeight: '24px' }}>현재 매장: {user.partnerName}</Tag>
+        ) : null}
         <Button onClick={load}>조회</Button>
         <div style={{ flex: 1 }} />
         <Button icon={<DownloadOutlined />} onClick={async () => {
@@ -457,6 +479,18 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
   const [msgTotal, setMsgTotal] = useState(0);
   const [msgLoading, setMsgLoading] = useState(false);
 
+  // 등급이력
+  const [tierHistory, setTierHistory] = useState<any[]>([]);
+  const [tierHistoryLoading, setTierHistoryLoading] = useState(false);
+
+  // 포인트
+  const [points, setPoints] = useState<any>(null);
+  const [pointTxns, setPointTxns] = useState<any[]>([]);
+  const [pointsLoading, setPointsLoading] = useState(false);
+  const [usePointsOpen, setUsePointsOpen] = useState(false);
+  const [usePointsAmount, setUsePointsAmount] = useState(0);
+  const [usePointsDesc, setUsePointsDesc] = useState('');
+
   useEffect(() => {
     if (!isStore) {
       partnerApi.list({ limit: '500' }).then((r: any) => setPartners(r.data || [])).catch(() => {});
@@ -508,6 +542,21 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
       setMsgLoading(true);
       crmApi.getMessageHistory(customerId).then((r: any) => { setMessages(r.data || []); setMsgTotal(r.total || 0); })
         .catch(() => {}).finally(() => setMsgLoading(false));
+    }
+    if (activeTab === 'tierHistory' && tierHistory.length === 0 && !tierHistoryLoading) {
+      setTierHistoryLoading(true);
+      crmApi.getTierHistory(customerId).then((r: any) => { setTierHistory(r.data || []); })
+        .catch(() => {}).finally(() => setTierHistoryLoading(false));
+    }
+    if (activeTab === 'points' && !points && !pointsLoading) {
+      setPointsLoading(true);
+      Promise.all([
+        crmApi.getPoints(customerId),
+        crmApi.getPointTransactions(customerId),
+      ]).then(([p, txns]) => {
+        setPoints(p || { available_points: 0, total_earned: 0, used_points: 0, expired_points: 0 });
+        setPointTxns(txns.data || []);
+      }).catch(() => {}).finally(() => setPointsLoading(false));
     }
   }, [activeTab, customerId]);
 
@@ -845,11 +894,119 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                 pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
                 columns={[
                   { title: '캠페인', dataIndex: 'campaign_name', key: 'c', ellipsis: true },
-                  { title: '유형', dataIndex: 'campaign_type', key: 't', width: 60, render: (v: string) => <Tag color={v === 'SMS' ? 'orange' : 'purple'}>{v}</Tag> },
+                  { title: '유형', dataIndex: 'campaign_type', key: 't', width: 60, render: (v: string) => <Tag color={v === 'SMS' ? 'orange' : v === 'ALIMTALK' ? 'cyan' : 'purple'}>{v}</Tag> },
                   { title: '상태', dataIndex: 'status', key: 's', width: 70,
                     render: (v: string) => <Tag color={v === 'SENT' ? 'green' : v === 'FAILED' ? 'red' : v === 'OPENED' ? 'blue' : 'default'}>{v}</Tag> },
                   { title: '발송일', dataIndex: 'sent_at', key: 'd', width: 120, render: (v: string) => v ? dayjs(v).format('YY.MM.DD HH:mm') : '-' },
                 ]} />
+            ),
+          },
+          { key: 'tierHistory', label: <><StarOutlined /> 등급이력</>,
+            children: tierHistoryLoading ? <Spin /> : (
+              <>
+                <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                  <Button size="small" icon={<SyncOutlined />} onClick={async () => {
+                    try {
+                      await crmApi.recalculateCustomerTier(customerId);
+                      message.success('등급이 재계산되었습니다.');
+                      loadCustomer();
+                      setTierHistoryLoading(true);
+                      crmApi.getTierHistory(customerId).then((r: any) => setTierHistory(r.data || [])).finally(() => setTierHistoryLoading(false));
+                    } catch (e: any) { message.error(e.message); }
+                  }}>등급 재계산</Button>
+                </div>
+                {tierHistory.length === 0 ? <Empty description="등급 변경 이력이 없습니다." /> : (
+                  <Table dataSource={tierHistory} rowKey="history_id" size="small"
+                    pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                    columns={[
+                      { title: '변경일', dataIndex: 'created_at', key: 'd', width: 140,
+                        render: (v: string) => dayjs(v).format('YY.MM.DD HH:mm') },
+                      { title: '이전 등급', dataIndex: 'old_tier', key: 'old', width: 80,
+                        render: (v: string) => v ? <Tag color={TIER_COLORS[v]}>{v}</Tag> : '-' },
+                      { title: '새 등급', dataIndex: 'new_tier', key: 'new', width: 80,
+                        render: (v: string) => <Tag color={TIER_COLORS[v]}>{v}</Tag> },
+                      { title: '총 구매액', dataIndex: 'total_amount', key: 'amt', width: 120, align: 'right' as const,
+                        render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
+                      { title: '변경자', dataIndex: 'changed_by', key: 'by', width: 100 },
+                    ]} />
+                )}
+              </>
+            ),
+          },
+          { key: 'points', label: <><GiftOutlined /> 포인트</>,
+            children: pointsLoading ? <Spin /> : (
+              <>
+                <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ textAlign: 'center', background: '#f0f5ff' }}>
+                      <div style={{ fontSize: 11, color: '#666' }}>잔여 포인트</div>
+                      <div style={{ fontSize: 20, fontWeight: 700, color: '#1677ff' }}>{(points?.available_points || 0).toLocaleString()}P</div>
+                    </Card>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#666' }}>총 적립</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>{(points?.total_earned || 0).toLocaleString()}P</div>
+                    </Card>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#666' }}>사용</div>
+                      <div style={{ fontSize: 16, fontWeight: 600 }}>{(points?.used_points || 0).toLocaleString()}P</div>
+                    </Card>
+                  </Col>
+                  <Col xs={12} sm={6}>
+                    <Card size="small" style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, color: '#666' }}>만료</div>
+                      <div style={{ fontSize: 16, fontWeight: 600, color: '#999' }}>{(points?.expired_points || 0).toLocaleString()}P</div>
+                    </Card>
+                  </Col>
+                </Row>
+                <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                  <Button size="small" icon={<GiftOutlined />} onClick={() => { setUsePointsAmount(0); setUsePointsDesc(''); setUsePointsOpen(true); }}>
+                    포인트 사용
+                  </Button>
+                </div>
+                <Table dataSource={pointTxns} rowKey="transaction_id" size="small"
+                  pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                  columns={[
+                    { title: '일시', dataIndex: 'created_at', key: 'd', width: 140,
+                      render: (v: string) => dayjs(v).format('YY.MM.DD HH:mm') },
+                    { title: '유형', dataIndex: 'tx_type', key: 't', width: 70,
+                      render: (v: string) => <Tag color={v === 'EARN' ? 'green' : v === 'USE' ? 'blue' : v === 'EXPIRE' ? 'default' : 'orange'}>{v}</Tag> },
+                    { title: '포인트', dataIndex: 'points', key: 'p', width: 90, align: 'right' as const,
+                      render: (v: number) => <span style={{ color: v > 0 ? '#52c41a' : '#f5222d', fontWeight: 600 }}>{v > 0 ? '+' : ''}{v.toLocaleString()}</span> },
+                    { title: '잔액', dataIndex: 'balance_after', key: 'b', width: 90, align: 'right' as const,
+                      render: (v: number) => `${(v || 0).toLocaleString()}P` },
+                    { title: '설명', dataIndex: 'description', key: 'desc', ellipsis: true },
+                  ]} />
+                {/* 포인트 사용 모달 */}
+                <Modal title="포인트 사용" open={usePointsOpen} onCancel={() => setUsePointsOpen(false)}
+                  onOk={async () => {
+                    if (usePointsAmount <= 0) { message.error('사용 포인트를 입력하세요'); return; }
+                    try {
+                      await crmApi.usePoints(customerId, { points: usePointsAmount, description: usePointsDesc || '수동 차감' });
+                      message.success('포인트가 사용되었습니다.');
+                      setUsePointsOpen(false);
+                      setPointsLoading(true);
+                      Promise.all([crmApi.getPoints(customerId), crmApi.getPointTransactions(customerId)])
+                        .then(([p, t]) => { setPoints(p); setPointTxns(t.data || []); }).finally(() => setPointsLoading(false));
+                    } catch (e: any) { message.error(e.message); }
+                  }} okText="사용" cancelText="취소" width={400}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>잔여 포인트: <strong>{(points?.available_points || 0).toLocaleString()}P</strong></div>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>사용 포인트</div>
+                      <InputNumber min={1} max={points?.available_points || 0} value={usePointsAmount}
+                        onChange={(v) => setUsePointsAmount(v || 0)} style={{ width: '100%' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>사용 사유</div>
+                      <Input value={usePointsDesc} onChange={(e) => setUsePointsDesc(e.target.value)} placeholder="예: 매장 할인 적용" />
+                    </div>
+                  </div>
+                </Modal>
+              </>
             ),
           },
         ]} />

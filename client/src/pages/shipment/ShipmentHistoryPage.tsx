@@ -17,8 +17,8 @@ export default function ShipmentHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string | undefined>();
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
+  const [typeFilter, setTypeFilter] = useState<string[]>([]);
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   const [detailOpen, setDetailOpen] = useState(false);
@@ -34,8 +34,8 @@ export default function ShipmentHistoryPage() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
-      if (typeFilter) params.request_type = typeFilter;
-      if (statusFilter) params.status = statusFilter;
+      if (typeFilter.length) params.request_type = typeFilter.join(',');
+      if (statusFilter.length) params.status = statusFilter.join(',');
       if (user?.partnerCode) params.partner = user.partnerCode;
       if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
       if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
@@ -90,14 +90,16 @@ export default function ShipmentHistoryPage() {
     { label: '전체', value: '' },
     { label: '대기', value: 'PENDING' },
     { label: '출고완료', value: 'SHIPPED' },
-    { label: '입고완료', value: 'RECEIVED' },
+    { label: '수량불일치', value: 'DISCREPANCY' },
+    { label: '수령완료', value: 'RECEIVED' },
     { label: '취소', value: 'CANCELLED' },
+    { label: '거절', value: 'REJECTED' },
   ];
 
   const columns = [
     { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 140 },
-    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 100,
-      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : '-' },
+    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 120,
+      render: (v: string) => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '-' },
     { title: '유형', dataIndex: 'request_type', key: 'request_type', width: 90,
       render: (v: string) => {
         const colorMap: Record<string, string> = { '출고': 'blue', '반품': 'orange', '수평이동': 'purple' };
@@ -114,7 +116,10 @@ export default function ShipmentHistoryPage() {
     { title: '수령', dataIndex: 'total_received_qty', key: 'recv_qty', width: 65, align: 'right' as const,
       render: (v: number) => <span style={{ color: v > 0 ? '#13c2c2' : '#ccc' }}>{v || 0}</span> },
     { title: '상태', dataIndex: 'status', key: 'status', width: 90,
-      render: (v: string, r: any) => <Tag color={STATUS_COLORS[v]}>{getStatusLabel(v, r.request_type)}</Tag> },
+      render: (v: string, r: any) => {
+        if (v === 'RECEIVED' && r.to_partner_name) return <Tag color="cyan">{r.to_partner_name} 수령완료</Tag>;
+        return <Tag color={STATUS_COLORS[v]}>{getStatusLabel(v, r.request_type)}</Tag>;
+      } },
     { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, render: (v: string) => v || '-', ellipsis: true },
     { title: '', key: 'action', width: 80, render: (_: any, record: any) => (
       <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
@@ -129,11 +134,11 @@ export default function ShipmentHistoryPage() {
           <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
             onChange={(e) => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>유형</div>
-          <Select value={typeFilter || ''} onChange={(v) => setTypeFilter(v || undefined)} style={{ width: 120 }}
-            options={[{ label: '전체', value: '' }, { label: '출고', value: '출고' }, { label: '반품', value: '반품' }, { label: '수평이동', value: '수평이동' }]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" value={typeFilter} onChange={setTypeFilter} style={{ width: 160 }}
+            placeholder="전체" allowClear options={[{ label: '출고', value: '출고' }, { label: '반품', value: '반품' }, { label: '수평이동', value: '수평이동' }]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select value={statusFilter || ''} onChange={(v) => setStatusFilter(v || undefined)} style={{ width: 120 }}
-            options={STATUS_OPTIONS} /></div>
+          <Select mode="multiple" maxTagCount="responsive" value={statusFilter} onChange={setStatusFilter} style={{ width: 180 }}
+            placeholder="전체" allowClear options={STATUS_OPTIONS.filter(o => o.value !== '')} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
         <Button onClick={() => { setPage(1); load(1); }}>조회</Button>

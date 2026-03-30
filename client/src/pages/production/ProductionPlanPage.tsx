@@ -6,7 +6,7 @@ import {
   StopOutlined, DeleteOutlined, MinusCircleOutlined, AppstoreOutlined,
   FileTextOutlined, SearchOutlined,
   UploadOutlined, DownloadOutlined, DollarOutlined, BankOutlined,
-  AuditOutlined, FileDoneOutlined,
+  FileDoneOutlined,
 } from '@ant-design/icons';
 import { productionApi } from '../../modules/production/production.api';
 import { apiFetch } from '../../core/api.client';
@@ -37,9 +37,6 @@ const STEPS = [
 
 interface SubItem {
   key: number;
-  sub_category: string | null;
-  fit: string | null;
-  length: string | null;
   plan_qty: number;
   unit_cost: number | null;
   memo: string | null;
@@ -70,7 +67,7 @@ const fmtSeason = (v: string | null) => {
 export default function ProductionPlanPage() {
   const location = useLocation();
   const keySeqRef = useRef(0);
-  const newSubItem = (): SubItem => ({ key: ++keySeqRef.current, sub_category: null, fit: null, length: null, plan_qty: 1, unit_cost: null, memo: null });
+  const newSubItem = (): SubItem => ({ key: ++keySeqRef.current, plan_qty: 1, unit_cost: null, memo: null });
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -103,6 +100,10 @@ export default function ProductionPlanPage() {
   const [balanceForm] = Form.useForm();
   const [balanceLoading, setBalanceLoading] = useState(false);
 
+  // 완료 모달 자재 선택
+  const [allMaterials, setAllMaterials] = useState<Array<{ material_id: number; material_name: string; material_type: string; unit: string; unit_price: number; stock_qty: number }>>([]);
+  const [selectedMaterials, setSelectedMaterials] = useState<Array<{ material_id: number; used_qty: number }>>([]);
+
   // 카테고리별 그룹
   const [catGroups, setCatGroups] = useState<CategoryGroup[]>([]);
 
@@ -111,14 +112,7 @@ export default function ProductionPlanPage() {
 
   // 코드 옵션
   const [categoryOptions, setCategoryOptions] = useState<{ label: string; value: string }[]>([]);
-  const [subCategoryMap, setSubCategoryMap] = useState<Record<string, { label: string; value: string }[]>>({});
-  const [fitOptions, setFitOptions] = useState<{ label: string; value: string }[]>([]);
-  const [lengthOptions, setLengthOptions] = useState<{ label: string; value: string }[]>([]);
   const catLabelMap = Object.fromEntries(categoryOptions.map(o => [o.value, o.label]));
-  const subCatLabelMap: Record<string, string> = {};
-  Object.values(subCategoryMap).flat().forEach(o => { subCatLabelMap[o.value] = o.label; });
-  const fitLabelMap = Object.fromEntries(fitOptions.map(o => [o.value, o.label]));
-  const lenLabelMap = Object.fromEntries(lengthOptions.map(o => [o.value, o.label]));
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -162,20 +156,9 @@ export default function ProductionPlanPage() {
     (async () => {
       try {
         const codes = await codeApi.getAll();
-        const toOpts = (arr: any[]) => (arr || []).filter((c: any) => c.is_active).map((c: any) => ({ label: c.code_label, value: c.code_value }));
         const allCats = codes.CATEGORY || [];
         const parents = allCats.filter((c: any) => !c.parent_code && c.is_active);
         setCategoryOptions(parents.map((c: any) => ({ label: c.code_label, value: c.code_value })));
-        const subMap: Record<string, { label: string; value: string }[]> = {};
-        for (const parent of parents) {
-          const children = allCats.filter((c: any) => c.parent_code === parent.code_id && c.is_active);
-          if (children.length > 0) {
-            subMap[parent.code_value] = children.map((c: any) => ({ label: c.code_label, value: c.code_value }));
-          }
-        }
-        setSubCategoryMap(subMap);
-        setFitOptions(toOpts(codes.FIT));
-        setLengthOptions(toOpts(codes.LENGTH));
         // 연도/시즌 코드 로드
         const yearCodes = (codes.YEAR || []).filter((c: any) => c.is_active).sort((a: any, b: any) => b.code_value.localeCompare(a.code_value));
         setYearOptions(yearCodes.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
@@ -219,9 +202,6 @@ export default function ProductionPlanPage() {
             category,
             items: items.map(v => ({
               key: ++keySeqRef.current,
-              sub_category: v.sub_category || null,
-              fit: v.fit || null,
-              length: v.length || null,
               plan_qty: qtyMap.get(v.variant_id) || 1,
               unit_cost: v.cost_price || null,
               memo: null,
@@ -330,12 +310,12 @@ export default function ProductionPlanPage() {
     setSubmitting(true);
     try {
       const values = await form.validateFields();
-      const flatItems: Array<{ category: string; sub_category: string | null; fit: string | null; length: string | null; plan_qty: number; unit_cost: number | null; memo: string | null }> = [];
+      const flatItems: Array<{ category: string; plan_qty: number; unit_cost: number | null; memo: string | null }> = [];
       for (const g of catGroups) {
         if (!g.category) { message.error('모든 카테고리를 선택해주세요.'); return; }
         for (const i of g.items) {
           if (i.plan_qty > 0) {
-            flatItems.push({ category: g.category, sub_category: i.sub_category, fit: i.fit, length: i.length, plan_qty: i.plan_qty, unit_cost: i.unit_cost, memo: i.memo });
+            flatItems.push({ category: g.category, plan_qty: i.plan_qty, unit_cost: i.unit_cost, memo: i.memo });
           }
         }
       }
@@ -422,8 +402,18 @@ export default function ProductionPlanPage() {
   // ── 잔금 + 완료 모달 ──
   const openBalanceModal = async (planId: number) => {
     try {
-      const plan = await productionApi.get(planId);
+      const [plan, matRes] = await Promise.all([
+        productionApi.get(planId),
+        (async () => { try { const r = await (await apiFetch('/api/materials?limit=200')).json(); return r.success ? r.data?.data || r.data || [] : []; } catch { return []; } })(),
+      ]);
       setBalancePlan(plan);
+      setAllMaterials(Array.isArray(matRes) ? matRes : []);
+      // 기존 등록된 자재가 있으면 prefill
+      if (plan.materials && plan.materials.length > 0) {
+        setSelectedMaterials(plan.materials.map((m: any) => ({ material_id: m.material_id, used_qty: m.used_qty || m.required_qty || 1 })));
+      } else {
+        setSelectedMaterials([]);
+      }
       balanceForm.setFieldsValue({ balance_date: dayjs() });
       setBalanceOpen(true);
     } catch (e: any) { message.error(e.message); }
@@ -431,12 +421,19 @@ export default function ProductionPlanPage() {
 
   const handleBalanceSubmit = async () => {
     if (!balancePlan || balanceLoading) return;
+    // 자재 사용량 검증
+    const validMaterials = selectedMaterials.filter(m => m.material_id && m.used_qty > 0);
+    if (validMaterials.length === 0) {
+      message.warning('사용 자재를 1개 이상 추가해주세요.');
+      return;
+    }
     const planId = balancePlan.plan_id;
     setBalanceLoading(true);
     try {
       const values = await balanceForm.validateFields();
       await productionApi.completeProduction(planId, {
         balance_date: values.balance_date.format('YYYY-MM-DD'),
+        materials: validMaterials,
       });
       message.success('잔금이 지급되었습니다. 생산이 완료 처리되었습니다.');
       setBalanceOpen(false);
@@ -527,8 +524,11 @@ export default function ProductionPlanPage() {
           <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }}
             onClick={() => openBalanceModal(r.plan_id)}>완료</Button>
         )}
-        {r.status === 'DRAFT' && (
-          <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleStatusChange(r.plan_id, 'CANCELLED')}>
+        {['DRAFT', 'IN_PRODUCTION', 'COMPLETED'].includes(r.status) && r.settle_status !== 'SETTLED' && (
+          <Popconfirm title={
+            r.status === 'COMPLETED' ? '완료된 계획을 취소하시겠습니까? 자재가 복원되고 입고대기가 삭제됩니다.' :
+            r.status === 'IN_PRODUCTION' ? '생산중인 계획을 취소하시겠습니까?' : '취소하시겠습니까?'
+          } onConfirm={() => handleStatusChange(r.plan_id, 'CANCELLED')}>
             <Button size="small" danger icon={<StopOutlined />}>취소</Button>
           </Popconfirm>
         )}
@@ -701,9 +701,6 @@ export default function ProductionPlanPage() {
                         <Tag color="blue" style={{ fontSize: 11 }}>{item._sku}</Tag>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>{item._product_name}</span>
                         <Tag>{item._color}/{item._size}</Tag>
-                        {item.sub_category && <Tag color="cyan">{subCatLabelMap[item.sub_category] || item.sub_category}</Tag>}
-                        {item.fit && <Tag>{fitLabelMap[item.fit] || item.fit}</Tag>}
-                        {item.length && <Tag>{lenLabelMap[item.length] || item.length}</Tag>}
                         <span style={{ color: '#999', fontSize: 12 }}>현재고: <b style={{ color: (item._current_stock || 0) === 0 ? '#f5222d' : '#333' }}>{item._current_stock || 0}</b></span>
                         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
                           <InputNumber
@@ -724,37 +721,11 @@ export default function ProductionPlanPage() {
                     ) : (
                       /* ── 수동 추가 아이템: 전체 수정 가능 ── */
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                        {subCategoryMap[group.category]?.length > 0 && (
-                          <Select
-                            value={item.sub_category || undefined}
-                            onChange={(v) => updateSubItem(group.key, item.key, 'sub_category', v || null)}
-                            placeholder="세부카테고리"
-                            allowClear showSearch optionFilterProp="label"
-                            style={{ width: 140 }}
-                            options={subCategoryMap[group.category]}
-                          />
-                        )}
-                        <Select
-                          value={item.fit || undefined}
-                          onChange={(v) => updateSubItem(group.key, item.key, 'fit', v || null)}
-                          placeholder="핏"
-                          allowClear showSearch optionFilterProp="label"
-                          style={{ width: 130 }}
-                          options={fitOptions}
-                        />
-                        <Select
-                          value={item.length || undefined}
-                          onChange={(v) => updateSubItem(group.key, item.key, 'length', v || null)}
-                          placeholder="기장"
-                          allowClear showSearch optionFilterProp="label"
-                          style={{ width: 110 }}
-                          options={lengthOptions}
-                        />
                         <InputNumber
                           min={1}
                           value={item.plan_qty}
                           onChange={(v) => updateSubItem(group.key, item.key, 'plan_qty', v || 1)}
-                          style={{ width: 80 }}
+                          style={{ width: 110 }}
                           placeholder="수량"
                           addonAfter="개"
                         />
@@ -762,12 +733,12 @@ export default function ProductionPlanPage() {
                           min={0}
                           value={item.unit_cost}
                           onChange={(v) => updateSubItem(group.key, item.key, 'unit_cost', v)}
-                          style={{ width: 120 }}
+                          style={{ width: 160 }}
                           placeholder="원가(원)"
                           formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
                           parser={(v) => Number((v || '').replace(/,/g, ''))}
                         />
-                        <span style={{ width: 90, textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#555', flexShrink: 0 }}>
+                        <span style={{ width: 100, textAlign: 'right', fontWeight: 600, fontSize: 12, color: '#555', flexShrink: 0 }}>
                           {((item.plan_qty || 0) * (item.unit_cost || 0)).toLocaleString()}원
                         </span>
                         {group.items.length > 1 ? (
@@ -781,7 +752,7 @@ export default function ProductionPlanPage() {
                 {!group.items.some(i => i._sku) && (
                   <Button size="small" type="dashed" icon={<PlusOutlined />} style={{ width: '100%', marginTop: 4 }}
                     onClick={() => addSubItem(group.key)}>
-                    핏/기장 추가
+                    품목 추가
                   </Button>
                 )}
               </Card>
@@ -831,7 +802,7 @@ export default function ProductionPlanPage() {
                 {detail.total_amount ? (
                   <>
                     <Row gutter={12} style={{ marginBottom: 12 }}>
-                      <Col span={6}>
+                      <Col span={8}>
                         <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
                           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
                             <DollarOutlined /> 선지급
@@ -849,23 +820,7 @@ export default function ProductionPlanPage() {
                           )}
                         </div>
                       </Col>
-                      <Col span={6}>
-                        <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
-                          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
-                            <AuditOutlined /> 검수
-                          </div>
-                          <div style={{ fontWeight: 700, fontSize: 15, color: detail.inspect_status === 'PASS' ? '#52c41a' : detail.inspect_status === 'FAIL' ? '#ff4d4f' : '#ccc' }}>
-                            {detail.inspect_status === 'PASS' ? '합격' : detail.inspect_status === 'FAIL' ? '불합격' : '대기'}
-                          </div>
-                          {detail.inspect_status === 'PASS' && detail.inspect_qty != null && (
-                            <div style={{ fontSize: 11, color: '#999', marginTop: 2 }}>{fmtNum(detail.inspect_qty)}개</div>
-                          )}
-                          {detail.inspect_date && (
-                            <div style={{ fontSize: 11, color: '#999' }}>{new Date(detail.inspect_date).toLocaleDateString('ko-KR')}</div>
-                          )}
-                        </div>
-                      </Col>
-                      <Col span={6}>
+                      <Col span={8}>
                         <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
                           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
                             <BankOutlined /> 잔금
@@ -883,7 +838,7 @@ export default function ProductionPlanPage() {
                           )}
                         </div>
                       </Col>
-                      <Col span={6}>
+                      <Col span={8}>
                         <div style={{ textAlign: 'center', padding: '8px 4px', background: '#fff', borderRadius: 6, border: '1px solid #f0f0f0' }}>
                           <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
                             <FileDoneOutlined /> 정산
@@ -897,14 +852,12 @@ export default function ProductionPlanPage() {
                     <Steps
                       size="small"
                       current={
-                        detail.settle_status === 'SETTLED' ? 4 :
-                        detail.balance_status === 'PAID' ? 3 :
-                        detail.inspect_status === 'PASS' ? 2 :
+                        detail.settle_status === 'SETTLED' ? 3 :
+                        detail.balance_status === 'PAID' ? 2 :
                         detail.advance_status === 'PAID' ? 1 : 0
                       }
                       items={[
                         { title: '선지급', icon: <DollarOutlined /> },
-                        { title: '검수', icon: <AuditOutlined /> },
                         { title: '잔금', icon: <BankOutlined /> },
                         { title: '정산', icon: <FileDoneOutlined /> },
                       ]}
@@ -918,7 +871,9 @@ export default function ProductionPlanPage() {
               <Typography.Text strong>품목 목록</Typography.Text>
               <Space>
                 <Tag color="blue">총 {(detail.items || []).reduce((s, i) => s + i.plan_qty, 0).toLocaleString()}개</Tag>
-                <Tag color="gold">비용 {fmtNum(detailTotalCost)}원</Tag>
+                <Tag color="gold">매입비용 {fmtNum(detailTotalCost)}원</Tag>
+                {Number(detail.label_cost) > 0 && <Tag color="orange">라벨비용 {fmtNum(Number(detail.label_cost))}원</Tag>}
+                {Number(detail.material_cost) > 0 && <Tag color="volcano">자재비용 {fmtNum(Number(detail.material_cost))}원</Tag>}
                 {detail.status === 'IN_PRODUCTION' && (
                   <Button size="small" type="primary" icon={<CheckOutlined />}
                     onClick={handleSaveQty} loading={qtySubmitting}>
@@ -951,12 +906,6 @@ export default function ProductionPlanPage() {
                   children: (
                     <Table
                       columns={[
-                        { title: '세부카테고리', dataIndex: 'sub_category', key: 'sub', width: 120,
-                          render: (v: string) => v ? <Tag color="cyan">{subCatLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>-</span> },
-                        { title: '핏', dataIndex: 'fit', key: 'fit', width: 120,
-                          render: (v: string) => v ? <Tag>{fitLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>전체</span> },
-                        { title: '기장', dataIndex: 'length', key: 'len', width: 100,
-                          render: (v: string) => v ? <Tag>{lenLabelMap[v] || v}</Tag> : <span style={{ color: '#aaa' }}>전체</span> },
                         { title: '계획수량', dataIndex: 'plan_qty', key: 'plan', width: 90, render: (v: number) => fmtNum(v) },
                         { title: '원가(원)', dataIndex: 'unit_cost', key: 'cost', width: 100,
                           render: (v: number) => v ? `${fmtNum(v)}원` : '-' },
@@ -1004,8 +953,13 @@ export default function ProductionPlanPage() {
                   columns={[
                     { title: '자재명', dataIndex: 'material_name', key: 'name' },
                     { title: '유형', dataIndex: 'material_type', key: 'type', width: 70 },
+                    { title: '단가', key: 'price', width: 90, render: (_: any, r: any) => r.unit_price ? `${fmtNum(Number(r.unit_price))}원` : '-' },
                     { title: '필요량', key: 'req', width: 100, render: (_: any, r: any) => `${r.required_qty} ${r.unit}` },
                     { title: '사용량', key: 'used', width: 100, render: (_: any, r: any) => `${r.used_qty} ${r.unit}` },
+                    { title: '비용', key: 'cost', width: 110, render: (_: any, r: any) => {
+                      const cost = Number(r.used_qty || 0) * Number(r.unit_price || 0);
+                      return cost > 0 ? <strong>{fmtNum(cost)}원</strong> : '-';
+                    }},
                     { title: '재고', key: 'stock', width: 100, render: (_: any, r: any) => (
                       <span style={{ color: r.stock_qty < r.required_qty ? '#ef4444' : '#52c41a' }}>
                         {r.stock_qty} {r.unit}
@@ -1024,6 +978,17 @@ export default function ProductionPlanPage() {
               {detail.status === 'COMPLETED' && detail.settle_status !== 'SETTLED' && detail.balance_status === 'PAID' && (
                 <Popconfirm title="정산 완료 처리하시겠습니까?" onConfirm={() => handleSettle(detail.plan_id)}>
                   <Button icon={<FileDoneOutlined />} type="primary">정산완료</Button>
+                </Popconfirm>
+              )}
+              {['DRAFT', 'IN_PRODUCTION', 'COMPLETED'].includes(detail.status) && detail.settle_status !== 'SETTLED' && (
+                <Popconfirm
+                  title={
+                    detail.status === 'COMPLETED' ? '완료된 계획을 취소하시겠습니까? 자재가 복원되고 입고대기가 삭제됩니다.' :
+                    detail.status === 'IN_PRODUCTION' ? '생산중인 계획을 취소하시겠습니까?' : '이 계획을 취소하시겠습니까?'
+                  }
+                  onConfirm={() => handleStatusChange(detail.plan_id, 'CANCELLED')}
+                >
+                  <Button danger icon={<StopOutlined />}>취소</Button>
                 </Popconfirm>
               )}
               {detail.status === 'DRAFT' && (
@@ -1094,7 +1059,7 @@ export default function ProductionPlanPage() {
         onOk={handleBalanceSubmit}
         confirmLoading={balanceLoading}
         okText="잔금지급 + 완료처리"
-        width={480}
+        width={640}
       >
         {balancePlan && (
           <div style={{ marginTop: 16 }}>
@@ -1112,6 +1077,65 @@ export default function ProductionPlanPage() {
                 {fmtNum((Number(balancePlan.total_amount) || 0) - (Number(balancePlan.advance_amount) || 0))}원
               </div>
             </div>
+
+            {/* 자재 사용 등록 (필수) */}
+            <div style={{ marginBottom: 16, padding: 12, background: '#fff7e6', borderRadius: 8, border: '1px solid #ffd591' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <Typography.Text strong style={{ color: '#fa8c16' }}>
+                  사용 자재 등록 <span style={{ color: '#cf1322', fontSize: 11 }}>*필수</span>
+                </Typography.Text>
+                <Space size={4}>
+                  {selectedMaterials.length > 0 && (
+                    <Tag color="orange">
+                      자재비 {fmtNum(selectedMaterials.reduce((sum, sm) => {
+                        const mat = allMaterials.find(m => m.material_id === sm.material_id);
+                        return sum + (sm.used_qty || 0) * Number(mat?.unit_price || 0);
+                      }, 0))}원
+                    </Tag>
+                  )}
+                </Space>
+              </div>
+              {selectedMaterials.map((sm, idx) => {
+                const mat = allMaterials.find(m => m.material_id === sm.material_id);
+                return (
+                  <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                    <Select
+                      value={sm.material_id || undefined}
+                      onChange={(v) => {
+                        setSelectedMaterials(prev => prev.map((s, i) => i === idx ? { ...s, material_id: v } : s));
+                      }}
+                      placeholder="자재 선택"
+                      showSearch optionFilterProp="label"
+                      style={{ flex: 1 }}
+                      options={allMaterials
+                        .filter(m => m.material_id === sm.material_id || !selectedMaterials.some(s => s.material_id === m.material_id))
+                        .map(m => ({ label: `${m.material_name} (${m.unit_price?.toLocaleString()}원/${m.unit})`, value: m.material_id }))}
+                    />
+                    <InputNumber
+                      min={1}
+                      value={sm.used_qty}
+                      onChange={(v) => {
+                        setSelectedMaterials(prev => prev.map((s, i) => i === idx ? { ...s, used_qty: v || 1 } : s));
+                      }}
+                      style={{ width: 90 }}
+                      addonAfter={mat?.unit || '개'}
+                    />
+                    <span style={{ fontSize: 12, color: '#888', minWidth: 70, textAlign: 'right' }}>
+                      {mat ? `${fmtNum((sm.used_qty || 0) * Number(mat.unit_price || 0))}원` : '-'}
+                    </span>
+                    <Button size="small" type="text" danger icon={<MinusCircleOutlined />}
+                      onClick={() => setSelectedMaterials(prev => prev.filter((_, i) => i !== idx))} />
+                  </div>
+                );
+              })}
+              <Button size="small" type="dashed" icon={<PlusOutlined />}
+                style={{ width: '100%', marginTop: 4 }}
+                onClick={() => setSelectedMaterials(prev => [...prev, { material_id: 0, used_qty: 1 }])}
+                disabled={selectedMaterials.length >= allMaterials.length}>
+                자재 추가
+              </Button>
+            </div>
+
             <Form form={balanceForm} layout="vertical">
               <Form.Item name="balance_date" label="잔금 지급일" rules={[{ required: true }]}>
                 <DatePicker style={{ width: '100%' }} />

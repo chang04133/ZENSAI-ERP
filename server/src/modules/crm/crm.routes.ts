@@ -1,10 +1,15 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { crmController } from './crm.controller';
 import { authMiddleware } from '../../auth/middleware';
 import { requireRole } from '../../middleware/role-guard';
+import { asyncHandler } from '../../core/async-handler';
+import { getStorePartnerCode } from '../../core/store-filter';
+import { crmService } from './crm.service';
 import campaignRoutes from './campaign.routes';
 import segmentRoutes from './segment.routes';
 import asRoutes from './as.routes';
+import autoCampaignRoutes from './auto-campaign.routes';
+import rfmRoutes from './rfm.routes';
 
 const router = Router();
 const readRoles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
@@ -12,10 +17,12 @@ const writeRoles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
 
 router.use(authMiddleware);
 
-// 캠페인 / 템플릿 (하위 라우트)
+// 하위 라우트
 router.use('/campaigns', campaignRoutes);
 router.use('/segments', segmentRoutes);
 router.use('/after-sales', asRoutes);
+router.use('/auto-campaigns', autoCampaignRoutes);
+router.use('/rfm', rfmRoutes);
 
 // 대시보드
 router.get('/dashboard', requireRole(...readRoles), crmController.dashboard);
@@ -69,5 +76,52 @@ router.get('/:id/messages', requireRole(...readRoles), crmController.getMessageH
 
 // Dormant per-customer
 router.post('/:id/reactivate', requireRole(...writeRoles), crmController.reactivateCustomer);
+
+/* ─── 등급 자동 산정 ─── */
+router.get('/tiers/rules', requireRole(...readRoles), asyncHandler(async (_req: Request, res: Response) => {
+  const data = await crmService.getTierRules();
+  res.json({ success: true, data });
+}));
+router.post('/tiers/recalculate', requireRole(...writeRoles), asyncHandler(async (_req: Request, res: Response) => {
+  const result = await crmService.recalculateAllTiers();
+  res.json({ success: true, data: result });
+}));
+router.get('/tiers/history', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const result = await crmService.getTierHistory(undefined, req.query);
+  res.json({ success: true, ...result });
+}));
+router.post('/:id/tier/recalculate', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
+  const result = await crmService.recalculateTier(Number(req.params.id));
+  res.json({ success: true, data: result });
+}));
+router.get('/:id/tier-history', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const result = await crmService.getTierHistory(Number(req.params.id), req.query);
+  res.json({ success: true, ...result });
+}));
+
+/* ─── 포인트 ─── */
+router.get('/:id/points', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const { pointsService } = await import('./points.service');
+  const data = await pointsService.getPoints(Number(req.params.id));
+  res.json({ success: true, data });
+}));
+router.post('/:id/points/earn', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
+  const { pointsService } = await import('./points.service');
+  const { amount, sale_id, description } = req.body;
+  const data = await pointsService.earn(Number(req.params.id), sale_id || null, amount || 0, req.user?.userId);
+  res.json({ success: true, data });
+}));
+router.post('/:id/points/use', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
+  const { pointsService } = await import('./points.service');
+  const { points, description } = req.body;
+  if (!points || points <= 0) { res.status(400).json({ success: false, error: '포인트는 양수여야 합니다.' }); return; }
+  const data = await pointsService.use(Number(req.params.id), points, description || '수동 사용', req.user?.userId);
+  res.json({ success: true, data });
+}));
+router.get('/:id/points/transactions', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const { pointsService } = await import('./points.service');
+  const result = await pointsService.getTransactions(Number(req.params.id), req.query);
+  res.json({ success: true, ...result });
+}));
 
 export default router;

@@ -34,7 +34,6 @@ const METHOD_COLORS: Record<string, string> = {
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: '관리자',
-  SYS_ADMIN: '시스템관리자',
   HQ_MANAGER: '본사관리자',
   STORE_MANAGER: '매장관리자',
   STORE_STAFF: '매장직원',

@@ -10,7 +10,7 @@ import {
 import type { UploadFile } from 'antd/es/upload';
 import Upload from 'antd/es/upload';
 import { inboundApi } from '../../modules/inbound/inbound.api';
-import { useInboundStore } from '../../modules/inbound/inbound.store';
+// useInboundStore 제거 — HistoryTab에서 직접 API 호출로 변경
 import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
@@ -60,6 +60,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   };
 
   const handleExcelUpload = async () => {
+    if (excelUploading) return;
     try {
       await excelForm.validateFields();
     } catch { return; }
@@ -155,6 +156,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
   };
 
   const handleSubmit = async () => {
+    if (creating) return;
     if (items.length === 0) {
       message.warning('입고할 품목을 추가해주세요.');
       return;
@@ -178,7 +180,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
           unit_price: i.unit_price || undefined,
         })),
       });
-      message.success('입고가 등록되었습니다.');
+      message.success('입고가 등록되었습니다. 입고 내역에서 확정해주세요.');
       form.resetFields();
       form.setFieldsValue({ inbound_date: dayjs() });
       setItems([]);
@@ -351,9 +353,11 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
 /* ── 입고 내역 탭 ── */
 function HistoryTab({ partners }: { partners: any[] }) {
   const user = useAuthStore((s) => s.user);
-  const isAdmin = [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user?.role as any);
+  const isAdmin = user && [ROLES.ADMIN, ROLES.SYS_ADMIN].includes(user.role as any);
   const isHQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user?.role as any);
-  const { data, total, loading, fetchList } = useInboundStore();
+  const [data, setData] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [partnerFilter, setPartnerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -375,8 +379,8 @@ function HistoryTab({ partners }: { partners: any[] }) {
   const searchTimerRef2 = useRef<ReturnType<typeof setTimeout>>();
 
   // 요약 통계
+  const [sumQty, setSumQty] = useState(0);
   const todayCount = data.filter((d: any) => d.inbound_date && dayjs(d.inbound_date).isSame(dayjs(), 'day')).length;
-  const totalQty = data.reduce((s: number, d: any) => s + (Number(d.total_qty) || 0), 0);
   const pendingCount = data.filter((d: any) => d.status === 'PENDING').length;
 
   const load = useCallback((p = 1) => {
@@ -386,9 +390,17 @@ function HistoryTab({ partners }: { partners: any[] }) {
     if (search) params.search = search;
     if (dateRange[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
     if (dateRange[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
-    fetchList(params);
+    setLoading(true);
+    const q = new URLSearchParams(params).toString();
+    apiFetch(`/api/inbounds?${q}`).then(r => r.json()).then(d => {
+      if (d.success) {
+        setData(d.data?.data || []);
+        setTotal(d.data?.total || 0);
+        setSumQty(Number(d.data?.sumQty) || 0);
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
     setPage(p);
-  }, [partnerFilter, statusFilter, dateRange, search, fetchList]);
+  }, [partnerFilter, statusFilter, dateRange, search]);
 
   useEffect(() => { load(1); }, [load]);
 
@@ -418,9 +430,25 @@ function HistoryTab({ partners }: { partners: any[] }) {
   // ── 입고확정 ──
   const openConfirmModal = (record: InboundRecord) => {
     setConfirmRecord(record);
-    setConfirmItems([]);
     setConfirmOpen(true);
     setDetailOpen(false);
+
+    // 기존 items가 있으면 프리로드 (수동 입고 등록 건)
+    if (record.items?.length) {
+      setConfirmItems(record.items.map((item: any) => ({
+        key: `${item.variant_id}-${Date.now()}-${Math.random()}`,
+        variant_id: item.variant_id,
+        product_code: item.product_code,
+        product_name: item.product_name,
+        sku: item.sku,
+        color: item.color,
+        size: item.size,
+        qty: item.qty,
+        unit_price: item.unit_price || 0,
+      })));
+    } else {
+      setConfirmItems([]);
+    }
   };
 
   const handleVSearch = (value: string) => {
@@ -475,7 +503,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
   const handleConfirm = async () => {
     if (!confirmRecord) return;
     if (confirmItems.length === 0) { message.warning('품목을 추가해주세요.'); return; }
-    if (confirmRecord.expected_qty && confirmTotalQty !== confirmRecord.expected_qty) {
+    if (confirmRecord.source_type === 'PRODUCTION' && (confirmRecord.expected_qty ?? 0) > 0 && confirmTotalQty !== confirmRecord.expected_qty) {
       message.error(`입고 수량(${confirmTotalQty}개)이 예상 수량(${confirmRecord.expected_qty}개)과 일치하지 않습니다.`);
       return;
     }
@@ -500,9 +528,14 @@ function HistoryTab({ partners }: { partners: any[] }) {
         ? <Tag color="orange">대기중</Tag>
         : <Tag color="green">완료</Tag>,
     },
-    { title: '입고일', dataIndex: 'inbound_date', width: 110,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+    { title: '입고일', dataIndex: 'inbound_date', width: 120,
+      render: (v: string) => v ? dayjs(v).format('MM.DD HH:mm') : '-' },
     { title: '거래처', dataIndex: 'partner_name', width: 130, ellipsis: true },
+    { title: '생산계획', key: 'plan', width: 150, ellipsis: true,
+      render: (_: unknown, r: any) => r.plan_no
+        ? <span style={{ color: '#722ed1' }}>{r.plan_no}{r.plan_name ? ` ${r.plan_name}` : ''}</span>
+        : <span style={{ color: '#ccc' }}>-</span>,
+    },
     { title: '품목수', dataIndex: 'item_count', width: 80, render: (v: number) => `${v}건` },
     { title: '총수량', dataIndex: 'total_qty', width: 90,
       render: (v: number, r: any) => r.status === 'PENDING'
@@ -570,7 +603,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
         <Col xs={12} sm={6}>
           <div style={{ background: '#f6ffed', borderRadius: 8, padding: '12px 16px', textAlign: 'center' }}>
             <div style={{ fontSize: 11, color: '#52c41a99' }}>조회 총수량</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{fmt(totalQty)}개</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: '#52c41a' }}>{fmt(sumQty)}개</div>
           </div>
         </Col>
         <Col xs={12} sm={6}>
@@ -638,7 +671,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
                 <Button type="primary" icon={<CheckCircleOutlined />}
                   onClick={() => openConfirmModal(detailData)}>입고확정</Button>
               )}
-              {isAdmin && (
+              {isHQ && (
                 <Popconfirm title={detailData.status === 'COMPLETED' ? '삭제하면 재고가 원복됩니다. 삭제하시겠습니까?' : '대기중 입고를 삭제하시겠습니까?'}
                   onConfirm={() => handleDelete(detailData.record_id)}>
                   <Button danger>삭제{detailData.status === 'COMPLETED' ? ' (재고 원복)' : ''}</Button>
@@ -659,13 +692,18 @@ function HistoryTab({ partners }: { partners: any[] }) {
               <Col span={6}>입고일: <b>{dayjs(detailData.inbound_date).format('YYYY-MM-DD')}</b></Col>
               <Col span={6}>등록자: <b>{detailData.created_by}</b></Col>
             </Row>
+            {detailData.plan_no && (
+              <div style={{ marginBottom: 8, color: '#722ed1', fontWeight: 500 }}>
+                생산계획: {detailData.plan_no}{detailData.plan_name ? ` — ${detailData.plan_name}` : ''}
+              </div>
+            )}
             {detailData.expected_qty != null && detailData.status === 'PENDING' && (
               <div style={{ marginBottom: 8, color: '#fa8c16', fontWeight: 500 }}>
                 예상 수량: {fmt(detailData.expected_qty)}개
               </div>
             )}
             {detailData.memo && <div style={{ marginBottom: 8, color: '#666' }}>비고: {detailData.memo}</div>}
-            {detailData.status === 'COMPLETED' && (
+            {(detailData.items || []).length > 0 && (
               <>
                 <Table dataSource={detailData.items || []} columns={detailItemCols} rowKey="item_id"
                   size="small" pagination={false} loading={detailLoading} />
@@ -675,9 +713,14 @@ function HistoryTab({ partners }: { partners: any[] }) {
                 </div>
               </>
             )}
-            {detailData.status === 'PENDING' && (
+            {detailData.status === 'PENDING' && (detailData.items || []).length === 0 && (
               <div style={{ padding: 16, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16' }}>
                 입고확정 버튼을 눌러 품목을 추가하고 재고를 반영하세요.
+              </div>
+            )}
+            {detailData.status === 'PENDING' && (detailData.items || []).length > 0 && (
+              <div style={{ marginTop: 8, padding: 12, background: '#fffbe6', borderRadius: 8, textAlign: 'center', color: '#fa8c16', fontSize: 13 }}>
+                입고 대기중 — 입고확정 버튼을 눌러 재고를 반영하세요.
               </div>
             )}
           </div>
@@ -736,7 +779,7 @@ export default function InboundPage() {
   const [partners, setPartners] = useState<any[]>([]);
 
   useEffect(() => {
-    apiFetch('/api/partners?limit=1000').then((r) => r.json()).then((d) => {
+    apiFetch('/api/partners?limit=1000&scope=transfer').then((r) => r.json()).then((d) => {
       if (d.success) setPartners(d.data?.data || d.data || []);
     }).catch((e) => { message.error('거래처 목록 로드 실패: ' + (e.message || '')); });
   }, []);

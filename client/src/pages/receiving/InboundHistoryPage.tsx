@@ -24,8 +24,8 @@ export default function InboundHistoryPage() {
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string | undefined>();
-  const [sourceFilter, setSourceFilter] = useState<string | undefined>();
+  const [statusFilter, setStatusFilter] = useState<string[]>([]);
+  const [sourceFilter, setSourceFilter] = useState<string[]>([]);
   const [partnerFilter, setPartnerFilter] = useState<string | undefined>();
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
   const [partners, setPartners] = useState<any[]>([]);
@@ -40,7 +40,7 @@ export default function InboundHistoryPage() {
   const [expandLoading, setExpandLoading] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
-    apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
+    apiFetch('/api/partners?limit=1000&scope=transfer').then(r => r.json()).then(d => {
       if (d.success) setPartners(d.data?.data || d.data || []);
     }).catch(() => {});
   }, []);
@@ -51,8 +51,8 @@ export default function InboundHistoryPage() {
     try {
       const params: Record<string, string> = { page: String(currentPage), limit: '50' };
       if (search) params.search = search;
-      if (statusFilter) params.status = statusFilter;
-      if (sourceFilter) params.source_type = sourceFilter;
+      if (statusFilter.length) params.status = statusFilter.join(',');
+      if (sourceFilter.length) params.source_type = sourceFilter.join(',');
       if (partnerFilter) params.partner_code = partnerFilter;
       if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
       if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
@@ -116,8 +116,8 @@ export default function InboundHistoryPage() {
 
   const columns = [
     { title: '입고번호', dataIndex: 'inbound_no', key: 'inbound_no', width: 140 },
-    { title: '입고일', dataIndex: 'inbound_date', key: 'inbound_date', width: 100,
-      render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+    { title: '입고일', dataIndex: 'inbound_date', key: 'inbound_date', width: 120,
+      render: (v: string) => v ? dayjs(v).format('MM.DD HH:mm') : '-' },
     { title: '상태', dataIndex: 'status', key: 'status', width: 80,
       render: (v: string) => <Tag color={STATUS_COLORS[v]}>{STATUS_LABELS[v] || v}</Tag> },
     { title: '출처', dataIndex: 'source_type', key: 'source_type', width: 120,
@@ -147,11 +147,11 @@ export default function InboundHistoryPage() {
           <Input placeholder="입고번호 검색" prefix={<SearchOutlined />} value={search}
             onChange={e => setSearch(e.target.value)} onPressEnter={() => { setPage(1); load(1); }} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select value={statusFilter || ''} onChange={v => setStatusFilter(v || undefined)} style={{ width: 120 }}
-            options={[{ label: '전체', value: '' }, { label: '대기중', value: 'PENDING' }, { label: '완료', value: 'COMPLETED' }]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" value={statusFilter} onChange={setStatusFilter} style={{ width: 160 }}
+            placeholder="전체" allowClear options={[{ label: '대기중', value: 'PENDING' }, { label: '완료', value: 'COMPLETED' }]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>출처</div>
-          <Select value={sourceFilter || ''} onChange={v => setSourceFilter(v || undefined)} style={{ width: 120 }}
-            options={[{ label: '전체', value: '' }, { label: '생산', value: 'PRODUCTION' }, { label: '수동', value: 'MANUAL' }]} /></div>
+          <Select mode="multiple" maxTagCount="responsive" value={sourceFilter} onChange={setSourceFilter} style={{ width: 160 }}
+            placeholder="전체" allowClear options={[{ label: '생산', value: 'PRODUCTION' }, { label: '수동', value: 'MANUAL' }]} /></div>
         {isHQ && (
           <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
             <Select showSearch optionFilterProp="label" value={partnerFilter || ''} onChange={v => setPartnerFilter(v || undefined)} style={{ width: 160 }}

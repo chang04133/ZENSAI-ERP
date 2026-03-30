@@ -3,7 +3,7 @@ import { campaignController } from './campaign.controller';
 import { requireRole } from '../../middleware/role-guard';
 
 const router = Router();
-const roles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
+const roles = ['ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
 
 // 캠페인
 router.get('/', requireRole(...roles), campaignController.list);

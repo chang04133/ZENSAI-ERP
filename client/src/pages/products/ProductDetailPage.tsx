@@ -183,11 +183,8 @@ export default function ProductDetailPage() {
         <Descriptions column={3} bordered size="small">
           <Descriptions.Item label="상품코드">{product.product_code}</Descriptions.Item>
           <Descriptions.Item label="카테고리">{product.category || '-'}</Descriptions.Item>
-          <Descriptions.Item label="세부카테고리">{product.sub_category || '-'}</Descriptions.Item>
           <Descriptions.Item label="브랜드">{product.brand || '-'}</Descriptions.Item>
           <Descriptions.Item label="시즌">{product.season || '-'}</Descriptions.Item>
-          <Descriptions.Item label="핏">{product.fit ? <Tag color="geekblue">{product.fit}</Tag> : '-'}</Descriptions.Item>
-          <Descriptions.Item label="기장">{product.length ? <Tag color="volcano">{product.length}</Tag> : '-'}</Descriptions.Item>
           <Descriptions.Item label="판매상태">
             <Tag color={SALE_STATUS_COLORS[product.sale_status] || 'default'}>{product.sale_status || '-'}</Tag>
           </Descriptions.Item>

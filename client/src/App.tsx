@@ -6,7 +6,8 @@ import { useAuthStore } from './modules/auth/auth.store';
 import ProtectedRoute from './components/ProtectedRoute';
 import ErrorBoundary from './components/ErrorBoundary';
 import MainLayout from './layouts/MainLayout';
-import { appRoutes, LoginPage } from './routes';
+import CrmLayout from './layouts/CrmLayout';
+import { appRoutes, crmRoutes, LoginPage, ConsentPage } from './routes';
 import './styles/global.css';
 
 const Loading = () => (
@@ -46,6 +47,7 @@ export default function App() {
         <Suspense fallback={<Loading />}>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
+            <Route path="/consent/:partnerCode" element={<ConsentPage />} />
             <Route path="/" element={<ProtectedRoute><MainLayout /></ProtectedRoute>}>
               {appRoutes.map((route) => (
                 <Route
@@ -54,7 +56,21 @@ export default function App() {
                   index={route.path === '/'}
                   element={
                     route.roles
-                      ? <ProtectedRoute allowedRoles={route.roles}>{route.element}</ProtectedRoute>
+                      ? <ProtectedRoute allowedRoles={route.roles} routePath={route.path}>{route.element}</ProtectedRoute>
+                      : route.element
+                  }
+                />
+              ))}
+            </Route>
+            <Route path="/crm" element={<ProtectedRoute><CrmLayout /></ProtectedRoute>}>
+              {crmRoutes.map((route) => (
+                <Route
+                  key={route.path || 'crm-index'}
+                  path={route.path || undefined}
+                  index={!route.path}
+                  element={
+                    route.roles
+                      ? <ProtectedRoute allowedRoles={route.roles} routePath={`/crm/${route.path}`}>{route.element}</ProtectedRoute>
                       : route.element
                   }
                 />

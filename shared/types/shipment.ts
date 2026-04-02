@@ -10,6 +10,9 @@ export interface ShipmentRequest {
   request_type: ShipmentRequestType;
   status: ShipmentStatus;
   memo: string | null;
+  tracking_number?: string | null;
+  carrier?: string | null;
+  tracking_notified?: boolean;
   requested_by: string | null;
   approved_by: string | null;
   created_at: string;

@@ -45,6 +45,16 @@ export const shipmentApi = {
     return data.data;
   },
 
+  /** 송장번호 등록 */
+  updateTracking: async (id: number, body: { tracking_number: string; carrier?: string }) => {
+    const res = await apiFetch(`/api/shipments/${id}/tracking`, {
+      method: 'PUT', body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data as { success: boolean; data: ShipmentRequest; notified: boolean };
+  },
+
   /** 엑셀 업로드 */
   uploadExcel: async (file: File) => {
     const formData = new FormData();

@@ -10,6 +10,7 @@ router.get('/summary', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MAN
 router.put('/:id/shipped-qty', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.updateShippedQty);
 router.put('/:id/ship-confirm', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.shipConfirm);
 router.put('/:id/receive', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.receive);
+router.put('/:id/tracking', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), shipmentController.updateTracking);
 
 // 기본 CRUD
 shipmentController.registerCrudRoutes(router, {

@@ -380,6 +380,78 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     res.json({ success: true, data: result });
   });
 
+  /** 송장번호 등록 + 알림톡 발송 */
+  updateTracking = asyncHandler(async (req: Request, res: Response) => {
+    const requestId = parseInt(req.params.id as string, 10);
+    if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
+    if (!(await this.checkStoreAccess(req, res, requestId))) return;
+
+    const { tracking_number, carrier } = req.body;
+    if (!tracking_number || !String(tracking_number).trim()) {
+      res.status(400).json({ success: false, error: '송장번호를 입력해주세요.' }); return;
+    }
+
+    const pool = getPool();
+    // 상태 검증: SHIPPED 이상만
+    const current = await pool.query('SELECT * FROM shipment_requests WHERE request_id = $1', [requestId]);
+    if (current.rows.length === 0) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
+    const shipment = current.rows[0];
+    if (!['SHIPPED', 'RECEIVED', 'DISCREPANCY'].includes(shipment.status)) {
+      res.status(400).json({ success: false, error: '출고완료(SHIPPED) 이후에만 송장번호를 등록할 수 있습니다.' }); return;
+    }
+
+    // 송장번호 저장
+    await pool.query(
+      `UPDATE shipment_requests SET tracking_number = $1, carrier = $2, updated_at = NOW() WHERE request_id = $3`,
+      [String(tracking_number).trim(), carrier || null, requestId],
+    );
+
+    // 알림톡 발송 시도 (customer_phone이 있을 때)
+    let notified = false;
+    if (shipment.customer_phone) {
+      try {
+        // from_partner의 sender settings 조회
+        const settings = await pool.query(
+          'SELECT * FROM partner_sender_settings WHERE partner_code = $1', [shipment.from_partner],
+        );
+        const s = settings.rows[0];
+        if (s && (s.kakao_enabled || s.sms_enabled)) {
+          const { KakaoSender } = await import('../crm/senders/kakao.sender');
+          const carrierLabel = carrier || '택배';
+          const msgContent = `안녕하세요, 주문하신 상품이 발송되었습니다.\n택배사: ${carrierLabel}\n송장번호: ${tracking_number}\n감사합니다.`;
+
+          if (s.kakao_enabled && s.kakao_sender_key) {
+            const sender = new KakaoSender(s.sms_api_key, s.sms_api_secret, s.kakao_sender_key);
+            const result = await sender.send(shipment.customer_phone, msgContent);
+            notified = result.success;
+          } else if (s.sms_enabled && s.sms_api_key) {
+            const { CoolSmsSender } = await import('../crm/senders/coolsms.sender');
+            const sender = new CoolSmsSender(s.sms_api_key, s.sms_api_secret, s.sms_from_number);
+            const result = await sender.send(shipment.customer_phone, msgContent);
+            notified = result.success;
+          }
+        }
+      } catch (err: any) {
+        console.error('알림톡 발송 실패:', err.message);
+      }
+    }
+
+    if (notified) {
+      await pool.query('UPDATE shipment_requests SET tracking_notified = TRUE WHERE request_id = $1', [requestId]);
+    }
+
+    // DB 알림 저장
+    const { createNotification } = await import('../../core/notify');
+    createNotification(
+      'SHIPMENT', '송장번호 등록',
+      `${shipment.request_type} #${shipment.request_no} 송장번호가 등록되었습니다. (${carrier || '택배'}: ${tracking_number})`,
+      requestId, shipment.to_partner, req.user!.userId,
+    );
+
+    const updated = await shipmentService.getWithItems(requestId);
+    res.json({ success: true, data: updated, notified });
+  });
+
   /** 삭제: SHIPPED/DISCREPANCY 상태까지 삭제 가능 (재고 롤백 포함) */
   remove = asyncHandler(async (req: Request, res: Response) => {
     const id = parseInt(req.params.id as string, 10);

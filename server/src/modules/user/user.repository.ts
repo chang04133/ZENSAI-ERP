@@ -22,6 +22,7 @@ export class UserRepository extends BaseRepository<User> {
     const offset = (page - 1) * limit;
 
     const qb = new QueryBuilder('u');
+    qb.eq('is_active', true);
     if (search) qb.search(['user_id', 'user_name'], search);
     if (role_group) qb.raw('rg.group_name = ?', role_group);
     if (partner_code) qb.eq('partner_code', partner_code);

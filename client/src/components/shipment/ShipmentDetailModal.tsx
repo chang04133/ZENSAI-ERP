@@ -1,11 +1,14 @@
-import { Modal, Table, Tag, Button, Timeline, Space } from 'antd';
+import { useState } from 'react';
+import { Modal, Table, Tag, Button, Timeline, Space, Input, Select, message } from 'antd';
 import { PrinterOutlined, CheckCircleOutlined, ClockCircleOutlined, SendOutlined, CloseCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
 import { STATUS_COLORS, STATUS_LABELS } from './ShipmentConstants';
+import { shipmentApi } from '../../modules/shipment/shipment.api';
 
 interface Props {
   open: boolean;
   detail: any;
   onClose: () => void;
+  onUpdate?: (updated: any) => void;
 }
 
 const TIMELINE_STEPS = [
@@ -66,7 +69,67 @@ function handlePrint(detail: any) {
   }
 }
 
-export default function ShipmentDetailModal({ open, detail, onClose }: Props) {
+const CARRIERS = [
+  { value: 'CJ대한통운', label: 'CJ대한통운' },
+  { value: '한진택배', label: '한진택배' },
+  { value: '롯데택배', label: '롯데택배' },
+  { value: '로젠택배', label: '로젠택배' },
+  { value: '우체국택배', label: '우체국택배' },
+];
+
+function TrackingSection({ detail, onUpdate }: { detail: any; onUpdate?: (d: any) => void }) {
+  const [trackingNo, setTrackingNo] = useState(detail.tracking_number || '');
+  const [carrier, setCarrier] = useState(detail.carrier || '');
+  const [saving, setSaving] = useState(false);
+  const hasTracking = !!detail.tracking_number;
+
+  const handleSave = async () => {
+    if (!trackingNo.trim()) { message.warning('송장번호를 입력해주세요.'); return; }
+    setSaving(true);
+    try {
+      const result = await shipmentApi.updateTracking(detail.request_id, {
+        tracking_number: trackingNo.trim(), carrier: carrier || undefined,
+      });
+      message.success(result.notified ? '송장번호 저장 + 알림톡 발송 완료' : '송장번호 저장 완료');
+      onUpdate?.(result.data);
+    } catch (e: any) { message.error(e.message); }
+    finally { setSaving(false); }
+  };
+
+  if (!['SHIPPED', 'RECEIVED', 'DISCREPANCY'].includes(detail.status)) return null;
+
+  return (
+    <div style={{ marginTop: 12, padding: '10px 12px', background: '#f0f5ff', borderRadius: 6, border: '1px solid #adc6ff' }}>
+      <div style={{ fontWeight: 600, marginBottom: 8, color: '#1d39c4' }}>송장정보</div>
+      {hasTracking ? (
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 13 }}>
+          <div><strong>택배사:</strong> {detail.carrier || '-'}</div>
+          <div><strong>송장번호:</strong> {detail.tracking_number}</div>
+          <div>
+            <strong>알림톡:</strong>{' '}
+            {detail.tracking_notified
+              ? <Tag color="green">발송완료</Tag>
+              : <Tag color="default">미발송</Tag>}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Select
+            placeholder="택배사" value={carrier || undefined} onChange={setCarrier}
+            options={CARRIERS} style={{ width: 130 }} allowClear
+          />
+          <Input
+            placeholder="송장번호 입력" value={trackingNo} onChange={(e) => setTrackingNo(e.target.value)}
+            style={{ flex: 1 }} onPressEnter={handleSave}
+          />
+          <Button type="primary" loading={saving} onClick={handleSave}>저장</Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function ShipmentDetailModal({ open, detail, onClose, onUpdate }: Props) {
   return (
     <Modal
       title={`의뢰 상세 - ${detail?.request_no || ''}`}
@@ -100,6 +163,7 @@ export default function ShipmentDetailModal({ open, detail, onClose }: Props) {
                   </div>
                 </div>
               )}
+              <TrackingSection detail={detail} onUpdate={onUpdate} />
             </div>
             <div style={{ minWidth: 140 }}>
               <StatusTimeline status={detail.status} />

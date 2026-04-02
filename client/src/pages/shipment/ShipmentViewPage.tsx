@@ -148,7 +148,7 @@ export default function ShipmentViewPage() {
         expandable={{ expandedRowRender, onExpand: handleExpand, rowExpandable: () => true }}
       />
 
-      <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
+      <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} onUpdate={(d) => { setDetail(d); load(); }} />
     </div>
   );
 }

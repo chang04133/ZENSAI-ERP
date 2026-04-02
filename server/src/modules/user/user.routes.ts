@@ -9,6 +9,7 @@ const admin = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
 const adminOrStore = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER')];
 
 router.get('/roles', authMiddleware, userController.getRoles);
+router.put('/me', authMiddleware, userController.updateMyProfile);
 router.get('/',      ...adminOrStore, userController.list);
 router.get('/:id',   ...adminOrStore, userController.getById);
 router.post('/',     ...adminOrStore, validateRequired(['user_id', 'user_name', 'password', 'role_group']), userController.create);

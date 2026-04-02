@@ -27,6 +27,23 @@ class UserController extends BaseController<User> {
     return { level: ROLE_LEVEL[name] || 99, name };
   }
 
+  /** 내 정보 수정 (이름, 비밀번호만) */
+  updateMyProfile = asyncHandler(async (req: Request, res: Response) => {
+    const userId = req.user!.userId;
+    const { user_name, password } = req.body;
+    if (!user_name || !String(user_name).trim()) {
+      res.status(400).json({ success: false, error: '이름을 입력해주세요.' }); return;
+    }
+    if (password && password.length < 4) {
+      res.status(400).json({ success: false, error: '비밀번호는 4자 이상이어야 합니다.' }); return;
+    }
+    const updateData: any = { user_name: String(user_name).trim() };
+    if (password) updateData.password = password;
+    const user = await userService.updateUser(userId, updateData);
+    if (!user) { res.status(404).json({ success: false, error: '사용자를 찾을 수 없습니다.' }); return; }
+    res.json({ success: true, data: user });
+  });
+
   getRoles = asyncHandler(async (req: Request, res: Response) => {
     const roles = await userService.getRoleGroups();
     const myLv = this.myLevel(req);

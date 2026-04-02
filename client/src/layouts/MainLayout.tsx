@@ -83,6 +83,8 @@ export default function MainLayout() {
 
   const userMenu = {
     items: [
+      { key: 'profile', icon: getIcon('EditOutlined'), label: '내 정보 수정', onClick: () => navigate('/my-profile') },
+      { type: 'divider' as const },
       { key: 'logout', icon: getIcon('LogoutOutlined'), label: '로그아웃', onClick: handleLogout },
     ],
   };

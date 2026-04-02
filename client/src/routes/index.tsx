@@ -20,6 +20,7 @@ const DeadStockPage = lazy(() => import('../pages/products/DeadStockPage'));
 // Users
 const UserListPage = lazy(() => import('../pages/users/UserListPage'));
 const UserFormPage = lazy(() => import('../pages/users/UserFormPage'));
+const MyProfilePage = lazy(() => import('../pages/users/MyProfilePage'));
 
 // Codes
 const CodeManagePage = lazy(() => import('../pages/codes/CodeManagePage'));
@@ -128,6 +129,7 @@ export const appRoutes: AppRoute[] = [
   { path: '/codes', element: <CodeManagePage />, roles: ADMIN_SYS },
 
   // Users — 매장 매니저도 접근 가능 (서버에서 자기 매장 직원만 필터)
+  { path: '/my-profile', element: <MyProfilePage />, roles: ALL },
   { path: '/users', element: <UserListPage />, roles: ADMIN_HQ_STORE },
   { path: '/users/new', element: <UserFormPage />, roles: ADMIN_HQ_STORE },
   { path: '/users/:id/edit', element: <UserFormPage />, roles: ADMIN_HQ_STORE },

@@ -4,6 +4,7 @@ import { requireRole } from '../../middleware/role-guard';
 import { validateRequired } from '../../middleware/validate';
 import { salesRepository } from './sales.repository';
 import { inventoryRepository } from '../inventory/inventory.repository';
+import { shipmentService } from '../shipment/shipment.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
 
@@ -191,10 +192,14 @@ router.get('/comprehensive/detail', authMiddleware, asyncHandler(async (req, res
     res.status(400).json({ success: false, error: 'date_from, date_to 필수' });
     return;
   }
+  const role = req.user?.role;
+  const pc = req.user?.partnerCode;
+  // 매장 역할: 자기 매장만 조회
+  const effectivePartnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : (partner_code || undefined);
   const params: any[] = [date_from, date_to];
   let pcFilter = '';
-  if (partner_code) {
-    params.push(partner_code);
+  if (effectivePartnerCode) {
+    params.push(effectivePartnerCode);
     pcFilter = `AND s.partner_code = $${params.length}`;
   }
   let typeFilter = '';
@@ -286,6 +291,45 @@ router.get('/by-product/:code', authMiddleware, asyncHandler(async (req: Request
     params,
   );
   res.json({ success: true, data: result.rows });
+}));
+
+// 매출반품 목록 (반품관리 페이지용)
+router.get('/returns', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const role = req.user?.role;
+  const { page = '1', limit = '50', search, partner_code, date_from, date_to } = req.query as Record<string, string>;
+  const pc = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && req.user?.partnerCode
+    ? req.user.partnerCode
+    : partner_code || undefined;
+
+  const pool = getPool();
+  const params: any[] = [];
+  let idx = 1;
+  const conditions = [`s.sale_type = '반품'`];
+
+  if (pc) { conditions.push(`s.partner_code = $${idx++}`); params.push(pc); }
+  if (search) {
+    conditions.push(`(p.product_name ILIKE $${idx} OR pv.sku ILIKE $${idx} OR pt.partner_name ILIKE $${idx})`);
+    params.push(`%${search}%`); idx++;
+  }
+  if (date_from) { conditions.push(`s.sale_date >= $${idx++}`); params.push(date_from); }
+  if (date_to) { conditions.push(`s.sale_date <= $${idx++}`); params.push(date_to); }
+
+  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+  const countSql = `SELECT COUNT(*) FROM sales s JOIN product_variants pv ON s.variant_id = pv.variant_id JOIN products p ON pv.product_code = p.product_code JOIN partners pt ON s.partner_code = pt.partner_code ${where}`;
+  const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+  const offset = (Number(page) - 1) * Number(limit);
+  const dataSql = `
+    SELECT s.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+    FROM sales s
+    JOIN product_variants pv ON s.variant_id = pv.variant_id
+    JOIN products p ON pv.product_code = p.product_code
+    JOIN partners pt ON s.partner_code = pt.partner_code
+    ${where} ORDER BY s.sale_date DESC, s.created_at DESC
+    LIMIT $${idx++} OFFSET $${idx++}`;
+  const data = (await pool.query(dataSql, [...params, Number(limit), offset])).rows;
+
+  res.json({ success: true, data: { data, total, page: Number(page), limit: Number(limit) } });
 }));
 
 // 매출 목록 (JOIN 포함)
@@ -679,6 +723,31 @@ router.post('/direct-return',
       );
 
       await client.query('COMMIT');
+
+      // 물류반품 자동 생성 (매장→본사창고) — 매출반품 커밋 후 별도 트랜잭션
+      try {
+        // 본사 파트너 확인 (활성 본사 창고)
+        const hqResult = await pool.query(
+          `SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE ORDER BY partner_code LIMIT 1`
+        );
+        const hqCode = hqResult.rows[0]?.partner_code;
+        if (hqCode && pc !== hqCode) {
+          await shipmentService.createWithItems(
+            {
+              from_partner: pc,
+              to_partner: hqCode,
+              request_type: '반품',
+              memo: `매출반품 자동생성 (Sale#${returnSale.rows[0].sale_id})`,
+              requested_by: req.user!.userId,
+            },
+            [{ variant_id, request_qty: qty }],
+          );
+        }
+      } catch (shipErr: any) {
+        // 물류반품 실패해도 매출반품은 이미 커밋됨 — 로그만 남기고 진행
+        console.error('[direct-return] 물류반품 자동생성 실패:', shipErr.message);
+      }
+
       res.status(201).json({ success: true, data: returnSale.rows[0] });
     } catch (e) {
       await client.query('ROLLBACK');
@@ -688,6 +757,25 @@ router.post('/direct-return',
     }
   }),
 );
+
+// 반품 가능 수량 조회
+router.get('/:id/returnable', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
+  const saleId = Number(req.params.id);
+  const pool = getPool();
+  const orig = await pool.query('SELECT qty FROM sales WHERE sale_id = $1', [saleId]);
+  if (orig.rows.length === 0) {
+    res.status(404).json({ success: false, error: '매출 데이터를 찾을 수 없습니다.' });
+    return;
+  }
+  const totalQty = Number(orig.rows[0].qty);
+  const prevReturns = await pool.query(
+    `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
+     FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
+    [`%원본#${saleId})%`],
+  );
+  const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
+  res.json({ success: true, data: { total: totalQty, returned: alreadyReturned, remaining: totalQty - alreadyReturned } });
+}));
 
 // 반품 등록 (원본 매출 기반)
 router.post('/:id/return',
@@ -811,15 +899,34 @@ router.post('/:id/exchange',
         }
       }
 
-      // 반품 처리 (원본 상품)
-      const returnTotal = Math.round(old.qty * old.unit_price);
+      // 이미 반품된 수량 확인 (중복 반품 방지)
+      const prevReturns = await client.query(
+        `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
+         FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
+        [`%원본#${originalSaleId})%`],
+      );
+      const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
+      const remainingQty = old.qty - alreadyReturned;
+
+      if (remainingQty <= 0) {
+        await client.query('ROLLBACK');
+        res.status(400).json({
+          success: false,
+          error: `이미 전량 반품 처리되었습니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개)`,
+        });
+        return;
+      }
+
+      // 반품 처리 (남은 수량만큼만)
+      const returnQty = remainingQty;
+      const returnTotal = Math.round(returnQty * old.unit_price);
       const returnSale = await client.query(
         `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
          VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
-        [old.partner_code, old.variant_id, old.qty, old.unit_price, -returnTotal, return_reason, `교환반품(원본#${originalSaleId})`],
+        [old.partner_code, old.variant_id, returnQty, old.unit_price, -returnTotal, return_reason, `교환반품(원본#${originalSaleId})`],
       );
       await inventoryRepository.applyChange(
-        old.partner_code, old.variant_id, old.qty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
+        old.partner_code, old.variant_id, returnQty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
       );
 
       // 새 판매 처리 (교환 상품)

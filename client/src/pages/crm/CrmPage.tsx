@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card, Col, Row, Table, Tag, Input, Button, Select, Space, Modal, Form,
-  InputNumber, DatePicker, Descriptions, Spin, message, Popconfirm, Tabs, Timeline, Empty,
+  InputNumber, DatePicker, Descriptions, Spin, message, Popconfirm, Tabs, Timeline, Empty, Collapse, Badge, Rate, Tooltip, Popover,
 } from 'antd';
 import {
   TeamOutlined, UserAddOutlined, CrownOutlined, DollarOutlined,
@@ -9,13 +9,14 @@ import {
   PlusOutlined, ShoppingCartOutlined, PhoneOutlined, MailOutlined,
   DownloadOutlined, UploadOutlined, TagsOutlined, CloseOutlined,
   ToolOutlined, UserSwitchOutlined, MessageOutlined, EyeOutlined,
-  HistoryOutlined, SyncOutlined, GiftOutlined, StarOutlined,
+  HistoryOutlined, SyncOutlined, GiftOutlined, StarOutlined, ShopOutlined, SendOutlined,
+  FlagOutlined, SmileOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, useParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import StatCard from '../../components/StatCard';
 import HBar from '../../components/HBar';
-import { crmApi, afterSalesApi } from '../../modules/crm/crm.api';
+import { crmApi, afterSalesApi, couponApi } from '../../modules/crm/crm.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { partnerApi } from '../../modules/partner/partner.api';
 import { ROLES } from '../../../../shared/constants/roles';
@@ -31,6 +32,14 @@ const PAYMENT_OPTIONS = [
   { label: '계좌이체', value: '계좌이체' },
   { label: '기타', value: '기타' },
 ];
+const RFM_LABELS: Record<string, string> = {
+  CHAMPIONS: '최우수', LOYAL: '충성', POTENTIAL: '잠재VIP', NEW: '신규활성',
+  AT_RISK: '이탈위험', LOST: '이탈', REGULAR: '일반',
+};
+const RFM_COLORS: Record<string, string> = {
+  CHAMPIONS: '#f59e0b', LOYAL: '#8b5cf6', POTENTIAL: '#3b82f6', NEW: '#10b981',
+  AT_RISK: '#ef4444', LOST: '#6b7280', REGULAR: '#64748b',
+};
 
 /* ═══════════════════════════════════ 대시보드 ═══════════════════════════════════ */
 function DashboardView() {
@@ -41,6 +50,8 @@ function DashboardView() {
   const [loading, setLoading] = useState(true);
   const [dormantCount, setDormantCount] = useState(0);
   const [asOpenCount, setAsOpenCount] = useState(0);
+  const [rfmDist, setRfmDist] = useState<any[]>([]);
+  const [ltvTop, setLtvTop] = useState<any[]>([]);
 
   useEffect(() => {
     setLoading(true);
@@ -48,10 +59,14 @@ function DashboardView() {
       crmApi.dashboard(),
       crmApi.getDormantCount().catch(() => 0),
       afterSalesApi.stats().catch(() => ({ openCount: 0 })),
-    ]).then(([d, dc, as]) => {
+      crmApi.getRfmDistribution().catch(() => []),
+      crmApi.getLtvTop(10).catch(() => []),
+    ]).then(([d, dc, as, rfm, ltv]) => {
       setStats(d);
       setDormantCount(dc);
       setAsOpenCount(as.openCount || 0);
+      setRfmDist(rfm || []);
+      setLtvTop(ltv || []);
     }).catch((e: any) => message.error(e.message)).finally(() => setLoading(false));
   }, []);
 
@@ -180,6 +195,49 @@ function DashboardView() {
                 { title: '총 구매액', dataIndex: 'total_amount', key: 'a', width: 120, align: 'right' as const,
                   render: (v: number) => <strong>{Number(v).toLocaleString()}원</strong> },
               ]} />
+          </Card>
+        </Col>
+      </Row>
+
+      {/* RFM 세그먼트 분포 + LTV TOP */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col xs={24} md={12}>
+          <Card title="RFM 세그먼트 분포" size="small" style={{ borderRadius: 10, height: '100%' }}
+            extra={<Button size="small" icon={<SyncOutlined />} onClick={async () => {
+              try {
+                const [r, rec] = await Promise.all([
+                  crmApi.recalculateRfm(),
+                  crmApi.recalculateRecommendations().catch(() => ({ data: { calculated: 0 } })),
+                ]);
+                message.success(`RFM 재계산 완료: ${r.data?.updated || 0}명 / 추천 ${rec.data?.calculated || 0}건`);
+                crmApi.getRfmDistribution().then(d => setRfmDist(d || []));
+                crmApi.getLtvTop(10).then(d => setLtvTop(d || []));
+              } catch (e: any) { message.error(e.message); }
+            }}>재계산</Button>}>
+            {rfmDist.length > 0 ? (
+              <HBar data={rfmDist.map((s: any) => ({
+                label: RFM_LABELS[s.rfm_segment] || s.rfm_segment,
+                value: Number(s.count),
+                sub: `평균 ${Math.round(Number(s.avg_monetary || 0)).toLocaleString()}원 / LTV ${Math.round(Number(s.avg_ltv || 0)).toLocaleString()}원`,
+              }))} colorKey={RFM_COLORS} />
+            ) : <Empty description="RFM 데이터 없음 — 재계산을 실행해주세요" />}
+          </Card>
+        </Col>
+        <Col xs={24} md={12}>
+          <Card title="LTV TOP 10 고객" size="small" style={{ borderRadius: 10, height: '100%' }}>
+            {ltvTop.length > 0 ? (
+              <Table dataSource={ltvTop} rowKey="customer_id" size="small" pagination={false}
+                columns={[
+                  { title: '이름', dataIndex: 'customer_name', key: 'n',
+                    render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/crm/${r.customer_id}`)}>{v}</Button> },
+                  { title: '등급', dataIndex: 'customer_tier', key: 't', width: 70,
+                    render: (v: string) => <Tag color={TIER_COLORS[v]}>{v}</Tag> },
+                  { title: 'RFM', dataIndex: 'rfm_segment', key: 'rfm', width: 80,
+                    render: (v: string) => <Tag color={RFM_COLORS[v] || 'default'}>{RFM_LABELS[v] || v}</Tag> },
+                  { title: '연간 LTV', dataIndex: 'ltv_annual', key: 'ltv', width: 120, align: 'right' as const,
+                    render: (v: number) => <strong>{Number(v || 0).toLocaleString()}원</strong> },
+                ]} />
+            ) : <Empty description="LTV 데이터 없음" />}
           </Card>
         </Col>
       </Row>
@@ -461,6 +519,7 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
   const [visitTotal, setVisitTotal] = useState(0);
   const [visitLoading, setVisitLoading] = useState(false);
   const [visitFormOpen, setVisitFormOpen] = useState(false);
+  const [visitSubmitting, setVisitSubmitting] = useState(false);
   const [visitForm] = Form.useForm();
 
   // 상담이력
@@ -468,6 +527,7 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
   const [consultTotal, setConsultTotal] = useState(0);
   const [consultLoading, setConsultLoading] = useState(false);
   const [consultFormOpen, setConsultFormOpen] = useState(false);
+  const [consultSubmitting, setConsultSubmitting] = useState(false);
   const [consultForm] = Form.useForm();
 
   // 구매패턴
@@ -483,13 +543,49 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
   const [tierHistory, setTierHistory] = useState<any[]>([]);
   const [tierHistoryLoading, setTierHistoryLoading] = useState(false);
 
+  // 택배발송
+  const [shipments, setShipments] = useState<any[]>([]);
+  const [shipmentTotal, setShipmentTotal] = useState(0);
+  const [shipmentLoading, setShipmentLoading] = useState(false);
+  const [shipmentFormOpen, setShipmentFormOpen] = useState(false);
+  const [shipmentSubmitting, setShipmentSubmitting] = useState(false);
+  const [shipmentForm] = Form.useForm();
+
   // 포인트
   const [points, setPoints] = useState<any>(null);
   const [pointTxns, setPointTxns] = useState<any[]>([]);
   const [pointsLoading, setPointsLoading] = useState(false);
   const [usePointsOpen, setUsePointsOpen] = useState(false);
+  const [usePointsSubmitting, setUsePointsSubmitting] = useState(false);
   const [usePointsAmount, setUsePointsAmount] = useState(0);
   const [usePointsDesc, setUsePointsDesc] = useState('');
+
+  // 쿠폰
+  const [customerCoupons, setCustomerCoupons] = useState<any[]>([]);
+  const [couponLoading, setCouponLoading] = useState(false);
+
+  // RFM
+  const [customerRfm, setCustomerRfm] = useState<any>(null);
+  const [rfmLoading, setRfmLoading] = useState(false);
+
+  // 추천
+  const [recommendations, setRecommendations] = useState<any[]>([]);
+
+  // 플래그
+  const [flags, setFlags] = useState<any[]>([]);
+  const [allFlags, setAllFlags] = useState<any[]>([]);
+  const [flagSelectOpen, setFlagSelectOpen] = useState(false);
+
+  // 피드백/만족도
+  const [feedback, setFeedback] = useState<any[]>([]);
+  const [feedbackTotal, setFeedbackTotal] = useState(0);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [feedbackFormOpen, setFeedbackFormOpen] = useState(false);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
+  const [feedbackForm] = Form.useForm();
+
+  // 탭 lazy load 중복 호출 방지
+  const [loadedTabs, setLoadedTabs] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!isStore) {
@@ -519,36 +615,57 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
     crmApi.listTags().then(setAllTags).catch(() => {});
   }, [customerId]);
 
-  useEffect(() => { loadCustomer(); loadTags(); }, [loadCustomer, loadTags]);
+  const loadFlags = useCallback(() => {
+    crmApi.getCustomerFlags(customerId).then(setFlags).catch(() => {});
+    crmApi.listFlags().then(setAllFlags).catch(() => {});
+  }, [customerId]);
+
+  useEffect(() => { loadCustomer(); loadTags(); loadFlags(); }, [loadCustomer, loadTags, loadFlags]);
   useEffect(() => { loadPurchases(); }, [loadPurchases]);
 
-  // 탭 변경 시 lazy load
+  // 탭 변경 시 lazy load (loadedTabs로 중복 호출 방지)
   useEffect(() => {
-    if (activeTab === 'visits' && visits.length === 0 && !visitLoading) {
+    if (loadedTabs.has(activeTab)) return;
+    const markLoaded = () => setLoadedTabs(prev => new Set(prev).add(activeTab));
+    if (activeTab === 'visits') {
       setVisitLoading(true);
       crmApi.getVisits(customerId).then((r: any) => { setVisits(r.data || []); setVisitTotal(r.total || 0); })
-        .catch(() => {}).finally(() => setVisitLoading(false));
+        .catch(() => {}).finally(() => { setVisitLoading(false); markLoaded(); });
     }
-    if (activeTab === 'consultations' && consultations.length === 0 && !consultLoading) {
+    if (activeTab === 'consultations') {
       setConsultLoading(true);
       crmApi.getConsultations(customerId).then((r: any) => { setConsultations(r.data || []); setConsultTotal(r.total || 0); })
-        .catch(() => {}).finally(() => setConsultLoading(false));
+        .catch(() => {}).finally(() => { setConsultLoading(false); markLoaded(); });
     }
-    if (activeTab === 'patterns' && !patterns && !patternLoading) {
+    if (activeTab === 'patterns') {
       setPatternLoading(true);
-      crmApi.getPurchasePatterns(customerId).then(setPatterns).catch(() => {}).finally(() => setPatternLoading(false));
+      Promise.all([
+        crmApi.getPurchasePatterns(customerId),
+        crmApi.getRecommendations(customerId).catch(() => []),
+      ]).then(([p, rec]) => { setPatterns(p); setRecommendations(rec || []); })
+        .catch(() => {}).finally(() => { setPatternLoading(false); markLoaded(); });
     }
-    if (activeTab === 'messages' && messages.length === 0 && !msgLoading) {
+    if (activeTab === 'messages') {
       setMsgLoading(true);
       crmApi.getMessageHistory(customerId).then((r: any) => { setMessages(r.data || []); setMsgTotal(r.total || 0); })
-        .catch(() => {}).finally(() => setMsgLoading(false));
+        .catch(() => {}).finally(() => { setMsgLoading(false); markLoaded(); });
     }
-    if (activeTab === 'tierHistory' && tierHistory.length === 0 && !tierHistoryLoading) {
+    if (activeTab === 'tierHistory') {
       setTierHistoryLoading(true);
       crmApi.getTierHistory(customerId).then((r: any) => { setTierHistory(r.data || []); })
-        .catch(() => {}).finally(() => setTierHistoryLoading(false));
+        .catch(() => {}).finally(() => { setTierHistoryLoading(false); markLoaded(); });
     }
-    if (activeTab === 'points' && !points && !pointsLoading) {
+    if (activeTab === 'shipments') {
+      setShipmentLoading(true);
+      crmApi.getShipments(customerId).then((r: any) => { setShipments(r.data || []); setShipmentTotal(r.total || 0); })
+        .catch(() => {}).finally(() => { setShipmentLoading(false); markLoaded(); });
+    }
+    if (activeTab === 'feedback') {
+      setFeedbackLoading(true);
+      crmApi.getFeedback(customerId).then((r: any) => { setFeedback(r.data || []); setFeedbackTotal(r.total || 0); })
+        .catch(() => {}).finally(() => { setFeedbackLoading(false); markLoaded(); });
+    }
+    if (activeTab === 'points') {
       setPointsLoading(true);
       Promise.all([
         crmApi.getPoints(customerId),
@@ -556,9 +673,21 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
       ]).then(([p, txns]) => {
         setPoints(p || { available_points: 0, total_earned: 0, used_points: 0, expired_points: 0 });
         setPointTxns(txns.data || []);
-      }).catch(() => {}).finally(() => setPointsLoading(false));
+      }).catch(() => {}).finally(() => { setPointsLoading(false); markLoaded(); });
     }
-  }, [activeTab, customerId]);
+    if (activeTab === 'coupons') {
+      setCouponLoading(true);
+      couponApi.getCustomerCoupons(customerId)
+        .then((data: any) => setCustomerCoupons(data || []))
+        .catch(() => {}).finally(() => { setCouponLoading(false); markLoaded(); });
+    }
+    if (activeTab === 'rfm') {
+      setRfmLoading(true);
+      crmApi.getCustomerRfm(customerId)
+        .then((data: any) => setCustomerRfm(data))
+        .catch(() => {}).finally(() => { setRfmLoading(false); markLoaded(); });
+    }
+  }, [activeTab, customerId, loadedTabs]);
 
   const openPurchaseForm = (record?: any) => {
     setEditPurchase(record || null);
@@ -655,6 +784,21 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
     } catch (e: any) { message.error(e.message); }
   };
 
+  const handleAddFlag = async (flagId: number) => {
+    try {
+      await crmApi.addCustomerFlag(customerId, flagId);
+      loadFlags();
+    } catch (e: any) { message.error(e.message); }
+    setFlagSelectOpen(false);
+  };
+
+  const handleRemoveFlag = async (flagId: number) => {
+    try {
+      await crmApi.removeCustomerFlag(customerId, flagId);
+      loadFlags();
+    } catch (e: any) { message.error(e.message); }
+  };
+
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
   if (!customer) return <div style={{ textAlign: 'center', padding: 80, color: '#aaa' }}>고객을 찾을 수 없습니다.</div>;
 
@@ -663,6 +807,9 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
 
   const assignedTagIds = new Set(tags.map((t: any) => t.tag_id));
   const availableTags = allTags.filter((t: any) => !assignedTagIds.has(t.tag_id));
+
+  const assignedFlagIds = new Set(flags.map((f: any) => f.flag_id));
+  const availableFlags = allFlags.filter((f: any) => !assignedFlagIds.has(f.flag_id));
 
   return (
     <>
@@ -691,6 +838,23 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
         ) : (
           <Tag style={{ borderStyle: 'dashed', cursor: 'pointer' }} onClick={() => setTagSelectOpen(true)}>
             <PlusOutlined /> 태그 추가
+          </Tag>
+        )}
+      </div>
+
+      {/* 플래그 */}
+      <div style={{ marginBottom: 12, display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+        <FlagOutlined style={{ color: '#888', marginRight: 4 }} />
+        {flags.map((f: any) => (
+          <Tag key={f.flag_id} color={f.color} closable onClose={() => handleRemoveFlag(f.flag_id)}>{f.flag_name}</Tag>
+        ))}
+        {flagSelectOpen ? (
+          <Select size="small" style={{ width: 140 }} autoFocus open placeholder="플래그 선택"
+            onSelect={(v: number) => handleAddFlag(v)} onBlur={() => setFlagSelectOpen(false)}
+            options={availableFlags.map((f: any) => ({ label: f.flag_name, value: f.flag_id }))} />
+        ) : (
+          <Tag style={{ borderStyle: 'dashed', cursor: 'pointer' }} onClick={() => setFlagSelectOpen(true)}>
+            <PlusOutlined /> 플래그
           </Tag>
         )}
       </div>
@@ -781,6 +945,7 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
           },
           { key: 'patterns', label: <><EyeOutlined /> 구매패턴</>,
             children: patternLoading ? <Spin /> : !patterns ? <Empty description="데이터 없음" /> : (
+              <>
               <Row gutter={[16, 16]}>
                 <Col xs={24} md={12}>
                   <Card size="small" title="상품별 구매">
@@ -807,8 +972,28 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                     {!(patterns.color_distribution?.length) && <Empty description="데이터 없음" />}
                   </Card>
                   {patterns.avg_purchase_cycle_days && (
-                    <Card size="small" title="평균 구매 주기" style={{ marginTop: 12 }}>
-                      <strong>{patterns.avg_purchase_cycle_days}일</strong>
+                    <Card size="small" title="구매 주기 분석" style={{ marginTop: 12 }}>
+                      <Descriptions column={1} size="small">
+                        <Descriptions.Item label="평균 주기"><strong>{patterns.avg_purchase_cycle_days}일</strong></Descriptions.Item>
+                        {patterns.purchase_count && <Descriptions.Item label="총 구매 횟수">{patterns.purchase_count}회</Descriptions.Item>}
+                        {patterns.last_purchase_date && <Descriptions.Item label="최근 구매일">{dayjs(patterns.last_purchase_date).format('YYYY-MM-DD')}</Descriptions.Item>}
+                        {patterns.next_expected_date && (
+                          <Descriptions.Item label="다음 구매 예상">
+                            <Tag color={dayjs(patterns.next_expected_date).isBefore(dayjs()) ? 'red' : 'blue'}>
+                              {dayjs(patterns.next_expected_date).format('YYYY-MM-DD')}
+                            </Tag>
+                            {dayjs(patterns.next_expected_date).isBefore(dayjs()) && <span style={{ color: '#f5222d', fontSize: 11, marginLeft: 4 }}>지남</span>}
+                          </Descriptions.Item>
+                        )}
+                        {patterns.cycle_stddev && (
+                          <Descriptions.Item label="주기 안정도">
+                            {Number(patterns.cycle_stddev) < 7 ? <Tag color="green">안정</Tag>
+                              : Number(patterns.cycle_stddev) < 14 ? <Tag color="orange">보통</Tag>
+                              : <Tag color="red">불규칙</Tag>}
+                            <span style={{ fontSize: 11, color: '#888', marginLeft: 4 }}>편차 {Math.round(Number(patterns.cycle_stddev))}일</span>
+                          </Descriptions.Item>
+                        )}
+                      </Descriptions>
                     </Card>
                   )}
                   {patterns.preferred_payment && (
@@ -818,6 +1003,21 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                   )}
                 </Col>
               </Row>
+              {recommendations.length > 0 && (
+                <Card size="small" title="추천 상품" style={{ marginTop: 16 }}>
+                  <Table dataSource={recommendations} rowKey="product_name" size="small" pagination={false}
+                    columns={[
+                      { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                      { title: '추천 점수', dataIndex: 'total_score', key: 'score', width: 90, align: 'right' as const,
+                        render: (v: number) => <strong>{Number(v).toLocaleString()}</strong> },
+                      { title: '신뢰도', dataIndex: 'avg_confidence', key: 'conf', width: 80, align: 'right' as const,
+                        render: (v: number) => <Tag color={Number(v) >= 0.5 ? 'green' : Number(v) >= 0.3 ? 'orange' : 'default'}>{Math.round(Number(v) * 100)}%</Tag> },
+                      { title: '기반', dataIndex: 'based_on_count', key: 'base', width: 70, align: 'right' as const,
+                        render: (v: number) => `${v}개 상품` },
+                    ]} />
+                </Card>
+              )}
+              </>
             ),
           },
           { key: 'visits', label: <><HistoryOutlined /> 방문이력</>,
@@ -888,13 +1088,51 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
               </>
             ),
           },
+          { key: 'feedback', label: <><SmileOutlined /> 만족도</>,
+            children: (
+              <>
+                <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                  <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => {
+                    feedbackForm.resetFields();
+                    feedbackForm.setFieldsValue({ rating: 5, feedback_type: '일반' });
+                    setFeedbackFormOpen(true);
+                  }}>피드백 추가</Button>
+                </div>
+                {feedbackLoading ? <Spin /> : feedback.length === 0 ? <Empty description="피드백이 없습니다." /> : (
+                  <Table dataSource={feedback} rowKey="feedback_id" size="small"
+                    pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                    columns={[
+                      { title: '일시', dataIndex: 'created_at', key: 'd', width: 120,
+                        render: (v: string) => dayjs(v).format('YY.MM.DD HH:mm') },
+                      { title: '유형', dataIndex: 'feedback_type', key: 't', width: 70,
+                        render: (v: string) => <Tag>{v}</Tag> },
+                      { title: '평점', dataIndex: 'rating', key: 'r', width: 140,
+                        render: (v: number) => <Rate disabled defaultValue={v} style={{ fontSize: 14 }} /> },
+                      { title: '내용', dataIndex: 'content', key: 'c', ellipsis: true, render: (v: string) => v || '-' },
+                      { title: '작성자', dataIndex: 'created_by', key: 'by', width: 80 },
+                      { title: '', key: 'act', width: 40, render: (_: any, r: any) => (
+                        <Popconfirm title="삭제?" onConfirm={async () => {
+                          try {
+                            await crmApi.deleteFeedback(customerId, r.feedback_id);
+                            setFeedback(prev => prev.filter(f => f.feedback_id !== r.feedback_id));
+                            message.success('삭제되었습니다.');
+                          } catch (e: any) { message.error(e.message); }
+                        }} okText="삭제" cancelText="취소">
+                          <Button size="small" danger icon={<DeleteOutlined />} />
+                        </Popconfirm>
+                      )},
+                    ]} />
+                )}
+              </>
+            ),
+          },
           { key: 'messages', label: <><MailOutlined /> 메시지이력</>,
             children: msgLoading ? <Spin /> : messages.length === 0 ? <Empty description="발송 이력이 없습니다." /> : (
               <Table dataSource={messages} rowKey="recipient_id" size="small"
                 pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
                 columns={[
                   { title: '캠페인', dataIndex: 'campaign_name', key: 'c', ellipsis: true },
-                  { title: '유형', dataIndex: 'campaign_type', key: 't', width: 60, render: (v: string) => <Tag color={v === 'SMS' ? 'orange' : v === 'ALIMTALK' ? 'cyan' : 'purple'}>{v}</Tag> },
+                  { title: '유형', dataIndex: 'campaign_type', key: 't', width: 60, render: (v: string) => <Tag color={v === 'SMS' ? 'orange' : 'purple'}>{v}</Tag> },
                   { title: '상태', dataIndex: 'status', key: 's', width: 70,
                     render: (v: string) => <Tag color={v === 'SENT' ? 'green' : v === 'FAILED' ? 'red' : v === 'OPENED' ? 'blue' : 'default'}>{v}</Tag> },
                   { title: '발송일', dataIndex: 'sent_at', key: 'd', width: 120, render: (v: string) => v ? dayjs(v).format('YY.MM.DD HH:mm') : '-' },
@@ -930,6 +1168,44 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                       { title: '변경자', dataIndex: 'changed_by', key: 'by', width: 100 },
                     ]} />
                 )}
+              </>
+            ),
+          },
+          { key: 'shipments', label: <><SendOutlined /> 택배발송</>,
+            children: (
+              <>
+                <div style={{ marginBottom: 8, textAlign: 'right' }}>
+                  <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => {
+                    shipmentForm.resetFields();
+                    shipmentForm.setFieldsValue({ carrier: 'CJ대한통운' });
+                    setShipmentFormOpen(true);
+                  }}>택배발송 등록</Button>
+                </div>
+                <Table dataSource={shipments} rowKey="shipment_id" loading={shipmentLoading} size="small"
+                  pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                  columns={[
+                    { title: '발송일시', dataIndex: 'created_at', key: 'd', width: 140,
+                      render: (v: string) => dayjs(v).format('YY.MM.DD HH:mm') },
+                    { title: '택배사', dataIndex: 'carrier', key: 'c', width: 100 },
+                    { title: '송장번호', dataIndex: 'tracking_number', key: 't', width: 160 },
+                    { title: 'SMS', key: 'sms', width: 100, align: 'center' as const,
+                      render: (_: any, r: any) => r.sms_sent
+                        ? <Tag color="green">발송완료</Tag>
+                        : <Tag color={r.sms_error ? 'red' : 'default'} title={r.sms_error || ''}>{r.sms_error ? '실패' : '미발송'}</Tag> },
+                    { title: '메모', dataIndex: 'memo', key: 'm', ellipsis: true, render: (v: string) => v || '-' },
+                    { title: '등록자', dataIndex: 'created_by', key: 'by', width: 80 },
+                    { title: '', key: 'act', width: 40, render: (_: any, r: any) => (
+                      <Popconfirm title="삭제?" onConfirm={async () => {
+                        try {
+                          await crmApi.deleteShipment(customerId, r.shipment_id);
+                          setShipments(prev => prev.filter(s => s.shipment_id !== r.shipment_id));
+                          message.success('삭제되었습니다.');
+                        } catch (e: any) { message.error(e.message); }
+                      }} okText="삭제" cancelText="취소">
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    )},
+                  ]} />
               </>
             ),
           },
@@ -982,8 +1258,10 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                   ]} />
                 {/* 포인트 사용 모달 */}
                 <Modal title="포인트 사용" open={usePointsOpen} onCancel={() => setUsePointsOpen(false)}
+                  confirmLoading={usePointsSubmitting}
                   onOk={async () => {
                     if (usePointsAmount <= 0) { message.error('사용 포인트를 입력하세요'); return; }
+                    setUsePointsSubmitting(true);
                     try {
                       await crmApi.usePoints(customerId, { points: usePointsAmount, description: usePointsDesc || '수동 차감' });
                       message.success('포인트가 사용되었습니다.');
@@ -992,6 +1270,7 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                       Promise.all([crmApi.getPoints(customerId), crmApi.getPointTransactions(customerId)])
                         .then(([p, t]) => { setPoints(p); setPointTxns(t.data || []); }).finally(() => setPointsLoading(false));
                     } catch (e: any) { message.error(e.message); }
+                    finally { setUsePointsSubmitting(false); }
                   }} okText="사용" cancelText="취소" width={400}>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                     <div>잔여 포인트: <strong>{(points?.available_points || 0).toLocaleString()}P</strong></div>
@@ -1007,6 +1286,92 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
                   </div>
                 </Modal>
               </>
+            ),
+          },
+          { key: 'coupons', label: <><GiftOutlined /> 쿠폰</>,
+            children: couponLoading ? <Spin /> : (
+              <>
+                <Table dataSource={customerCoupons} rowKey="customer_coupon_id" size="small"
+                  pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                  columns={[
+                    { title: '쿠폰명', dataIndex: 'coupon_name', key: 'name', ellipsis: true },
+                    { title: '코드', dataIndex: 'coupon_code', key: 'code', width: 100,
+                      render: (v: string) => <Tag>{v}</Tag> },
+                    { title: '유형', dataIndex: 'coupon_type', key: 'type', width: 80, align: 'center' as const,
+                      render: (v: string) => {
+                        const labels: Record<string, string> = { PERCENTAGE: '%', FIXED: '정액', FREE_SHIPPING: '배송' };
+                        return <Tag>{labels[v] || v}</Tag>;
+                      } },
+                    { title: '할인', dataIndex: 'discount_value', key: 'val', width: 90, align: 'right' as const,
+                      render: (v: number, r: any) => r.coupon_type === 'PERCENTAGE' ? `${v}%` : `${Number(v).toLocaleString()}원` },
+                    { title: '상태', dataIndex: 'status', key: 'status', width: 80, align: 'center' as const,
+                      render: (v: string) => {
+                        const colors: Record<string, string> = { ACTIVE: 'green', USED: 'blue', EXPIRED: 'default' };
+                        const labels: Record<string, string> = { ACTIVE: '사용가능', USED: '사용완료', EXPIRED: '만료' };
+                        return <Tag color={colors[v]}>{labels[v] || v}</Tag>;
+                      } },
+                    { title: '발급일', dataIndex: 'issued_at', key: 'issued', width: 100,
+                      render: (v: string) => v ? dayjs(v).format('YY.MM.DD') : '-' },
+                    { title: '만료일', dataIndex: 'expires_at', key: 'expires', width: 100,
+                      render: (v: string) => v ? dayjs(v).format('YY.MM.DD') : '-' },
+                    { title: '사용일', dataIndex: 'used_at', key: 'used', width: 100,
+                      render: (v: string) => v ? dayjs(v).format('YY.MM.DD') : '-' },
+                  ]} />
+              </>
+            ),
+          },
+          { key: 'rfm', label: <><StarOutlined /> RFM 분석</>,
+            children: rfmLoading ? <Spin /> : !customerRfm ? (
+              <Empty description="RFM 데이터 없음 — 대시보드에서 재계산을 실행해주세요" />
+            ) : (
+              <Row gutter={[16, 16]}>
+                <Col xs={24} md={12}>
+                  <Card size="small" title="RFM 점수">
+                    <Descriptions column={1} size="small" bordered>
+                      <Descriptions.Item label="세그먼트">
+                        <Tag color={RFM_COLORS[customerRfm.rfm_segment] || 'default'} style={{ fontSize: 13 }}>
+                          {RFM_LABELS[customerRfm.rfm_segment] || customerRfm.rfm_segment}
+                        </Tag>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Recency (최근성)">
+                        <Rate disabled value={customerRfm.r_score} count={5} style={{ fontSize: 14 }} />
+                        <span style={{ marginLeft: 8, color: '#888', fontSize: 12 }}>
+                          {customerRfm.recency_days != null ? `${customerRfm.recency_days}일 전` : '-'}
+                        </span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Frequency (빈도)">
+                        <Rate disabled value={customerRfm.f_score} count={5} style={{ fontSize: 14 }} />
+                        <span style={{ marginLeft: 8, color: '#888', fontSize: 12 }}>{customerRfm.frequency}회</span>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="Monetary (금액)">
+                        <Rate disabled value={customerRfm.m_score} count={5} style={{ fontSize: 14 }} />
+                        <span style={{ marginLeft: 8, color: '#888', fontSize: 12 }}>{Number(customerRfm.monetary || 0).toLocaleString()}원</span>
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </Card>
+                </Col>
+                <Col xs={24} md={12}>
+                  <Card size="small" title="고객 가치">
+                    <Descriptions column={1} size="small" bordered>
+                      <Descriptions.Item label="연간 LTV (예상)">
+                        <strong style={{ fontSize: 16, color: '#1890ff' }}>
+                          {Number(customerRfm.ltv_annual || 0).toLocaleString()}원
+                        </strong>
+                      </Descriptions.Item>
+                      <Descriptions.Item label="총 구매액">
+                        {Number(customerRfm.monetary || 0).toLocaleString()}원
+                      </Descriptions.Item>
+                      <Descriptions.Item label="구매 횟수">{customerRfm.frequency || 0}회</Descriptions.Item>
+                      <Descriptions.Item label="마지막 구매">
+                        {customerRfm.recency_days != null ? `${customerRfm.recency_days}일 전` : '구매이력 없음'}
+                      </Descriptions.Item>
+                      <Descriptions.Item label="산정일">
+                        {customerRfm.calculated_at ? dayjs(customerRfm.calculated_at).format('YYYY-MM-DD HH:mm') : '-'}
+                      </Descriptions.Item>
+                    </Descriptions>
+                  </Card>
+                </Col>
+              </Row>
             ),
           },
         ]} />
@@ -1079,8 +1444,9 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
       {/* 방문 기록 모달 */}
       <Modal title="방문 기록 추가" open={visitFormOpen}
         onCancel={() => setVisitFormOpen(false)} onOk={() => visitForm.submit()}
-        okText="추가" cancelText="취소" width={420}>
+        okText="추가" cancelText="취소" confirmLoading={visitSubmitting} width={420}>
         <Form form={visitForm} layout="vertical" onFinish={async (values: any) => {
+          setVisitSubmitting(true);
           try {
             const payload = { ...values, visit_date: values.visit_date?.format('YYYY-MM-DD'), visit_time: values.visit_time?.format('HH:mm') || null };
             await crmApi.addVisit(customerId, payload);
@@ -1089,6 +1455,7 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
             const r = await crmApi.getVisits(customerId);
             setVisits(r.data || []);
           } catch (e: any) { message.error(e.message); }
+          finally { setVisitSubmitting(false); }
         }}>
           <Row gutter={16}>
             <Col span={12}><Form.Item name="visit_date" label="방문일" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item></Col>
@@ -1107,8 +1474,9 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
       {/* 상담/메모 모달 */}
       <Modal title="상담/메모 추가" open={consultFormOpen}
         onCancel={() => setConsultFormOpen(false)} onOk={() => consultForm.submit()}
-        okText="추가" cancelText="취소" width={420}>
+        okText="추가" cancelText="취소" confirmLoading={consultSubmitting} width={420}>
         <Form form={consultForm} layout="vertical" onFinish={async (values: any) => {
+          setConsultSubmitting(true);
           try {
             await crmApi.addConsultation(customerId, values);
             message.success('상담 기록이 추가되었습니다.');
@@ -1116,12 +1484,94 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
             const r = await crmApi.getConsultations(customerId);
             setConsultations(r.data || []);
           } catch (e: any) { message.error(e.message); }
+          finally { setConsultSubmitting(false); }
         }}>
           <Form.Item name="consultation_type" label="유형" rules={[{ required: true }]}>
             <Select options={[{ label: '상담', value: '상담' }, { label: '메모', value: '메모' }, { label: '전화', value: '전화' }, { label: '방문', value: '방문' }]} />
           </Form.Item>
           <Form.Item name="content" label="내용" rules={[{ required: true, message: '내용을 입력하세요' }]}>
             <Input.TextArea rows={4} placeholder="상담/메모 내용" />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 택배발송 등록 모달 */}
+      <Modal title="택배발송 등록" open={shipmentFormOpen}
+        onCancel={() => setShipmentFormOpen(false)} onOk={() => shipmentForm.submit()}
+        okText="발송 등록" cancelText="취소" confirmLoading={shipmentSubmitting} width={420}>
+        <Form form={shipmentForm} layout="vertical" onFinish={async (values: any) => {
+          setShipmentSubmitting(true);
+          try {
+            const result = await crmApi.addShipment(customerId, values);
+            if (result.sms_sent) {
+              message.success('택배발송이 등록되었고 SMS가 발송되었습니다.');
+            } else if (result.sms_error) {
+              message.warning(`택배발송은 등록되었으나 SMS 발송 실패: ${result.sms_error}`);
+            } else {
+              message.success('택배발송이 등록되었습니다.');
+            }
+            setShipmentFormOpen(false);
+            setShipmentLoading(true);
+            crmApi.getShipments(customerId).then((r: any) => { setShipments(r.data || []); setShipmentTotal(r.total || 0); })
+              .finally(() => setShipmentLoading(false));
+          } catch (e: any) { message.error(e.message); }
+          finally { setShipmentSubmitting(false); }
+        }}>
+          <Form.Item name="carrier" label="택배사" rules={[{ required: true, message: '택배사를 선택하세요' }]}>
+            <Select options={[
+              { label: 'CJ대한통운', value: 'CJ대한통운' },
+              { label: '한진택배', value: '한진택배' },
+              { label: '롯데택배', value: '롯데택배' },
+              { label: '우체국택배', value: '우체국택배' },
+              { label: '로젠택배', value: '로젠택배' },
+              { label: '경동택배', value: '경동택배' },
+              { label: '대신택배', value: '대신택배' },
+              { label: '기타', value: '기타' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="tracking_number" label="송장번호" rules={[{ required: true, message: '송장번호를 입력하세요' }]}>
+            <Input placeholder="송장번호 입력" />
+          </Form.Item>
+          <Form.Item name="memo" label="메모">
+            <Input.TextArea rows={2} placeholder="메모 (선택)" />
+          </Form.Item>
+          <div style={{ background: '#f6f8fa', padding: '8px 12px', borderRadius: 6, fontSize: 12, color: '#666' }}>
+            {customer?.sms_consent
+              ? <span style={{ color: '#52c41a' }}>SMS 수신 동의 고객 — 발송 시 자동으로 알림 문자가 전송됩니다.</span>
+              : <span style={{ color: '#faad14' }}>SMS 수신 미동의 — 알림 문자가 발송되지 않습니다.</span>}
+          </div>
+        </Form>
+      </Modal>
+
+      {/* 피드백 추가 모달 */}
+      <Modal title="고객 피드백 추가" open={feedbackFormOpen}
+        onCancel={() => setFeedbackFormOpen(false)} onOk={() => feedbackForm.submit()}
+        okText="추가" cancelText="취소" confirmLoading={feedbackSubmitting} width={420}>
+        <Form form={feedbackForm} layout="vertical" onFinish={async (values: any) => {
+          setFeedbackSubmitting(true);
+          try {
+            await crmApi.addFeedback(customerId, values);
+            message.success('피드백이 추가되었습니다.');
+            setFeedbackFormOpen(false);
+            setFeedbackLoading(true);
+            crmApi.getFeedback(customerId).then((r: any) => { setFeedback(r.data || []); setFeedbackTotal(r.total || 0); })
+              .finally(() => setFeedbackLoading(false));
+          } catch (e: any) { message.error(e.message); }
+          finally { setFeedbackSubmitting(false); }
+        }}>
+          <Form.Item name="feedback_type" label="유형" rules={[{ required: true }]}>
+            <Select options={[
+              { label: '일반', value: '일반' },
+              { label: 'A/S', value: 'A/S' },
+              { label: '구매', value: '구매' },
+              { label: '서비스', value: '서비스' },
+            ]} />
+          </Form.Item>
+          <Form.Item name="rating" label="평점" rules={[{ required: true, message: '평점을 선택하세요' }]}>
+            <Rate />
+          </Form.Item>
+          <Form.Item name="content" label="코멘트">
+            <Input.TextArea rows={3} placeholder="피드백 내용 (선택)" />
           </Form.Item>
         </Form>
       </Modal>
@@ -1185,11 +1635,138 @@ function CustomerDetailView({ customerId }: { customerId: number }) {
   );
 }
 
+/* ═══════════════════════════════════ 매장별 고객 데이터 (본사용) ═══════════════════════════════════ */
+function StoreCustomerDataView() {
+  const navigate = useNavigate();
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [storeCustomers, setStoreCustomers] = useState<Record<string, { data: any[]; loading: boolean; loaded: boolean }>>({});
+  const [search, setSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<any[] | null>(null);
+  const [searchLoading, setSearchLoading] = useState(false);
+
+  useEffect(() => {
+    setLoading(true);
+    crmApi.dashboard()
+      .then((d) => setStats(d))
+      .catch((e: any) => message.error(e.message))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const loadStoreCustomers = (partnerCode: string) => {
+    if (storeCustomers[partnerCode]?.loaded) return;
+    setStoreCustomers((prev) => ({ ...prev, [partnerCode]: { data: [], loading: true, loaded: false } }));
+    crmApi.list({ partner_code: partnerCode, limit: '200' })
+      .then((r: any) => {
+        setStoreCustomers((prev) => ({ ...prev, [partnerCode]: { data: r.data || [], loading: false, loaded: true } }));
+      })
+      .catch(() => {
+        setStoreCustomers((prev) => ({ ...prev, [partnerCode]: { data: [], loading: false, loaded: true } }));
+      });
+  };
+
+  const handleSearch = () => {
+    if (!search.trim()) { setSearchResults(null); return; }
+    setSearchLoading(true);
+    crmApi.list({ search: search.trim(), limit: '50' })
+      .then((r: any) => setSearchResults(r.data || []))
+      .catch(() => setSearchResults([]))
+      .finally(() => setSearchLoading(false));
+  };
+
+  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin size="large" /></div>;
+  if (!stats) return null;
+
+  const stores: { partner_code: string; partner_name: string; count: number }[] = stats.storeDistribution || [];
+
+  const customerColumns = [
+    { title: '이름', dataIndex: 'customer_name', key: 'name', width: 100,
+      render: (v: string, r: any) => <Button type="link" size="small" style={{ padding: 0 }} onClick={() => navigate(`/crm/${r.customer_id}`)}>{v}</Button> },
+    { title: '전화번호', dataIndex: 'phone', key: 'phone', width: 130 },
+    { title: '등급', dataIndex: 'customer_tier', key: 'tier', width: 80,
+      render: (v: string) => <Tag color={TIER_COLORS[v]}>{v}</Tag> },
+    { title: '총 구매액', dataIndex: 'total_amount', key: 'amount', width: 120, align: 'right' as const,
+      render: (v: number) => <strong>{Number(v).toLocaleString()}원</strong> },
+    { title: '구매횟수', dataIndex: 'purchase_count', key: 'cnt', width: 80, align: 'right' as const },
+    { title: '최근 구매', dataIndex: 'last_purchase_date', key: 'last', width: 100,
+      render: (v: string) => v ? dayjs(v).format('YY.MM.DD') : '-' },
+  ];
+
+  const searchColumns = [
+    ...customerColumns.slice(0, 3),
+    { title: '매장', dataIndex: 'partner_name', key: 'store', width: 100 },
+    ...customerColumns.slice(3),
+  ];
+
+  return (
+    <>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+        <Col xs={24} sm={8} lg={6}>
+          <StatCard title="총 고객수" value={stats.totalCustomers} icon={<TeamOutlined />}
+            bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff" />
+        </Col>
+        <Col xs={24} sm={8} lg={6}>
+          <StatCard title="등록 매장수" value={stores.length} icon={<ShopOutlined />}
+            bg="linear-gradient(135deg, #10b981 0%, #34d399 100%)" color="#fff" />
+        </Col>
+        <Col xs={24} sm={8} lg={6}>
+          <StatCard title="신규 고객 (30일)" value={stats.newCustomers} icon={<UserAddOutlined />}
+            bg="linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)" color="#fff" />
+        </Col>
+      </Row>
+
+      <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center' }}>
+        <Input placeholder="고객 이름 또는 전화번호 검색" prefix={<SearchOutlined />} value={search}
+          onChange={(e) => { setSearch(e.target.value); if (!e.target.value) setSearchResults(null); }}
+          onPressEnter={handleSearch} style={{ maxWidth: 320 }} allowClear />
+        <Button onClick={handleSearch} loading={searchLoading}>검색</Button>
+      </div>
+
+      {searchResults !== null ? (
+        <Card size="small" title={`검색 결과 (${searchResults.length}건)`} style={{ borderRadius: 10 }}
+          extra={<Button type="link" size="small" onClick={() => { setSearch(''); setSearchResults(null); }}>닫기</Button>}>
+          <Table dataSource={searchResults} rowKey="customer_id" size="small"
+            scroll={{ x: 800, y: 'calc(100vh - 340px)' }}
+            pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+            columns={searchColumns}
+            onRow={(r) => ({ onClick: () => navigate(`/crm/${r.customer_id}`), style: { cursor: 'pointer' } })} />
+        </Card>
+      ) : (
+        <Collapse
+          accordion
+          onChange={(key) => { const k = Array.isArray(key) ? key[0] : key; if (k) loadStoreCustomers(k); }}
+          items={stores.map((store) => ({
+            key: store.partner_code,
+            label: (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <ShopOutlined />
+                <strong>{store.partner_name}</strong>
+                <Badge count={Number(store.count)} style={{ backgroundColor: '#667eea' }} overflowCount={9999} />
+              </div>
+            ),
+            children: storeCustomers[store.partner_code]?.loading ? (
+              <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>
+            ) : (
+              <Table dataSource={storeCustomers[store.partner_code]?.data || []} rowKey="customer_id" size="small"
+                scroll={{ x: 700 }}
+                pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                columns={customerColumns}
+                onRow={(r) => ({ onClick: () => navigate(`/crm/${r.customer_id}`), style: { cursor: 'pointer' } })} />
+            ),
+          }))}
+        />
+      )}
+    </>
+  );
+}
+
 /* ═══════════════════════════════════ 메인 ═══════════════════════════════════ */
 export default function CrmPage() {
   const location = useLocation();
   const params = useParams();
   const path = location.pathname;
+  const user = useAuthStore((s) => s.user);
+  const isHQ = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   const customerId = params.id ? Number(params.id) : null;
 
@@ -1197,6 +1774,7 @@ export default function CrmPage() {
     <div>
       {customerId ? <CustomerDetailView customerId={customerId} />
         : path === '/crm/list' ? <CustomerListView />
+        : isHQ ? <StoreCustomerDataView />
         : <DashboardView />}
     </div>
   );

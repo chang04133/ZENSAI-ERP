@@ -1,19 +1,26 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag, Space, Checkbox, DatePicker, message, Popconfirm } from 'antd';
-import { PlusOutlined, DeleteOutlined, EditOutlined, ReloadOutlined, TeamOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, InputNumber, Select, Tag, Space, Checkbox, DatePicker, message, Popconfirm, Empty } from 'antd';
+import { PlusOutlined, DeleteOutlined, EditOutlined, ReloadOutlined, TeamOutlined, ShopOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { segmentApi } from '../../modules/crm/crm.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { partnerApi } from '../../modules/partner/partner.api';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const TIER_OPTIONS = ['VVIP', 'VIP', '일반', '신규'];
 
 export default function SegmentListPage() {
   const navigate = useNavigate();
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
 
   const [data, setData] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
+  const [partnerFilter, setPartnerFilter] = useState('');
+  const [partners, setPartners] = useState<any[]>([]);
 
   // 세그먼트 생성/수정 모달
   const [formOpen, setFormOpen] = useState(false);
@@ -24,14 +31,23 @@ export default function SegmentListPage() {
   // 갱신 로딩 (행별)
   const [refreshingId, setRefreshingId] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (!isStore) {
+      partnerApi.list({ limit: '500' }).then((r: any) => setPartners(r.data || [])).catch(() => {});
+    }
+  }, [isStore]);
+
   const load = useCallback(() => {
+    // 본사 계정은 매장을 선택해야만 조회
+    if (!isStore && !partnerFilter) { setData([]); setTotal(0); return; }
     setLoading(true);
     const params: Record<string, string> = { page: String(page), limit: '50' };
+    if (partnerFilter) params.partner_code = partnerFilter;
     segmentApi.list(params)
       .then((r: any) => { setData(r.data || []); setTotal(r.total || 0); })
       .catch((e: any) => message.error(e.message))
       .finally(() => setLoading(false));
-  }, [page]);
+  }, [page, partnerFilter, isStore]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -53,6 +69,8 @@ export default function SegmentListPage() {
         last_purchase_range: c.last_purchase_from && c.last_purchase_to
           ? [dayjs(c.last_purchase_from), dayjs(c.last_purchase_to)]
           : undefined,
+        days_since_purchase_max: c.days_since_purchase_max ?? undefined,
+        days_since_purchase_min: c.days_since_purchase_min ?? undefined,
         age_min: c.age_min ?? undefined,
         age_max: c.age_max ?? undefined,
       });
@@ -74,15 +92,19 @@ export default function SegmentListPage() {
         conditions.last_purchase_from = values.last_purchase_range[0].format('YYYY-MM-DD');
         conditions.last_purchase_to = values.last_purchase_range[1].format('YYYY-MM-DD');
       }
+      if (values.days_since_purchase_max != null) conditions.days_since_purchase_max = values.days_since_purchase_max;
+      if (values.days_since_purchase_min != null) conditions.days_since_purchase_min = values.days_since_purchase_min;
       if (values.age_min != null) conditions.age_min = values.age_min;
       if (values.age_max != null) conditions.age_max = values.age_max;
 
-      const payload = {
+      const payload: any = {
         segment_name: values.segment_name,
         description: values.description || null,
         conditions,
         auto_refresh: values.auto_refresh || false,
       };
+      // 본사 계정이 매장을 선택한 상태에서 생성 → 해당 매장 세그먼트로
+      if (!isStore && partnerFilter) payload.partner_code = partnerFilter;
 
       if (editTarget) {
         await segmentApi.update(editTarget.segment_id, payload);
@@ -125,6 +147,8 @@ export default function SegmentListPage() {
         </Button>
       ),
     },
+    ...(!isStore ? [{ title: '매장', dataIndex: 'partner_name', key: 'store', width: 100,
+      render: (v: string | null) => v || '공통' }] : []),
     { title: '설명', dataIndex: 'description', key: 'desc', ellipsis: true,
       render: (v: string | null) => v || '-' },
     { title: '멤버수', dataIndex: 'member_count', key: 'members', width: 100, align: 'right' as const,
@@ -154,15 +178,32 @@ export default function SegmentListPage() {
   return (
     <>
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+        {!isStore && (
+          <div>
+            <div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장 선택</div>
+            <Select showSearch optionFilterProp="label" value={partnerFilter || undefined}
+              placeholder="매장을 선택하세요"
+              onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 180 }}
+              options={partners.map(p => ({ label: p.partner_name, value: p.partner_code }))} />
+          </div>
+        )}
         <div style={{ flex: 1 }} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm()}>새 세그먼트</Button>
+        <Button type="primary" icon={<PlusOutlined />}
+          disabled={!isStore && !partnerFilter}
+          onClick={() => openForm()}>새 세그먼트</Button>
       </div>
 
+      {!isStore && !partnerFilter ? (
+        <Empty image={<ShopOutlined style={{ fontSize: 48, color: '#d9d9d9' }} />}
+          description="매장을 선택하면 해당 매장의 세그먼트가 표시됩니다."
+          style={{ padding: 80 }} />
+      ) : (
       <Table dataSource={data} rowKey="segment_id" loading={loading} size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ current: page, total, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
         columns={columns}
         onRow={(r) => ({ onClick: () => navigate(`/crm/segments/${r.segment_id}`), style: { cursor: 'pointer' } })} />
+      )}
 
       {/* 세그먼트 생성/수정 모달 */}
       <Modal title={editTarget ? '세그먼트 수정' : '새 세그먼트'} open={formOpen} width={600}
@@ -210,9 +251,18 @@ export default function SegmentListPage() {
               </Form.Item>
             </Space>
 
-            <Form.Item name="last_purchase_range" label="최근 구매 기간" style={{ marginBottom: 8 }}>
+            <Form.Item name="last_purchase_range" label="최근 구매 기간 (고정 날짜)" style={{ marginBottom: 8 }}>
               <DatePicker.RangePicker style={{ width: '100%' }} />
             </Form.Item>
+
+            <Space size={16} style={{ width: '100%', marginBottom: 8 }} align="start">
+              <Form.Item name="days_since_purchase_max" label="최근 N일 이내 구매" style={{ marginBottom: 0 }}>
+                <InputNumber min={1} style={{ width: 160 }} placeholder="예: 90" addonAfter="일" />
+              </Form.Item>
+              <Form.Item name="days_since_purchase_min" label="N일 이상 미구매" style={{ marginBottom: 0 }}>
+                <InputNumber min={1} style={{ width: 160 }} placeholder="예: 180" addonAfter="일" />
+              </Form.Item>
+            </Space>
 
             <Space size={16} style={{ width: '100%' }} align="start">
               <Form.Item name="age_min" label="최소 나이" style={{ marginBottom: 0 }}>

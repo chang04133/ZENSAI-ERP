@@ -1,51 +1,46 @@
 import { MessageSender, SendResult } from './sender.interface';
 
 /**
- * 카카오 알림톡 발송 (CoolSMS API 사용)
- * CoolSMS는 알림톡도 지원하며, 실패 시 SMS 폴백
+ * 알리고(Aligo) 카카오 알림톡 발송
+ * API 문서: https://smartsms.aligo.in/admin/api/kakao.html
  */
 export class KakaoSender implements MessageSender {
   private apiKey: string;
-  private apiSecret: string;
+  private userId: string;
   private senderKey: string;
 
-  constructor(apiKey: string, apiSecret: string, senderKey: string) {
+  constructor(apiKey: string, userId: string, senderKey: string) {
     this.apiKey = apiKey;
-    this.apiSecret = apiSecret;
+    this.userId = userId;
     this.senderKey = senderKey;
   }
 
   async send(to: string, content: string, subject?: string): Promise<SendResult> {
     try {
-      // CoolSMS SDK를 통한 알림톡 발송
-      const CoolSMS = (await import('coolsms-node-sdk')).default;
-      const client = new CoolSMS(this.apiKey, this.apiSecret);
+      const params = new URLSearchParams();
+      params.append('apikey', this.apiKey);
+      params.append('userid', this.userId);
+      params.append('senderkey', this.senderKey);
+      params.append('tpl_code', 'ZENSAI_DEFAULT');
+      params.append('sender', to.replace(/-/g, ''));
+      params.append('receiver_1', to.replace(/-/g, ''));
+      params.append('subject_1', subject || '안내');
+      params.append('message_1', content);
 
-      // 알림톡 시도
-      try {
-        await (client as any).sendOne({
-          to: to.replace(/-/g, ''),
-          from: this.senderKey,
-          kakaoOptions: {
-            pfId: this.senderKey,
-            templateId: subject || undefined,
-          },
-          text: content,
-          type: 'ATA', // 알림톡
-        });
+      const res = await fetch('https://kakaoapi.aligo.in/akv10/alimtalk/send/', {
+        method: 'POST',
+        body: params,
+      });
+
+      const data: any = await res.json();
+
+      if (data.code === 0) {
         return { success: true };
-      } catch {
-        // 알림톡 실패 시 SMS 폴백
-        await (client as any).sendOne({
-          to: to.replace(/-/g, ''),
-          from: this.senderKey,
-          text: content,
-          autoTypeDetect: true,
-        });
-        return { success: true };
+      } else {
+        return { success: false, error: data.message || `카카오 발송 오류 (code: ${data.code})` };
       }
     } catch (err: any) {
-      return { success: false, error: err.message || '알림톡/SMS 발송 실패' };
+      return { success: false, error: err.message || '카카오 알림톡 발송 실패' };
     }
   }
 }

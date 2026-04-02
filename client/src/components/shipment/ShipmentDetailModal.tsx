@@ -90,7 +90,7 @@ function TrackingSection({ detail, onUpdate }: { detail: any; onUpdate?: (d: any
       const result = await shipmentApi.updateTracking(detail.request_id, {
         tracking_number: trackingNo.trim(), carrier: carrier || undefined,
       });
-      message.success(result.notified ? '송장번호 저장 + 알림톡 발송 완료' : '송장번호 저장 완료');
+      message.success(result.notified ? '송장번호 저장 + SMS 발송 완료' : '송장번호 저장 완료');
       onUpdate?.(result.data);
     } catch (e: any) { message.error(e.message); }
     finally { setSaving(false); }
@@ -106,7 +106,7 @@ function TrackingSection({ detail, onUpdate }: { detail: any; onUpdate?: (d: any
           <div><strong>택배사:</strong> {detail.carrier || '-'}</div>
           <div><strong>송장번호:</strong> {detail.tracking_number}</div>
           <div>
-            <strong>알림톡:</strong>{' '}
+            <strong>SMS:</strong>{' '}
             {detail.tracking_notified
               ? <Tag color="green">발송완료</Tag>
               : <Tag color="default">미발송</Tag>}

@@ -75,6 +75,8 @@ const ActivityLogPage = lazy(() => import('../pages/system/ActivityLogPage'));
 // ── NEW: 신규 모듈 ──
 // Season (시즌/컬렉션)
 const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
+// Markdown (마크다운 관리)
+const MarkdownManagePage = lazy(() => import('../pages/markdown/MarkdownManagePage'));
 
 // Notice (공지사항)
 const NoticeBoardPage = lazy(() => import('../pages/notice/NoticeBoardPage'));
@@ -94,7 +96,9 @@ const SegmentDetailPage = lazy(() => import('../pages/crm/SegmentDetailPage'));
 const DormantCustomerPage = lazy(() => import('../pages/crm/DormantCustomerPage'));
 const AfterSalesPage = lazy(() => import('../pages/crm/AfterSalesPage'));
 const AutoCampaignPage = lazy(() => import('../pages/crm/AutoCampaignPage'));
-const RfmAnalysisPage = lazy(() => import('../pages/crm/RfmAnalysisPage'));
+const ConsentLogPage = lazy(() => import('../pages/crm/ConsentLogPage'));
+const TierBenefitsPage = lazy(() => import('../pages/crm/TierBenefitsPage'));
+const CouponPage = lazy(() => import('../pages/crm/CouponPage'));
 
 // ── Route Definition ──
 export interface AppRoute {
@@ -181,6 +185,8 @@ export const appRoutes: AppRoute[] = [
 
   // Season (시즌/컬렉션)
   { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },
+  // Markdown (마크다운 관리)
+  { path: '/markdown', element: <MarkdownManagePage />, roles: ADMIN_HQ },
 
   // Notice (공지사항)
   { path: '/notices', element: <NoticeBoardPage />, roles: ALL },
@@ -205,8 +211,10 @@ export const crmRoutes: AppRoute[] = [
   { path: 'campaigns/:id', element: <CampaignDetailPage />, roles: ADMIN_HQ_STORE },
   { path: 'templates', element: <TemplatePage />, roles: ADMIN_HQ_STORE },
   { path: 'sender-settings', element: <SenderSettingsPage />, roles: ADMIN_HQ_STORE },
+  { path: 'tier-benefits', element: <TierBenefitsPage />, roles: ADMIN_HQ_STORE },
   { path: 'auto-campaigns', element: <AutoCampaignPage />, roles: ADMIN_HQ_STORE },
-  { path: 'rfm', element: <RfmAnalysisPage />, roles: ADMIN_HQ_STORE },
+  { path: 'coupons', element: <CouponPage />, roles: ADMIN_HQ_STORE },
+  { path: 'consent-logs', element: <ConsentLogPage />, roles: ADMIN_SYS },
 ];
 
 export { LoginPage, ConsentPage };

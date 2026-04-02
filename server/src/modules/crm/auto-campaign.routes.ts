@@ -17,17 +17,32 @@ router.get('/', requireRole(...roles), asyncHandler(async (req: Request, res: Re
 }));
 
 router.post('/', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
-  const data = await autoCampaignService.create({ ...req.body, created_by: req.user?.userId });
+  const storePC = getStorePC(req);
+  const body = { ...req.body, created_by: req.user?.userId };
+  if (storePC) body.partner_code = storePC;
+  const data = await autoCampaignService.create(body);
   res.status(201).json({ success: true, data });
 }));
 
 router.put('/:id', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
+  const storePC = getStorePC(req);
+  if (storePC) {
+    const existing = await autoCampaignService.getById(Number(req.params.id));
+    if (!existing) { res.status(404).json({ success: false, error: '자동 캠페인을 찾을 수 없습니다.' }); return; }
+    if (existing.partner_code !== storePC) { res.status(403).json({ success: false, error: '다른 매장의 자동 캠페인은 수정할 수 없습니다.' }); return; }
+  }
   const data = await autoCampaignService.update(Number(req.params.id), req.body);
   if (!data) { res.status(404).json({ success: false, error: '자동 캠페인을 찾을 수 없습니다.' }); return; }
   res.json({ success: true, data });
 }));
 
 router.delete('/:id', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
+  const storePC = getStorePC(req);
+  if (storePC) {
+    const existing = await autoCampaignService.getById(Number(req.params.id));
+    if (!existing) { res.status(404).json({ success: false, error: '자동 캠페인을 찾을 수 없습니다.' }); return; }
+    if (existing.partner_code !== storePC) { res.status(403).json({ success: false, error: '다른 매장의 자동 캠페인은 삭제할 수 없습니다.' }); return; }
+  }
   await autoCampaignService.remove(Number(req.params.id));
   res.json({ success: true });
 }));
@@ -40,7 +55,7 @@ router.get('/history', requireRole(...roles), asyncHandler(async (req: Request, 
   res.json({ success: true, ...result });
 }));
 
-router.post('/execute', requireRole(...roles), asyncHandler(async (req: Request, res: Response) => {
+router.post('/execute', requireRole('ADMIN', 'SYS_ADMIN'), asyncHandler(async (req: Request, res: Response) => {
   const result = await autoCampaignService.executeAutoCampaigns();
   res.json({ success: true, data: result });
 }));

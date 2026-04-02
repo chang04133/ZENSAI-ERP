@@ -59,12 +59,14 @@ class CampaignRepository {
 
   async create(data: Partial<MarketingCampaign>) {
     const res = await db.query(`
-      INSERT INTO marketing_campaigns (campaign_name, campaign_type, status, subject, content, target_filter, scheduled_at, created_by, partner_code)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      INSERT INTO marketing_campaigns (campaign_name, campaign_type, status, subject, content, target_filter, scheduled_at, created_by, partner_code, is_ab_test, content_b, subject_b, ab_split_ratio)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
       RETURNING *`,
       [data.campaign_name, data.campaign_type, 'DRAFT', data.subject || null,
        data.content, data.target_filter ? JSON.stringify(data.target_filter) : null,
-       data.scheduled_at || null, data.created_by, data.partner_code || null]);
+       data.scheduled_at || null, data.created_by, data.partner_code || null,
+       data.is_ab_test || false, data.content_b || null, data.subject_b || null,
+       data.ab_split_ratio || 50]);
     return res.rows[0];
   }
 
@@ -72,7 +74,7 @@ class CampaignRepository {
     const fields: string[] = [];
     const vals: any[] = [];
     let idx = 1;
-    const allowed = ['campaign_name', 'campaign_type', 'subject', 'content', 'target_filter', 'scheduled_at', 'status'];
+    const allowed = ['campaign_name', 'campaign_type', 'subject', 'content', 'target_filter', 'scheduled_at', 'status', 'total_targets', 'is_ab_test', 'content_b', 'subject_b', 'ab_split_ratio'];
     for (const key of allowed) {
       if ((data as any)[key] !== undefined) {
         const val = key === 'target_filter' && (data as any)[key]
@@ -92,19 +94,128 @@ class CampaignRepository {
     await db.query(`DELETE FROM marketing_campaigns WHERE campaign_id = $1`, [id]);
   }
 
-  /* ─── 대상 산출 ─── */
+  /* ─── 세그먼트별 캠페인 이력 ─── */
 
-  async previewTargets(filter: Record<string, any>, partnerCode?: string) {
-    const { where, params } = this.buildTargetFilter(filter, partnerCode);
-    const res = await db.query(`SELECT COUNT(*)::int AS cnt FROM customers c ${where}`, params);
-    return res.rows[0]?.cnt || 0;
+  async listBySegment(segmentId: number) {
+    const idStr = String(segmentId);
+    const res = await db.query(`
+      SELECT mc.*, p.partner_name
+      FROM marketing_campaigns mc
+      LEFT JOIN partners p ON mc.partner_code = p.partner_code
+      WHERE mc.target_filter->>'segment_id' = $1
+         OR mc.target_filter->'segment_ids' @> $2::jsonb
+      ORDER BY mc.created_at DESC`, [idStr, JSON.stringify([segmentId])]);
+    return res.rows;
+  }
+
+  /* ─── 헬퍼: segment_ids 정규화 (하위 호환) ─── */
+  private normalizeSegmentIds(filter: Record<string, any>): number[] {
+    if (filter.segment_ids?.length) return filter.segment_ids.map(Number);
+    if (filter.segment_id) return [Number(filter.segment_id)];
+    return [];
+  }
+
+  /* ─── 대상 산출 + 미리보기 ─── */
+
+  async previewTargets(filter: Record<string, any>, partnerCode?: string, campaignType?: string, previewLimit = 5) {
+    const addrCol = campaignType === 'EMAIL' ? 'c.email' : 'c.phone';
+    const consentCol = campaignType === 'EMAIL' ? 'c.email_consent' : 'c.sms_consent';
+    const extraFilter = ` AND ${addrCol} IS NOT NULL AND ${addrCol} != '' AND ${consentCol} = TRUE`;
+
+    const segIds = this.normalizeSegmentIds(filter);
+
+    let totalQuery: string;
+    let previewQuery: string;
+    let queryParams: any[];
+
+    if (segIds.length > 0) {
+      const baseParams: any[] = [segIds];
+      let nextIdx = 2;
+      let pcFilter = '';
+      if (partnerCode) { pcFilter = ` AND c.partner_code = $${nextIdx++}`; baseParams.push(partnerCode); }
+      let excludeFilter = '';
+      if (filter.exclude_contacted_days) {
+        excludeFilter = ` AND NOT EXISTS (
+          SELECT 1 FROM campaign_recipients cr
+          WHERE cr.customer_id = c.customer_id AND cr.status = 'SENT'
+            AND cr.sent_at >= NOW() - INTERVAL '1 day' * $${nextIdx++}
+        )`;
+        baseParams.push(Number(filter.exclude_contacted_days));
+      }
+      totalQuery = `
+        SELECT COUNT(DISTINCT c.customer_id)::int AS cnt
+        FROM customer_segment_members csm
+        JOIN customers c ON csm.customer_id = c.customer_id
+        WHERE csm.segment_id = ANY($1) AND c.is_active = TRUE${pcFilter}${excludeFilter}${extraFilter}`;
+      previewQuery = `
+        SELECT DISTINCT ON (c.customer_id)
+          c.customer_id, c.customer_name, c.phone, c.email, c.customer_tier, c.partner_code,
+          p.partner_name
+        FROM customer_segment_members csm
+        JOIN customers c ON csm.customer_id = c.customer_id
+        LEFT JOIN partners p ON c.partner_code = p.partner_code
+        WHERE csm.segment_id = ANY($1) AND c.is_active = TRUE${pcFilter}${excludeFilter}${extraFilter}
+        ORDER BY c.customer_id
+        LIMIT $${nextIdx}`;
+      queryParams = baseParams;
+    } else {
+      const { where, params } = this.buildTargetFilter(filter, partnerCode);
+      totalQuery = `SELECT COUNT(*)::int AS cnt FROM customers c ${where}${extraFilter}`;
+      previewQuery = `
+        SELECT c.customer_id, c.customer_name, c.phone, c.email, c.customer_tier, c.partner_code,
+          p.partner_name
+        FROM customers c
+        LEFT JOIN partners p ON c.partner_code = p.partner_code
+        ${where}${extraFilter}
+        ORDER BY c.customer_id
+        LIMIT $${params.length + 1}`;
+      queryParams = params;
+    }
+
+    const [countRes, previewRes] = await Promise.all([
+      db.query(totalQuery, queryParams),
+      db.query(previewQuery, [...queryParams, previewLimit]),
+    ]);
+
+    return {
+      total: countRes.rows[0]?.cnt || 0,
+      preview: previewRes.rows,
+    };
   }
 
   async getTargetCustomers(campaignType: string, filter: Record<string, any>, partnerCode?: string) {
-    const { where, params } = this.buildTargetFilter(filter, partnerCode);
     const addrCol = campaignType === 'EMAIL' ? 'c.email' : 'c.phone';
-    // 수신동의 고객만 필터 (정보통신망법)
     const consentCol = campaignType === 'EMAIL' ? 'c.email_consent' : 'c.sms_consent';
+
+    const segIds = this.normalizeSegmentIds(filter);
+
+    if (segIds.length > 0) {
+      const params: any[] = [segIds];
+      let nextIdx = 2;
+      let pcFilter = '';
+      if (partnerCode) { pcFilter = ` AND c.partner_code = $${nextIdx++}`; params.push(partnerCode); }
+      let excludeFilter = '';
+      if (filter.exclude_contacted_days) {
+        excludeFilter = ` AND NOT EXISTS (
+          SELECT 1 FROM campaign_recipients cr
+          WHERE cr.customer_id = c.customer_id AND cr.status = 'SENT'
+            AND cr.sent_at >= NOW() - INTERVAL '1 day' * $${nextIdx++}
+        )`;
+        params.push(Number(filter.exclude_contacted_days));
+      }
+      const res = await db.query(`
+        SELECT DISTINCT ON (c.customer_id)
+          c.customer_id, c.customer_name, ${addrCol} AS recipient_addr
+        FROM customer_segment_members csm
+        JOIN customers c ON csm.customer_id = c.customer_id
+        WHERE csm.segment_id = ANY($1) AND c.is_active = TRUE${pcFilter}${excludeFilter}
+          AND ${addrCol} IS NOT NULL AND ${addrCol} != ''
+          AND ${consentCol} = TRUE
+        ORDER BY c.customer_id`, params);
+      return res.rows;
+    }
+
+    const { where, params } = this.buildTargetFilter(filter, partnerCode);
     const res = await db.query(`
       SELECT c.customer_id, c.customer_name, ${addrCol} AS recipient_addr
       FROM customers c ${where} AND ${addrCol} IS NOT NULL AND ${addrCol} != ''
@@ -134,22 +245,31 @@ class CampaignRepository {
       conditions.push(`c.partner_code = $${idx++}`);
       params.push(partnerCode);
     }
+    if (filter.exclude_contacted_days) {
+      conditions.push(`NOT EXISTS (
+        SELECT 1 FROM campaign_recipients cr
+        WHERE cr.customer_id = c.customer_id
+          AND cr.status = 'SENT'
+          AND cr.sent_at >= NOW() - INTERVAL '1 day' * $${idx++}
+      )`);
+      params.push(Number(filter.exclude_contacted_days));
+    }
 
     return { where: 'WHERE ' + conditions.join(' AND '), params };
   }
 
   /* ─── 수신자 ─── */
 
-  async insertRecipients(campaignId: number, recipients: Array<{ customer_id: number; recipient_addr: string }>) {
+  async insertRecipients(campaignId: number, recipients: Array<{ customer_id: number; recipient_addr: string; ab_variant?: string }>) {
     if (recipients.length === 0) return;
     const values: string[] = [];
     const params: any[] = [];
     let idx = 1;
     for (const r of recipients) {
-      values.push(`($${idx++}, $${idx++}, $${idx++})`);
-      params.push(campaignId, r.customer_id, r.recipient_addr);
+      values.push(`($${idx++}, $${idx++}, $${idx++}, $${idx++})`);
+      params.push(campaignId, r.customer_id, r.recipient_addr, r.ab_variant || null);
     }
-    await db.query(`INSERT INTO campaign_recipients (campaign_id, customer_id, recipient_addr) VALUES ${values.join(',')}`, params);
+    await db.query(`INSERT INTO campaign_recipients (campaign_id, customer_id, recipient_addr, ab_variant) VALUES ${values.join(',')}`, params);
   }
 
   async getRecipients(campaignId: number, options: any = {}) {
@@ -184,6 +304,25 @@ class CampaignRepository {
     await db.query(`
       UPDATE campaign_recipients SET status = $1, sent_at = ${sentAt}, error_message = $2
       WHERE recipient_id = $3`, [status, error || null, recipientId]);
+  }
+
+  async updateRecipientStatusBatch(recipientIds: number[], status: string) {
+    if (recipientIds.length === 0) return;
+    await db.query(`
+      UPDATE campaign_recipients SET status = $1, sent_at = NOW()
+      WHERE recipient_id = ANY($2)`, [status, recipientIds]);
+  }
+
+  async updateRecipientStatusBatchWithErrors(items: Array<{ id: number; error: string }>) {
+    if (items.length === 0) return;
+    const ids = items.map(i => i.id);
+    // 개별 에러 메시지 보존을 위해 CASE 사용
+    const cases = items.map((it, idx) => `WHEN ${it.id} THEN $${idx + 2}`).join(' ');
+    const params: any[] = [ids, ...items.map(i => i.error)];
+    await db.query(`
+      UPDATE campaign_recipients SET status = 'FAILED', sent_at = NOW(),
+        error_message = CASE recipient_id ${cases} END
+      WHERE recipient_id = ANY($1)`, params);
   }
 
   async updateCampaignCounts(campaignId: number) {
@@ -250,24 +389,58 @@ class CampaignRepository {
           email_user = COALESCE($5, email_user),
           email_password = COALESCE($6, email_password),
           email_enabled = COALESCE($7, email_enabled),
-          updated_by = $8, updated_at = NOW()
-        WHERE partner_code = $9 RETURNING *`,
+          kakao_sender_key = COALESCE($8, kakao_sender_key),
+          kakao_enabled = COALESCE($9, kakao_enabled),
+          updated_by = $10, updated_at = NOW()
+        WHERE partner_code = $11 RETURNING *`,
         [data.sms_api_key, data.sms_api_secret, data.sms_from_number, data.sms_enabled,
          data.email_user, data.email_password, data.email_enabled,
+         data.kakao_sender_key, data.kakao_enabled,
          updatedBy, partnerCode]);
       return res.rows[0];
     } else {
       const res = await db.query(`
         INSERT INTO partner_sender_settings
           (partner_code, sms_api_key, sms_api_secret, sms_from_number, sms_enabled,
-           email_user, email_password, email_enabled, updated_by)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+           email_user, email_password, email_enabled,
+           kakao_sender_key, kakao_enabled, updated_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
         [partnerCode, data.sms_api_key || null, data.sms_api_secret || null,
          data.sms_from_number || null, data.sms_enabled || false,
          data.email_user || null, data.email_password || null,
-         data.email_enabled || false, updatedBy]);
+         data.email_enabled || false,
+         data.kakao_sender_key || null, data.kakao_enabled || false,
+         updatedBy]);
       return res.rows[0];
     }
+  }
+  /* ─── 예약 발송 대상 ─── */
+
+  async getScheduledCampaigns(): Promise<MarketingCampaign[]> {
+    const res = await db.query(`
+      SELECT mc.*, p.partner_name
+      FROM marketing_campaigns mc
+      LEFT JOIN partners p ON mc.partner_code = p.partner_code
+      WHERE mc.status = 'SCHEDULED' AND mc.scheduled_at <= NOW()
+      ORDER BY mc.scheduled_at ASC`);
+    return res.rows;
+  }
+
+  /* ─── A/B 테스트 결과 ─── */
+
+  async getAbTestStats(campaignId: number) {
+    const res = await db.query(`
+      SELECT
+        ab_variant,
+        COUNT(*)::int AS total,
+        COUNT(*) FILTER (WHERE status = 'SENT')::int AS sent,
+        COUNT(*) FILTER (WHERE status = 'FAILED')::int AS failed,
+        COUNT(*) FILTER (WHERE status = 'OPENED')::int AS opened
+      FROM campaign_recipients
+      WHERE campaign_id = $1 AND ab_variant IS NOT NULL
+      GROUP BY ab_variant
+      ORDER BY ab_variant`, [campaignId]);
+    return res.rows;
   }
 }
 

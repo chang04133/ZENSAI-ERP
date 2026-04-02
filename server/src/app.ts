@@ -35,6 +35,8 @@ import inboundRoutes from './modules/inbound/inbound.routes';
 import warehouseRoutes from './modules/warehouse/warehouse.routes';
 import crmRoutes from './modules/crm/crm.routes';
 import consentRoutes from './modules/crm/consent.routes';
+import seasonRoutes from './modules/season/season.routes';
+import markdownRoutes from './modules/markdown/markdown.routes';
 
 const app = express();
 
@@ -57,24 +59,25 @@ app.use(cors({
 }));
 app.use(express.json({ limit: '2mb' }));
 
-// Rate limiting
+// Rate limiting (개발환경에서는 넉넉하게)
+const isDev = config.nodeEnv !== 'production';
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 200,
+  max: isDev ? 1000 : 200,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: '요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
 });
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
+  max: isDev ? 100 : 10,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: '로그인 시도가 너무 많습니다. 15분 후 다시 시도해주세요.' },
 });
 const refreshLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 30,
+  max: isDev ? 200 : 30,
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: '토큰 갱신 요청이 너무 많습니다. 잠시 후 다시 시도해주세요.' },
@@ -121,6 +124,8 @@ app.use('/api/inbounds', inboundRoutes);
 app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/consent', consentRoutes);
+app.use('/api/seasons', seasonRoutes);
+app.use('/api/markdowns', markdownRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

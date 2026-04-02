@@ -1,7 +1,37 @@
 import { getPool } from '../../db/connection';
+import { AligoSender } from './senders/aligo.sender';
+import { KakaoSender } from './senders/kakao.sender';
+import { MessageSender } from './senders/sender.interface';
 
 class AutoCampaignService {
   private get pool() { return getPool(); }
+
+  /** 매장별 SMS sender 생성 (캐시) */
+  private senderCache = new Map<string, MessageSender | null>();
+
+  private async getSender(partnerCode: string, campaignType: string = 'SMS'): Promise<MessageSender | null> {
+    const cacheKey = `${partnerCode}:${campaignType}`;
+    if (this.senderCache.has(cacheKey)) return this.senderCache.get(cacheKey)!;
+
+    const res = await this.pool.query(
+      `SELECT * FROM partner_sender_settings WHERE partner_code = $1`, [partnerCode]
+    );
+    const s = res.rows[0];
+    let sender: MessageSender | null = null;
+    if (campaignType === 'KAKAO') {
+      if (s?.kakao_enabled && s.kakao_sender_key && s.sms_api_key && s.sms_api_secret) {
+        sender = new KakaoSender(s.sms_api_key, s.sms_api_secret, s.kakao_sender_key);
+      }
+    } else if (s?.sms_enabled && s.sms_api_key && s.sms_api_secret && s.sms_from_number) {
+      sender = new AligoSender(s.sms_api_key, s.sms_api_secret, s.sms_from_number);
+    }
+    this.senderCache.set(cacheKey, sender);
+    return sender;
+  }
+
+  async getById(id: number) {
+    return (await this.pool.query('SELECT * FROM auto_campaigns WHERE auto_campaign_id = $1', [id])).rows[0] || null;
+  }
 
   async list(partnerCode?: string) {
     const pcFilter = partnerCode ? 'WHERE partner_code = $1 OR partner_code IS NULL' : '';
@@ -118,11 +148,15 @@ class AutoCampaignService {
   }
 
   async executeAutoCampaigns() {
+    this.senderCache.clear();
+
     const campaigns = (await this.pool.query(
       `SELECT * FROM auto_campaigns WHERE is_active = TRUE`
     )).rows;
 
     let totalSent = 0;
+    let totalFailed = 0;
+
     for (const campaign of campaigns) {
       let customers: any[] = [];
       if (campaign.trigger_type === 'BIRTHDAY') {
@@ -139,18 +173,38 @@ class AutoCampaignService {
       )).rows;
       const sentSet = new Set(already.map((r: any) => r.customer_id));
       customers = customers.filter(c => !sentSet.has(c.customer_id));
+      if (customers.length === 0) continue;
 
       for (const customer of customers) {
         const content = this.replaceVariables(campaign.content, customer);
-        // 실제 발송은 campaign.service의 sender를 사용하나, 여기서는 로그만 기록 (MockSender)
-        await this.pool.query(
-          `INSERT INTO auto_campaign_logs (auto_campaign_id, customer_id, status) VALUES ($1, $2, 'SENT')`,
-          [campaign.auto_campaign_id, customer.customer_id]
-        );
-        totalSent++;
+
+        // 캠페인에 매장 지정 → 해당 매장 sender, 미지정(전체) → 고객 소속 매장 sender
+        const senderPartner = campaign.partner_code || customer.partner_code;
+        const sender = senderPartner ? await this.getSender(senderPartner, campaign.campaign_type || 'SMS') : null;
+
+        if (sender && customer.phone) {
+          const result = await sender.send(customer.phone, content);
+          const status = result.success ? 'SENT' : 'FAILED';
+          const errorMsg = result.error || null;
+
+          await this.pool.query(
+            `INSERT INTO auto_campaign_logs (auto_campaign_id, customer_id, status, error_message) VALUES ($1, $2, $3, $4)`,
+            [campaign.auto_campaign_id, customer.customer_id, status, errorMsg]
+          );
+
+          if (result.success) totalSent++;
+          else totalFailed++;
+        } else {
+          const reason = !customer.phone ? '전화번호 없음' : '발송 설정 미등록';
+          await this.pool.query(
+            `INSERT INTO auto_campaign_logs (auto_campaign_id, customer_id, status, error_message) VALUES ($1, $2, 'FAILED', $3)`,
+            [campaign.auto_campaign_id, customer.customer_id, reason]
+          );
+          totalFailed++;
+        }
       }
     }
-    return { totalSent };
+    return { totalSent, totalFailed };
   }
 }
 

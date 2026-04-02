@@ -145,4 +145,39 @@ export const productionApi = {
     if (!d.success) throw new Error(d.error);
     return d.data as { total: number; createdPlans: number; createdItems: number; errors?: string[] };
   },
+
+  // ── 시즌 기획시트 ──
+
+  seasonPlanData: async (season: string) => {
+    const res = await apiFetch(`/api/productions/season-plan/data?season=${encodeURIComponent(season)}`);
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
+
+  seasonPlanExcelUrl: (season: string) =>
+    `/api/productions/season-plan/excel?season=${encodeURIComponent(season)}`,
+
+  seasonPlanUploadExcel: async (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await apiFetch('/api/productions/season-plan/excel', {
+      method: 'POST',
+      body: formData,
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d.data;
+  },
+
+  seasonPlanApply: async (season: string, rows: any[]) => {
+    const res = await apiFetch('/api/productions/season-plan/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ season, rows }),
+    });
+    const d = await res.json();
+    if (!d.success) throw new Error(d.error);
+    return d;
+  },
 };

@@ -71,6 +71,57 @@ class CrmService extends BaseService<Customer> {
   /* ─── Message History ─── */
   async getMessageHistory(customerId: number, options: any) { return this.repo.getMessageHistory(customerId, options); }
 
+  /* ─── Shipments ─── */
+  async getShipments(customerId: number, options: any) { return this.repo.getShipments(customerId, options); }
+  async createShipment(data: any) { return this.repo.createShipment(data); }
+  async deleteShipment(shipmentId: number) { return this.repo.deleteShipment(shipmentId); }
+
+  /** SMS 발송 (택배 알림) */
+  async sendShipmentSms(partnerCode: string, phone: string, carrier: string, trackingNumber: string): Promise<{ sent: boolean; error?: string }> {
+    try {
+      const pool = (await import('../../db/connection')).getPool();
+      const settingsR = await pool.query(
+        `SELECT sms_api_key, sms_api_secret, sms_from_number, sms_enabled FROM partner_sender_settings WHERE partner_code = $1`,
+        [partnerCode],
+      );
+      const settings = settingsR.rows[0];
+      if (!settings || !settings.sms_enabled || !settings.sms_api_key || !settings.sms_api_secret || !settings.sms_from_number) {
+        return { sent: false, error: 'SMS 발송 설정이 없거나 비활성화 상태입니다.' };
+      }
+
+      const { AligoSender } = await import('./senders/aligo.sender');
+      const sender = new AligoSender(settings.sms_api_key, settings.sms_api_secret, settings.sms_from_number);
+
+      const message = `[택배발송 안내]\n주문하신 상품이 발송되었습니다.\n택배사: ${carrier}\n송장번호: ${trackingNumber}\n감사합니다.`;
+      const result = await sender.send(phone, message);
+
+      if (result.success) {
+        return { sent: true };
+      } else {
+        return { sent: false, error: result.error || 'SMS 발송 실패' };
+      }
+    } catch (err: any) {
+      return { sent: false, error: err.message || 'SMS 발송 중 오류' };
+    }
+  }
+
+  /* ─── Feedback ─── */
+  async getFeedback(customerId: number, options: any) { return this.repo.getFeedback(customerId, options); }
+  async addFeedback(data: any) { return this.repo.addFeedback(data); }
+  async deleteFeedback(feedbackId: number) { return this.repo.deleteFeedback(feedbackId); }
+  async getAvgRating(customerId: number) { return this.repo.getAvgRating(customerId); }
+
+  /* ─── Tier Benefits ─── */
+  async getTierBenefits(tierName?: string, includeInactive = false) { return this.repo.getTierBenefits(tierName, includeInactive); }
+  async upsertTierBenefit(data: any) { return this.repo.upsertTierBenefit(data); }
+  async deleteTierBenefit(benefitId: number) { return this.repo.deleteTierBenefit(benefitId); }
+
+  /* ─── Flags ─── */
+  async listFlags() { return this.repo.listFlags(); }
+  async getCustomerFlags(customerId: number) { return this.repo.getCustomerFlags(customerId); }
+  async addCustomerFlag(customerId: number, flagId: number, flaggedBy?: string) { return this.repo.addCustomerFlag(customerId, flagId, flaggedBy); }
+  async removeCustomerFlag(customerId: number, flagId: number) { return this.repo.removeCustomerFlag(customerId, flagId); }
+
   /* ─── Export ─── */
   async listForExport(partnerCode?: string) { return this.repo.listForExport(partnerCode); }
 

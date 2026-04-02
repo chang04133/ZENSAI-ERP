@@ -4,6 +4,7 @@ import * as Icons from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { menuItems, MenuItem } from '../routes/menu';
+import { ROLES } from '../../../shared/constants/roles';
 
 const { Header, Sider, Content } = Layout;
 
@@ -12,6 +13,8 @@ function getIcon(name: string): React.ReactNode {
   const IconComponent = (Icons as any)[name];
   return IconComponent ? <IconComponent /> : null;
 }
+
+const HQ_ROLES: string[] = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER];
 
 function buildMenuItems(
   items: MenuItem[],
@@ -30,16 +33,18 @@ function buildMenuItems(
       return hasPermission(item.key);
     })
     .map((item) => {
+      // 본사 계정: "고객관리" → "고객 데이터"
+      const label = item.key === '/crm' && HQ_ROLES.includes(role) ? '고객 데이터' : item.label;
       if (item.children) {
         const children = item.children
           .filter(c => c.roles.includes(role) && hasPermission(c.key))
           .map(c => ({ key: c.key, icon: getIcon(c.icon), label: c.label }));
         if (children.length === 0) {
-          return { key: item.key, icon: getIcon(item.icon), label: item.label };
+          return { key: item.key, icon: getIcon(item.icon), label };
         }
-        return { key: item.key, icon: getIcon(item.icon), label: item.label, children };
+        return { key: item.key, icon: getIcon(item.icon), label, children };
       }
-      return { key: item.key, icon: getIcon(item.icon), label: item.label };
+      return { key: item.key, icon: getIcon(item.icon), label };
     })
     .filter(Boolean);
 }

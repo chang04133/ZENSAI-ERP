@@ -4,6 +4,7 @@ import * as Icons from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { crmMenuItems } from '../routes/crm-menu';
+import { ROLES } from '../../../shared/constants/roles';
 
 const { Header, Sider, Content } = Layout;
 
@@ -17,18 +18,23 @@ export default function CrmLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const isHQ = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
   const { token: { colorBgContainer, borderRadiusLG } } = theme.useToken();
 
-  const menuItemsAnt = crmMenuItems.map((item) => ({
+  const visibleMenuItems = crmMenuItems.filter(
+    (item) => !item.roles || (user?.role && item.roles.includes(user.role)),
+  );
+
+  const menuItemsAnt = visibleMenuItems.map((item) => ({
     key: item.key,
     icon: getIcon(item.icon),
     label: item.label,
   }));
 
   // /crm/sender-settings, /crm/:id 등 경로도 선택되게
-  const knownPaths = ['segments', 'dormant', 'after-sales', 'campaigns', 'templates', 'sender-settings', 'list'];
+  const knownPaths = ['segments', 'dormant', 'after-sales', 'campaigns', 'templates', 'sender-settings', 'list', 'auto-campaigns', 'consent-logs'];
   const pathParts = location.pathname.split('/').filter(Boolean);
-  const candidateKeys = crmMenuItems.map((m) => m.key);
+  const candidateKeys = visibleMenuItems.map((m) => m.key);
   const isCustomerDetail = pathParts.length === 2 && pathParts[0] === 'crm' && !knownPaths.includes(pathParts[1]);
   const selectedKey = isCustomerDetail
     ? '/crm/list'
@@ -50,7 +56,7 @@ export default function CrmLayout() {
     <Layout style={{ minHeight: '100vh' }}>
       <Sider trigger={null} collapsible collapsed={collapsed} breakpoint="lg">
         <div className="logo" style={{ background: 'rgba(99,102,241,0.15)' }}>
-          {collapsed ? 'CRM' : '고객관리'}
+          {collapsed ? (isHQ ? '데이터' : 'CRM') : (isHQ ? '고객 데이터' : '고객관리')}
         </div>
         <div style={{ padding: collapsed ? '8px 4px' : '8px 12px' }}>
           <Button

@@ -364,7 +364,7 @@ export class CrmRepository extends BaseRepository<Customer> {
 
   /* ─── Purchase Patterns ─── */
   async getPurchasePatterns(customerId: number) {
-    const [catR, sizeR, colorR, cycleR, payR, trendR] = await Promise.all([
+    const results = await Promise.allSettled([
       this.pool.query(
         `SELECT product_name AS category, COUNT(*)::int AS count, SUM(total_price)::numeric AS amount
          FROM customer_purchases WHERE customer_id = $1 GROUP BY product_name ORDER BY count DESC LIMIT 10`, [customerId]),
@@ -382,14 +382,31 @@ export class CrmRepository extends BaseRepository<Customer> {
         `SELECT TO_CHAR(purchase_date, 'YYYY-MM') AS month, COUNT(*)::int AS count, SUM(total_price)::numeric AS amount
          FROM customer_purchases WHERE customer_id = $1 AND purchase_date >= CURRENT_DATE - INTERVAL '12 months' GROUP BY 1 ORDER BY 1`, [customerId]),
     ]);
+    const empty = { rows: [] };
+    const [catR, sizeR, colorR, cycleR, payR, trendR] = results.map(r => r.status === 'fulfilled' ? r.value : empty);
+    // 추가 주기 분석: 최근 구매일, 다음 예상일, 표준편차
+    const extraR = await this.pool.query(
+      `SELECT MAX(purchase_date) AS last_purchase_date, COUNT(*)::int AS purchase_count,
+              STDDEV(gap)::int AS cycle_stddev
+       FROM (SELECT purchase_date, purchase_date - LAG(purchase_date) OVER (ORDER BY purchase_date) AS gap
+             FROM customer_purchases WHERE customer_id = $1) sub`, [customerId]);
+    const lastDate = extraR.rows[0]?.last_purchase_date || null;
+    const avgCycle = cycleR.rows[0]?.avg_cycle || null;
+    const nextExpected = lastDate && avgCycle
+      ? new Date(new Date(lastDate).getTime() + avgCycle * 86400000).toISOString().slice(0, 10)
+      : null;
     return {
       customer_id: customerId,
       category_distribution: catR.rows,
       size_distribution: sizeR.rows,
       color_distribution: colorR.rows,
-      avg_purchase_cycle_days: cycleR.rows[0]?.avg_cycle || null,
+      avg_purchase_cycle_days: avgCycle,
       preferred_payment: payR.rows[0]?.payment_method || null,
       monthly_trend: trendR.rows,
+      last_purchase_date: lastDate,
+      next_expected_date: nextExpected,
+      purchase_count: extraR.rows[0]?.purchase_count || 0,
+      cycle_stddev: extraR.rows[0]?.cycle_stddev || null,
     };
   }
 
@@ -405,6 +422,113 @@ export class CrmRepository extends BaseRepository<Customer> {
        JOIN marketing_campaigns mc ON cr.campaign_id = mc.campaign_id WHERE cr.customer_id = $1
        ORDER BY cr.created_at DESC LIMIT $2 OFFSET $3`, [customerId, limit, offset])).rows;
     return { data, total, page, limit };
+  }
+
+  /* ─── Shipments ─── */
+  async getShipments(customerId: number, options: any = {}) {
+    const { page = 1, limit: rawLimit = 50 } = options;
+    const limit = Math.min(Number(rawLimit) || 50, 200);
+    const offset = (page - 1) * limit;
+    const total = parseInt((await this.pool.query('SELECT COUNT(*)::int AS cnt FROM customer_shipments WHERE customer_id = $1', [customerId])).rows[0].cnt, 10);
+    const data = (await this.pool.query(
+      `SELECT cs.*, pt.partner_name FROM customer_shipments cs LEFT JOIN partners pt ON cs.partner_code = pt.partner_code WHERE cs.customer_id = $1 ORDER BY cs.created_at DESC LIMIT $2 OFFSET $3`,
+      [customerId, limit, offset])).rows;
+    return { data, total, page, limit };
+  }
+
+  async createShipment(data: any) {
+    return (await this.pool.query(
+      `INSERT INTO customer_shipments (customer_id, partner_code, carrier, tracking_number, memo, sms_sent, sms_error, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+      [data.customer_id, data.partner_code, data.carrier, data.tracking_number, data.memo || null, data.sms_sent || false, data.sms_error || null, data.created_by || null])).rows[0];
+  }
+
+  async deleteShipment(shipmentId: number) {
+    await this.pool.query('DELETE FROM customer_shipments WHERE shipment_id = $1', [shipmentId]);
+  }
+
+  /* ─── Feedback ─── */
+  async getFeedback(customerId: number, options: any = {}) {
+    const { page = 1, limit: rawLimit = 50 } = options;
+    const limit = Math.min(Number(rawLimit) || 50, 200);
+    const offset = (page - 1) * limit;
+    const total = parseInt((await this.pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM customer_feedback WHERE customer_id = $1', [customerId])).rows[0].cnt, 10);
+    const data = (await this.pool.query(
+      `SELECT cf.*, ass.service_type, ass.product_name AS service_product
+       FROM customer_feedback cf
+       LEFT JOIN after_sales_services ass ON cf.service_id = ass.service_id
+       WHERE cf.customer_id = $1 ORDER BY cf.created_at DESC LIMIT $2 OFFSET $3`,
+      [customerId, limit, offset])).rows;
+    return { data, total, page, limit };
+  }
+
+  async addFeedback(data: any) {
+    return (await this.pool.query(
+      `INSERT INTO customer_feedback (customer_id, service_id, feedback_type, rating, content, partner_code, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [data.customer_id, data.service_id || null, data.feedback_type || '일반',
+       data.rating, data.content || null, data.partner_code || null, data.created_by || null])).rows[0];
+  }
+
+  async deleteFeedback(feedbackId: number) {
+    await this.pool.query('DELETE FROM customer_feedback WHERE feedback_id = $1', [feedbackId]);
+  }
+
+  async getAvgRating(customerId: number) {
+    const r = await this.pool.query(
+      'SELECT AVG(rating)::numeric(3,1) AS avg_rating, COUNT(*)::int AS cnt FROM customer_feedback WHERE customer_id = $1', [customerId]);
+    return { avg_rating: r.rows[0]?.avg_rating ? Number(r.rows[0].avg_rating) : null, count: r.rows[0]?.cnt || 0 };
+  }
+
+  /* ─── Tier Benefits ─── */
+  async getTierBenefits(tierName?: string, includeInactive = false) {
+    const activeFilter = includeInactive ? '' : 'AND is_active = TRUE';
+    if (tierName) {
+      return (await this.pool.query(
+        `SELECT * FROM tier_benefits WHERE tier_name = $1 ${activeFilter} ORDER BY sort_order`, [tierName])).rows;
+    }
+    return (await this.pool.query(`SELECT * FROM tier_benefits WHERE 1=1 ${activeFilter} ORDER BY tier_name, sort_order`)).rows;
+  }
+
+  async upsertTierBenefit(data: any) {
+    if (data.benefit_id) {
+      return (await this.pool.query(
+        `UPDATE tier_benefits SET tier_name=$1, benefit_type=$2, benefit_name=$3, benefit_value=$4,
+         description=$5, is_active=$6, sort_order=$7, updated_at=NOW() WHERE benefit_id=$8 RETURNING *`,
+        [data.tier_name, data.benefit_type, data.benefit_name, data.benefit_value || null,
+         data.description || null, data.is_active ?? true, data.sort_order || 0, data.benefit_id])).rows[0];
+    }
+    return (await this.pool.query(
+      `INSERT INTO tier_benefits (tier_name, benefit_type, benefit_name, benefit_value, description, sort_order)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+      [data.tier_name, data.benefit_type, data.benefit_name, data.benefit_value || null,
+       data.description || null, data.sort_order || 0])).rows[0];
+  }
+
+  async deleteTierBenefit(benefitId: number) {
+    await this.pool.query('UPDATE tier_benefits SET is_active = FALSE WHERE benefit_id = $1', [benefitId]);
+  }
+
+  /* ─── Flags ─── */
+  async listFlags() {
+    return (await this.pool.query('SELECT * FROM customer_flags ORDER BY sort_order')).rows;
+  }
+
+  async getCustomerFlags(customerId: number) {
+    return (await this.pool.query(
+      `SELECT cf.*, cfm.flagged_by, cfm.flagged_at
+       FROM customer_flag_map cfm JOIN customer_flags cf ON cfm.flag_id = cf.flag_id
+       WHERE cfm.customer_id = $1 ORDER BY cf.sort_order`, [customerId])).rows;
+  }
+
+  async addCustomerFlag(customerId: number, flagId: number, flaggedBy?: string) {
+    await this.pool.query(
+      `INSERT INTO customer_flag_map (customer_id, flag_id, flagged_by) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+      [customerId, flagId, flaggedBy || null]);
+  }
+
+  async removeCustomerFlag(customerId: number, flagId: number) {
+    await this.pool.query('DELETE FROM customer_flag_map WHERE customer_id = $1 AND flag_id = $2', [customerId, flagId]);
   }
 
   /* ─── Export ─── */

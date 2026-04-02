@@ -380,7 +380,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     res.json({ success: true, data: result });
   });
 
-  /** 송장번호 등록 + 알림톡 발송 */
+  /** 송장번호 등록 + SMS 발송 */
   updateTracking = asyncHandler(async (req: Request, res: Response) => {
     const requestId = parseInt(req.params.id as string, 10);
     if (isNaN(requestId)) { res.status(400).json({ success: false, error: '유효하지 않은 ID입니다.' }); return; }
@@ -406,33 +406,24 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       [String(tracking_number).trim(), carrier || null, requestId],
     );
 
-    // 알림톡 발송 시도 (customer_phone이 있을 때)
+    // SMS 발송 시도 (customer_phone이 있을 때)
     let notified = false;
     if (shipment.customer_phone) {
       try {
-        // from_partner의 sender settings 조회
         const settings = await pool.query(
           'SELECT * FROM partner_sender_settings WHERE partner_code = $1', [shipment.from_partner],
         );
         const s = settings.rows[0];
-        if (s && (s.kakao_enabled || s.sms_enabled)) {
-          const { KakaoSender } = await import('../crm/senders/kakao.sender');
+        if (s && s.sms_enabled && s.sms_api_key) {
+          const { AligoSender } = await import('../crm/senders/aligo.sender');
           const carrierLabel = carrier || '택배';
           const msgContent = `안녕하세요, 주문하신 상품이 발송되었습니다.\n택배사: ${carrierLabel}\n송장번호: ${tracking_number}\n감사합니다.`;
-
-          if (s.kakao_enabled && s.kakao_sender_key) {
-            const sender = new KakaoSender(s.sms_api_key, s.sms_api_secret, s.kakao_sender_key);
-            const result = await sender.send(shipment.customer_phone, msgContent);
-            notified = result.success;
-          } else if (s.sms_enabled && s.sms_api_key) {
-            const { CoolSmsSender } = await import('../crm/senders/coolsms.sender');
-            const sender = new CoolSmsSender(s.sms_api_key, s.sms_api_secret, s.sms_from_number);
-            const result = await sender.send(shipment.customer_phone, msgContent);
-            notified = result.success;
-          }
+          const sender = new AligoSender(s.sms_api_key, s.sms_api_secret, s.sms_from_number);
+          const result = await sender.send(shipment.customer_phone, msgContent);
+          notified = result.success;
         }
       } catch (err: any) {
-        console.error('알림톡 발송 실패:', err.message);
+        console.error('SMS 발송 실패:', err.message);
       }
     }
 

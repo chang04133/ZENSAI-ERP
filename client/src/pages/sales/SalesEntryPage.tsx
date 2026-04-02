@@ -110,6 +110,7 @@ export default function SalesEntryPage() {
   const [returnModalOpen, setReturnModalOpen] = useState(false);
   const [returnRecord, setReturnRecord] = useState<any>(null);
   const [returnQty, setReturnQty] = useState(1);
+  const [returnMaxQty, setReturnMaxQty] = useState(0);
   const [returnReason, setReturnReason] = useState('');
   const [returnSubmitting, setReturnSubmitting] = useState(false);
 
@@ -122,11 +123,19 @@ export default function SalesEntryPage() {
   const [directReturnBarcode, setDirectReturnBarcode] = useState('');
   const [directReturnScanning, setDirectReturnScanning] = useState(false);
   const [directReturnSearchResults, setDirectReturnSearchResults] = useState<any[]>([]);
+  const [directReturnPartner, setDirectReturnPartner] = useState<string | undefined>();
   const directReturnBarcodeRef = useRef<InputRef>(null);
 
   // CRM 고객 연동
   const [customerId, setCustomerId] = useState<number | undefined>();
   const [customerSearch, setCustomerSearch] = useState<any[]>([]);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerInfo, setCustomerInfo] = useState<any>(null);
+  const [customerSearching, setCustomerSearching] = useState(false);
+  const [quickRegisterOpen, setQuickRegisterOpen] = useState(false);
+  const [quickRegisterName, setQuickRegisterName] = useState('');
+  const [quickRegisterGender, setQuickRegisterGender] = useState<string | undefined>();
+  const [quickRegisterLoading, setQuickRegisterLoading] = useState(false);
 
   // 교환 모달 상태
   const [exchangeModalOpen, setExchangeModalOpen] = useState(false);
@@ -164,6 +173,63 @@ export default function SalesEntryPage() {
       } catch { setCustomerSearch([]); }
     }
   }, []);
+
+  /** 전화번호로 고객 자동 조회 */
+  const handlePhoneLookup = useCallback(async (phone: string) => {
+    const cleaned = phone.replace(/[^0-9]/g, '');
+    setCustomerPhone(phone);
+    if (cleaned.length < 10) {
+      setCustomerInfo(null);
+      setCustomerId(undefined);
+      return;
+    }
+    setCustomerSearching(true);
+    try {
+      const r = await crmApi.list({ search: cleaned, limit: '5' });
+      const customers = r.data || [];
+      const match = customers.find((c: any) => c.phone?.replace(/[^0-9]/g, '') === cleaned);
+      if (match) {
+        setCustomerInfo(match);
+        setCustomerId(match.customer_id);
+        message.success(`고객 연결: ${match.customer_name} (${match.customer_tier || '일반'})`);
+      } else {
+        setCustomerInfo(null);
+        setCustomerId(undefined);
+      }
+    } catch { setCustomerInfo(null); setCustomerId(undefined); }
+    finally { setCustomerSearching(false); }
+  }, []);
+
+  /** 신규등록 모달 열기 */
+  const handleOpenQuickRegister = useCallback(() => {
+    const cleaned = customerPhone.replace(/[^0-9]/g, '');
+    if (cleaned.length < 10) { message.warning('전화번호를 정확히 입력해주세요.'); return; }
+    setQuickRegisterName('');
+    setQuickRegisterGender(undefined);
+    setQuickRegisterOpen(true);
+  }, [customerPhone]);
+
+  /** 신규 고객 등록 확인 */
+  const handleQuickRegister = useCallback(async () => {
+    if (!quickRegisterName.trim()) { message.warning('고객 이름을 입력해주세요.'); return; }
+    const cleaned = customerPhone.replace(/[^0-9]/g, '');
+    setQuickRegisterLoading(true);
+    try {
+      const result = await crmApi.create({
+        phone: cleaned,
+        customer_name: quickRegisterName.trim(),
+        gender: quickRegisterGender || undefined,
+        marketing_consent: false,
+      });
+      if (result.success && result.data) {
+        setCustomerInfo(result.data);
+        setCustomerId(result.data.customer_id);
+        setQuickRegisterOpen(false);
+        message.success(`고객 "${quickRegisterName.trim()}" 등록 완료`);
+      }
+    } catch (e: any) { message.error(e.message || '고객 등록 실패'); }
+    finally { setQuickRegisterLoading(false); }
+  }, [customerPhone, quickRegisterName, quickRegisterGender]);
 
   const handleVariantSearch = useCallback(async (key: number, value: string) => {
     if (value.length >= 2) {
@@ -311,6 +377,8 @@ export default function SalesEntryPage() {
     setBarcodeInput('');
     setCustomerId(undefined);
     setCustomerSearch([]);
+    setCustomerPhone('');
+    setCustomerInfo(null);
     setModalOpen(true);
   };
 
@@ -358,11 +426,18 @@ export default function SalesEntryPage() {
   };
 
   // 반품 모달 열기
-  const openReturnModal = (record: any) => {
+  const openReturnModal = async (record: any) => {
     setReturnRecord(record);
-    setReturnQty(Number(record.qty));
     setReturnReason('');
     setReturnModalOpen(true);
+    try {
+      const info = await salesApi.getReturnable(record.sale_id);
+      setReturnMaxQty(info.remaining);
+      setReturnQty(Math.min(Number(record.qty), info.remaining));
+    } catch {
+      setReturnMaxQty(Number(record.qty));
+      setReturnQty(Number(record.qty));
+    }
   };
 
   // 반품 저장
@@ -386,6 +461,7 @@ export default function SalesEntryPage() {
     setDirectReturnReason('');
     setDirectReturnBarcode('');
     setDirectReturnSearchResults([]);
+    setDirectReturnPartner(undefined);
     setDirectReturnOpen(true);
     setTimeout(() => directReturnBarcodeRef.current?.focus(), 100);
   };
@@ -425,6 +501,7 @@ export default function SalesEntryPage() {
     if (!directReturnProduct) { message.error('반품할 상품을 선택해주세요'); return; }
     if (directReturnQty <= 0) { message.error('반품 수량을 입력해주세요'); return; }
     if (!directReturnReason) { message.error('반품 사유를 선택해주세요'); return; }
+    if (!isStore && !directReturnPartner) { message.error('거래처를 선택해주세요'); return; }
     setDirectReturnSubmitting(true);
     try {
       await salesApi.createDirectReturn({
@@ -433,6 +510,7 @@ export default function SalesEntryPage() {
         unit_price: directReturnProduct.base_price || 0,
         reason: '',
         return_reason: directReturnReason,
+        ...(!isStore && directReturnPartner ? { partner_code: directReturnPartner } : {}),
       });
       message.success(`${directReturnQty}개 반품이 등록되었습니다.`);
       setDirectReturnOpen(false);
@@ -729,20 +807,27 @@ export default function SalesEntryPage() {
                 value={partnerCode} onChange={setPartnerCode} style={{ width: 250 }} />
             </div>
           )}
-          <div style={{ minWidth: 200 }}>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 (CRM)</div>
-            <Select
-              showSearch placeholder="이름/전화 검색" filterOption={false} allowClear
-              value={customerId} onSearch={handleCustomerSearch}
-              onChange={(v) => setCustomerId(v)} style={{ width: 200 }}
-              notFoundContent="2자 이상 입력"
-            >
-              {customerSearch.map((c: any) => (
-                <Select.Option key={c.customer_id} value={c.customer_id}>
-                  {c.customer_name} ({c.phone}) <span style={{ color: '#888', fontSize: 11 }}>{c.customer_tier}</span>
-                </Select.Option>
-              ))}
-            </Select>
+          <div style={{ minWidth: 280 }}>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 전화번호</div>
+            <Space.Compact style={{ width: '100%' }}>
+              <Input
+                placeholder="010-0000-0000"
+                value={customerPhone}
+                onChange={(e) => handlePhoneLookup(e.target.value)}
+                style={{ width: 180 }}
+                allowClear
+                onClear={() => { setCustomerInfo(null); setCustomerId(undefined); setCustomerPhone(''); }}
+              />
+              {customerInfo ? (
+                <Tag color="green" style={{ lineHeight: '30px', margin: 0, borderRadius: '0 6px 6px 0', padding: '0 8px' }}>
+                  {customerInfo.customer_name} ({customerInfo.customer_tier || '일반'})
+                  {customerInfo.available_points > 0 && ` | ${customerInfo.available_points}P`}
+                </Tag>
+              ) : customerPhone.replace(/[^0-9]/g, '').length >= 10 && !customerSearching ? (
+                <Button type="primary" size="small" onClick={handleOpenQuickRegister}
+                  style={{ borderRadius: '0 6px 6px 0', height: 32 }}>신규등록</Button>
+              ) : null}
+            </Space.Compact>
           </div>
           <div>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
@@ -870,7 +955,7 @@ export default function SalesEntryPage() {
         title="반품 등록" open={returnModalOpen} onCancel={() => setReturnModalOpen(false)}
         onOk={handleReturnSubmit} confirmLoading={returnSubmitting}
         okText="반품 등록" cancelText="취소" width={480}
-        okButtonProps={{ danger: true }}
+        okButtonProps={{ danger: true, disabled: returnMaxQty <= 0 }}
       >
         {returnRecord && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -881,10 +966,18 @@ export default function SalesEntryPage() {
                 원본: {Number(returnRecord.qty)}개 x {Number(returnRecord.unit_price).toLocaleString()}원 = {Number(returnRecord.total_price).toLocaleString()}원
               </div>
             </div>
+            {returnMaxQty < Number(returnRecord.qty) && returnMaxQty > 0 && (
+              <Alert type="warning" showIcon style={{ marginBottom: 0 }}
+                message={`기존 반품 ${Number(returnRecord.qty) - returnMaxQty}개 처리됨, 남은 반품 가능: ${returnMaxQty}개`} />
+            )}
+            {returnMaxQty <= 0 && (
+              <Alert type="error" showIcon style={{ marginBottom: 0 }}
+                message="이미 전량 반품 처리되었습니다." />
+            )}
             <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 수량 (최대 {Number(returnRecord.qty)}개)</div>
-              <InputNumber min={1} max={Number(returnRecord.qty)} value={returnQty} style={{ width: '100%' }}
-                onChange={(v) => setReturnQty(v || 1)} />
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 수량 (최대 {returnMaxQty}개)</div>
+              <InputNumber min={1} max={returnMaxQty} value={returnQty} style={{ width: '100%' }}
+                onChange={(v) => setReturnQty(v || 1)} disabled={returnMaxQty <= 0} />
             </div>
             <div>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유 *</div>
@@ -917,6 +1010,18 @@ export default function SalesEntryPage() {
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Alert type="info" message="바코드 스캔 또는 상품 검색으로 반품할 상품을 선택하세요" showIcon style={{ marginBottom: 0 }} />
+
+          {!isStore && (
+            <div>
+              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>거래처 *</div>
+              <Select
+                showSearch optionFilterProp="label" placeholder="거래처 선택" style={{ width: '100%' }}
+                value={directReturnPartner}
+                onChange={setDirectReturnPartner}
+                options={partners.map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }))}
+              />
+            </div>
+          )}
 
           <Input
             ref={directReturnBarcodeRef}
@@ -1127,6 +1232,48 @@ export default function SalesEntryPage() {
             )}
           </div>
         )}
+      </Modal>
+
+      {/* 신규 고객 등록 모달 */}
+      <Modal
+        title="신규 고객 등록"
+        open={quickRegisterOpen}
+        onCancel={() => setQuickRegisterOpen(false)}
+        onOk={handleQuickRegister}
+        confirmLoading={quickRegisterLoading}
+        okText="등록"
+        cancelText="취소"
+        width={360}
+        okButtonProps={{ disabled: !quickRegisterName.trim() }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>전화번호</div>
+            <Input value={customerPhone} disabled />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>이름 <span style={{ color: '#ff4d4f' }}>*</span></div>
+            <Input
+              placeholder="고객 이름"
+              value={quickRegisterName}
+              onChange={(e) => setQuickRegisterName(e.target.value)}
+              autoFocus
+              onPressEnter={handleQuickRegister}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>성별</div>
+            <Segmented
+              options={[
+                { label: '선택안함', value: '' },
+                { label: '남성', value: '남성' },
+                { label: '여성', value: '여성' },
+              ]}
+              value={quickRegisterGender || ''}
+              onChange={(v) => setQuickRegisterGender(v as string || undefined)}
+            />
+          </div>
+        </div>
       </Modal>
     </div>
   );

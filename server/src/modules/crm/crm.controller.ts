@@ -14,6 +14,18 @@ class CrmController extends BaseController<Customer> {
     super(crmService);
   }
 
+  /** 매장 매니저 → 자기 매장 고객만 접근 가능 */
+  private async checkAccess(req: Request, res: Response): Promise<boolean> {
+    const storeCode = getStorePartnerCode(req);
+    if (!storeCode) return true;
+    const customerId = Number(req.params.id);
+    if (!customerId || isNaN(customerId)) return true;
+    const customer = await crmService.getDetail(customerId);
+    if (!customer) { res.status(404).json({ success: false, error: '고객을 찾을 수 없습니다.' }); return false; }
+    if (customer.partner_code !== storeCode) { res.status(403).json({ success: false, error: '다른 매장의 고객 정보에 접근할 수 없습니다.' }); return false; }
+    return true;
+  }
+
   /** 고객 목록 (구매 통계 포함) */
   list = asyncHandler(async (req: Request, res: Response) => {
     const storeCode = getStorePartnerCode(req);
@@ -32,6 +44,7 @@ class CrmController extends BaseController<Customer> {
 
   /** 고객 상세 */
   detail = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const id = Number(req.params.id);
     const customer = await crmService.getDetail(id);
     if (!customer) {
@@ -61,6 +74,12 @@ class CrmController extends BaseController<Customer> {
 
   /** 고객 수정 */
   updateCustomer = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const storeCode = getStorePartnerCode(req);
+    if (storeCode && req.body.partner_code && req.body.partner_code !== storeCode) {
+      res.status(403).json({ success: false, error: '고객의 소속 매장을 변경할 수 없습니다.' });
+      return;
+    }
     const id = Number(req.params.id);
     // 전화번호 중복 체크 (다른 고객)
     if (req.body.phone) {
@@ -76,6 +95,7 @@ class CrmController extends BaseController<Customer> {
 
   /** 고객 삭제 (soft delete) */
   deleteCustomer = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const id = Number(req.params.id);
     await crmService.update(id, { is_active: false });
     res.json({ success: true });
@@ -83,6 +103,7 @@ class CrmController extends BaseController<Customer> {
 
   /** 구매이력 조회 */
   getPurchases = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const id = Number(req.params.id);
     const result = await crmService.getPurchases(id, req.query);
     res.json({ success: true, ...result });
@@ -90,6 +111,7 @@ class CrmController extends BaseController<Customer> {
 
   /** 구매 기록 추가 */
   addPurchase = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const customerId = Number(req.params.id);
     const storeCode = getStorePartnerCode(req);
     const data = {
@@ -102,12 +124,21 @@ class CrmController extends BaseController<Customer> {
       res.status(400).json({ success: false, error: '상품명과 단가는 필수입니다.' });
       return;
     }
+    if (Number(data.unit_price) <= 0) {
+      res.status(400).json({ success: false, error: '단가는 양수여야 합니다.' });
+      return;
+    }
+    if (data.qty !== undefined && Number(data.qty) <= 0) {
+      res.status(400).json({ success: false, error: '수량은 양수여야 합니다.' });
+      return;
+    }
     const purchase = await crmService.createPurchase(data);
     res.status(201).json({ success: true, data: purchase });
   });
 
   /** 구매 기록 수정 */
   editPurchase = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const purchaseId = Number(req.params.pid);
     const purchase = await crmService.updatePurchase(purchaseId, req.body);
     res.json({ success: true, data: purchase });
@@ -115,6 +146,7 @@ class CrmController extends BaseController<Customer> {
 
   /** 구매 기록 삭제 */
   removePurchase = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const purchaseId = Number(req.params.pid);
     await crmService.deletePurchase(purchaseId);
     res.json({ success: true });
@@ -141,27 +173,32 @@ class CrmController extends BaseController<Customer> {
   });
 
   getCustomerTags = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const data = await crmService.getCustomerTags(Number(req.params.id));
     res.json({ success: true, data });
   });
 
   addCustomerTag = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     await crmService.addCustomerTag(Number(req.params.id), Number(req.params.tagId), req.user?.userId);
     res.json({ success: true });
   });
 
   removeCustomerTag = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     await crmService.removeCustomerTag(Number(req.params.id), Number(req.params.tagId));
     res.json({ success: true });
   });
 
   /* ─── Visits ─── */
   getVisits = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const data = await crmService.getVisits(Number(req.params.id), req.query);
     res.json({ success: true, ...data });
   });
 
   addVisit = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const storeCode = getStorePartnerCode(req);
     const data = await crmService.createVisit({
       ...req.body,
@@ -173,17 +210,20 @@ class CrmController extends BaseController<Customer> {
   });
 
   deleteVisit = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     await crmService.deleteVisit(Number(req.params.vid));
     res.json({ success: true });
   });
 
   /* ─── Consultations ─── */
   getConsultations = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const data = await crmService.getConsultations(Number(req.params.id), req.query);
     res.json({ success: true, ...data });
   });
 
   addConsultation = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     if (!req.body.content) {
       res.status(400).json({ success: false, error: '내용은 필수입니다.' });
       return;
@@ -197,7 +237,66 @@ class CrmController extends BaseController<Customer> {
   });
 
   deleteConsultation = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     await crmService.deleteConsultation(Number(req.params.cid));
+    res.json({ success: true });
+  });
+
+  /* ─── Shipments (택배발송) ─── */
+  getShipments = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const data = await crmService.getShipments(Number(req.params.id), req.query);
+    res.json({ success: true, ...data });
+  });
+
+  addShipment = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const customerId = Number(req.params.id);
+    const { carrier, tracking_number, memo } = req.body;
+    if (!carrier || !tracking_number) {
+      res.status(400).json({ success: false, error: '택배사와 송장번호는 필수입니다.' });
+      return;
+    }
+
+    const storeCode = getStorePartnerCode(req);
+    const customer = await crmService.getDetail(customerId);
+    if (!customer) {
+      res.status(404).json({ success: false, error: '고객을 찾을 수 없습니다.' });
+      return;
+    }
+
+    const partnerCode = storeCode || customer.partner_code;
+    let smsSent = false;
+    let smsError: string | null = null;
+
+    // SMS 발송 시도
+    if (customer.phone && customer.sms_consent) {
+      const smsResult = await crmService.sendShipmentSms(partnerCode, customer.phone, carrier, tracking_number);
+      smsSent = smsResult.sent;
+      if (!smsResult.sent) smsError = smsResult.error || null;
+    } else if (!customer.sms_consent) {
+      smsError = 'SMS 수신 미동의';
+    } else {
+      smsError = '전화번호 없음';
+    }
+
+    const shipment = await crmService.createShipment({
+      customer_id: customerId,
+      partner_code: partnerCode,
+      carrier,
+      tracking_number,
+      memo: memo || null,
+      sms_sent: smsSent,
+      sms_error: smsError,
+      created_by: req.user?.userId,
+    });
+
+    res.status(201).json({ success: true, data: shipment, sms_sent: smsSent, sms_error: smsError });
+  });
+
+  deleteShipment = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    await crmService.deleteShipment(Number(req.params.sid));
     res.json({ success: true });
   });
 
@@ -217,20 +316,104 @@ class CrmController extends BaseController<Customer> {
   });
 
   reactivateCustomer = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     await crmService.reactivateCustomer(Number(req.params.id));
     res.json({ success: true });
   });
 
   /* ─── Purchase Patterns ─── */
   getPurchasePatterns = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const data = await crmService.getPurchasePatterns(Number(req.params.id));
     res.json({ success: true, data });
   });
 
   /* ─── Message History ─── */
   getMessageHistory = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
     const data = await crmService.getMessageHistory(Number(req.params.id), req.query);
     res.json({ success: true, ...data });
+  });
+
+  /* ─── Feedback ─── */
+  getFeedback = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const data = await crmService.getFeedback(Number(req.params.id), req.query);
+    res.json({ success: true, ...data });
+  });
+
+  addFeedback = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const { rating, content, feedback_type, service_id } = req.body;
+    if (!rating || rating < 1 || rating > 5) {
+      res.status(400).json({ success: false, error: '평점은 1~5 사이여야 합니다.' });
+      return;
+    }
+    const storeCode = getStorePartnerCode(req);
+    const data = await crmService.addFeedback({
+      customer_id: Number(req.params.id),
+      rating,
+      content: content || null,
+      feedback_type: feedback_type || '일반',
+      service_id: service_id || null,
+      partner_code: storeCode || req.body.partner_code || null,
+      created_by: req.user?.userId,
+    });
+    res.status(201).json({ success: true, data });
+  });
+
+  deleteFeedback = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    await crmService.deleteFeedback(Number(req.params.fid));
+    res.json({ success: true });
+  });
+
+  /* ─── Tier Benefits ─── */
+  getTierBenefits = asyncHandler(async (req: Request, res: Response) => {
+    const t = req.params.tier || req.query.tier_name;
+    const tierName = typeof t === 'string' ? t : undefined;
+    const includeInactive = req.query.include_inactive === 'true';
+    const data = await crmService.getTierBenefits(tierName, includeInactive);
+    res.json({ success: true, data });
+  });
+
+  upsertTierBenefit = asyncHandler(async (req: Request, res: Response) => {
+    const { tier_name, benefit_type, benefit_name } = req.body;
+    if (!tier_name || !benefit_type || !benefit_name) {
+      res.status(400).json({ success: false, error: '등급, 혜택유형, 혜택명은 필수입니다.' });
+      return;
+    }
+    const data = await crmService.upsertTierBenefit(req.body);
+    res.json({ success: true, data });
+  });
+
+  deleteTierBenefit = asyncHandler(async (req: Request, res: Response) => {
+    await crmService.deleteTierBenefit(Number(req.params.bid));
+    res.json({ success: true });
+  });
+
+  /* ─── Flags ─── */
+  listFlags = asyncHandler(async (_req: Request, res: Response) => {
+    const data = await crmService.listFlags();
+    res.json({ success: true, data });
+  });
+
+  getCustomerFlags = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    const data = await crmService.getCustomerFlags(Number(req.params.id));
+    res.json({ success: true, data });
+  });
+
+  addCustomerFlag = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    await crmService.addCustomerFlag(Number(req.params.id), Number(req.params.flagId), req.user?.userId);
+    res.json({ success: true });
+  });
+
+  removeCustomerFlag = asyncHandler(async (req: Request, res: Response) => {
+    if (!await this.checkAccess(req, res)) return;
+    await crmService.removeCustomerFlag(Number(req.params.id), Number(req.params.flagId));
+    res.json({ success: true });
   });
 
   /* ─── Excel Export ─── */

@@ -2,13 +2,13 @@ import { Pool } from 'pg';
 import bcrypt from 'bcryptjs';
 
 export async function seedDefaults(pool: Pool): Promise<void> {
-  // Insert default role groups
+  // Insert default role groups (permissions는 토글 UI 형식: { "/menu-key": boolean })
   await pool.query(`
     INSERT INTO role_groups (group_name, description, permissions) VALUES
-      ('ADMIN', '시스템 관리자', '{"all": true}'::jsonb),
-      ('HQ_MANAGER', '본사 관리자', '{"partners": ["read","write"], "users": ["read","write"], "products": ["read","write"]}'::jsonb),
-      ('STORE_MANAGER', '매장 관리자', '{"partners": ["read"], "products": ["read"]}'::jsonb),
-      ('STORE_STAFF', '매장 직원', '{"products": ["read"]}'::jsonb)
+      ('ADMIN', '시스템 관리자', '{}'::jsonb),
+      ('HQ_MANAGER', '본사 관리자', '{}'::jsonb),
+      ('STORE_MANAGER', '매장 관리자', '{}'::jsonb),
+      ('STORE_STAFF', '매장 직원', '{}'::jsonb)
     ON CONFLICT (group_name) DO NOTHING;
   `);
 

@@ -155,6 +155,21 @@ export const crmApi = {
     return res.json();
   },
 
+  /* ─── Shipments (택배발송) ─── */
+  getShipments: async (customerId: number, params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${BASE}/${customerId}/shipments?${qs}`);
+    return res.json();
+  },
+  addShipment: async (customerId: number, data: { carrier: string; tracking_number: string; memo?: string }) => {
+    const res = await apiFetch(`${BASE}/${customerId}/shipments`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  deleteShipment: async (customerId: number, shipmentId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/shipments/${shipmentId}`, { method: 'DELETE' });
+    return res.json();
+  },
+
   /* ─── Excel ─── */
   exportCustomers: async () => {
     const res = await apiFetch(`${BASE}/excel/export`);
@@ -164,6 +179,92 @@ export const crmApi = {
     const formData = new FormData();
     formData.append('file', file);
     const res = await apiFetch(`${BASE}/excel/import`, { method: 'POST', body: formData, headers: {} });
+    return res.json();
+  },
+
+  /* ─── Feedback (만족도) ─── */
+  getFeedback: async (customerId: number, params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${BASE}/${customerId}/feedback?${qs}`);
+    return res.json();
+  },
+  addFeedback: async (customerId: number, data: { rating: number; content?: string; feedback_type?: string; service_id?: number }) => {
+    const res = await apiFetch(`${BASE}/${customerId}/feedback`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  deleteFeedback: async (customerId: number, feedbackId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/feedback/${feedbackId}`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  /* ─── Tier Benefits (등급 혜택) ─── */
+  getTierBenefits: async (tierName?: string, includeInactive = false) => {
+    const params = new URLSearchParams();
+    if (tierName) params.set('tier_name', tierName);
+    if (includeInactive) params.set('include_inactive', 'true');
+    const qs = params.toString();
+    const res = await apiFetch(`${BASE}/tiers/benefits${qs ? `?${qs}` : ''}`);
+    const json = await res.json();
+    return json.data;
+  },
+  upsertTierBenefit: async (data: any) => {
+    const res = await apiFetch(`${BASE}/tiers/benefits`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  deleteTierBenefit: async (benefitId: number) => {
+    const res = await apiFetch(`${BASE}/tiers/benefits/${benefitId}`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  /* ─── Flags (고객 플래그) ─── */
+  listFlags: async () => {
+    const res = await apiFetch(`${BASE}/flags`);
+    const json = await res.json();
+    return json.data;
+  },
+  getCustomerFlags: async (customerId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/flags`);
+    const json = await res.json();
+    return json.data;
+  },
+  addCustomerFlag: async (customerId: number, flagId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/flags/${flagId}`, { method: 'POST' });
+    return res.json();
+  },
+  removeCustomerFlag: async (customerId: number, flagId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/flags/${flagId}`, { method: 'DELETE' });
+    return res.json();
+  },
+
+  /* ─── RFM / LTV ─── */
+  getRfmDistribution: async () => {
+    const res = await apiFetch(`${BASE}/rfm/distribution`);
+    const json = await res.json();
+    return json.data;
+  },
+  getLtvTop: async (limit = 20) => {
+    const res = await apiFetch(`${BASE}/rfm/ltv-top?limit=${limit}`);
+    const json = await res.json();
+    return json.data;
+  },
+  recalculateRfm: async () => {
+    const res = await apiFetch(`${BASE}/rfm/recalculate`, { method: 'POST' });
+    return res.json();
+  },
+  getCustomerRfm: async (customerId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/rfm`);
+    const json = await res.json();
+    return json.data;
+  },
+
+  /* ─── 상품 추천 ─── */
+  getRecommendations: async (customerId: number) => {
+    const res = await apiFetch(`${BASE}/recommendations/customer/${customerId}`);
+    const json = await res.json();
+    return json.data;
+  },
+  recalculateRecommendations: async () => {
+    const res = await apiFetch(`${BASE}/recommendations/recalculate`, { method: 'POST' });
     return res.json();
   },
 
@@ -246,38 +347,46 @@ export const segmentApi = {
     const res = await apiFetch(`${SEG}/${id}/members?${qs}`);
     return res.json();
   },
+  campaigns: async (id: number) => {
+    const res = await apiFetch(`${SEG}/${id}/campaigns`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || '캠페인 이력 조회 실패');
+    return json.data;
+  },
 };
 
 /* ═══════════════ A/S API ═══════════════ */
 
 const AS = `${BASE}/after-sales`;
 
+async function asJson(res: Response) {
+  const json = await res.json();
+  if (!json.success) throw new Error(json.error || '요청 실패');
+  return json;
+}
+
 export const afterSalesApi = {
   list: async (params: Record<string, string> = {}) => {
     const qs = new URLSearchParams(params).toString();
-    const res = await apiFetch(`${AS}?${qs}`);
-    return res.json();
+    return asJson(await apiFetch(`${AS}?${qs}`));
   },
   detail: async (id: number) => {
-    const res = await apiFetch(`${AS}/${id}`);
-    const json = await res.json();
+    const json = await asJson(await apiFetch(`${AS}/${id}`));
     return json.data;
   },
   create: async (data: any) => {
-    const res = await apiFetch(AS, { method: 'POST', body: JSON.stringify(data) });
-    return res.json();
+    const json = await asJson(await apiFetch(AS, { method: 'POST', body: JSON.stringify(data) }));
+    return json.data;
   },
   update: async (id: number, data: any) => {
-    const res = await apiFetch(`${AS}/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-    return res.json();
+    const json = await asJson(await apiFetch(`${AS}/${id}`, { method: 'PUT', body: JSON.stringify(data) }));
+    return json.data;
   },
   remove: async (id: number) => {
-    const res = await apiFetch(`${AS}/${id}`, { method: 'DELETE' });
-    return res.json();
+    await asJson(await apiFetch(`${AS}/${id}`, { method: 'DELETE' }));
   },
   stats: async () => {
-    const res = await apiFetch(`${AS}/stats`);
-    const json = await res.json();
+    const json = await asJson(await apiFetch(`${AS}/stats`));
     return json.data;
   },
 };
@@ -322,10 +431,18 @@ export const campaignApi = {
     const res = await apiFetch(`${CAMP}/${id}/recipients?${qs}`);
     return res.json();
   },
-  previewTargets: async (filter: Record<string, any>) => {
-    const res = await apiFetch(`${CAMP}/preview-targets`, { method: 'POST', body: JSON.stringify({ filter }) });
+  previewTargets: async (filter: Record<string, any>, campaignType?: string, previewLimit = 5) => {
+    const res = await apiFetch(`${CAMP}/preview-targets`, {
+      method: 'POST',
+      body: JSON.stringify({ filter, campaign_type: campaignType || 'SMS', preview_limit: previewLimit }),
+    });
     const json = await res.json();
-    return json.count;
+    return { total: json.total as number, preview: json.preview as any[] };
+  },
+  abResults: async (id: number) => {
+    const res = await apiFetch(`${CAMP}/${id}/ab-results`);
+    const json = await res.json();
+    return json.data;
   },
 };
 
@@ -369,6 +486,10 @@ export const senderSettingsApi = {
     const res = await apiFetch(SENDER, { method: 'PUT', body: JSON.stringify(data) });
     return res.json();
   },
+  testSend: async (data: { partner_code: string; type: 'sms' | 'email'; to: string }) => {
+    const res = await apiFetch(`${SENDER}/test`, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
 };
 
 /* ═══════════════ 자동 캠페인 API ═══════════════ */
@@ -404,27 +525,6 @@ export const autoCampaignApi = {
   },
 };
 
-/* ═══════════════ RFM 분석 API ═══════════════ */
-
-const RFM = `${BASE}/rfm`;
-
-export const rfmApi = {
-  getAnalysis: async () => {
-    const res = await apiFetch(`${RFM}/analysis`);
-    const json = await res.json();
-    return json.data;
-  },
-  recalculate: async () => {
-    const res = await apiFetch(`${RFM}/recalculate`, { method: 'POST' });
-    return res.json();
-  },
-  getSegmentCustomers: async (segmentCode: string, params: Record<string, string> = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    const res = await apiFetch(`${RFM}/segments/${segmentCode}/customers?${qs}`);
-    return res.json();
-  },
-};
-
 /* ═══════════════ 수신동의 QR API ═══════════════ */
 
 export const consentQrApi = {
@@ -433,5 +533,64 @@ export const consentQrApi = {
     const res = await apiFetch(`${CAMP}/consent-qr${qs}`);
     const json = await res.json();
     return json.data;
+  },
+};
+
+/* ═══════════════ 쿠폰 API ═══════════════ */
+
+const COUPON = `${BASE}/coupons`;
+
+export const couponApi = {
+  list: async (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`${COUPON}?${qs}`);
+    return res.json();
+  },
+  detail: async (id: number) => {
+    const res = await apiFetch(`${COUPON}/${id}`);
+    const json = await res.json();
+    return json.data;
+  },
+  create: async (data: any) => {
+    const res = await apiFetch(COUPON, { method: 'POST', body: JSON.stringify(data) });
+    return res.json();
+  },
+  update: async (id: number, data: any) => {
+    const res = await apiFetch(`${COUPON}/${id}`, { method: 'PUT', body: JSON.stringify(data) });
+    return res.json();
+  },
+  remove: async (id: number) => {
+    const res = await apiFetch(`${COUPON}/${id}`, { method: 'DELETE' });
+    return res.json();
+  },
+  issue: async (id: number, customerIds: number[]) => {
+    const res = await apiFetch(`${COUPON}/${id}/issue`, { method: 'POST', body: JSON.stringify({ customer_ids: customerIds }) });
+    return res.json();
+  },
+  issueBySegment: async (id: number, segmentId: number) => {
+    const res = await apiFetch(`${COUPON}/${id}/issue-segment`, { method: 'POST', body: JSON.stringify({ segment_id: segmentId }) });
+    return res.json();
+  },
+  /** 고객별 쿠폰 */
+  getCustomerCoupons: async (customerId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/coupons`);
+    const json = await res.json();
+    return json.data;
+  },
+  issueToCustomer: async (customerId: number, couponId: number) => {
+    const res = await apiFetch(`${BASE}/${customerId}/coupons/${couponId}`, { method: 'POST' });
+    return res.json();
+  },
+};
+
+/* ═══════════════ 동의 로그 API ═══════════════ */
+
+export const consentLogApi = {
+  list: async (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    const res = await apiFetch(`/api/consent/logs?${qs}`);
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || '조회 실패');
+    return json;
   },
 };

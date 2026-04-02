@@ -5,6 +5,7 @@ import { partnerService } from './partner.service';
 import { asyncHandler } from '../../core/async-handler';
 import { audit } from '../../core/audit';
 import { getPool } from '../../db/connection';
+import { segmentRepository } from '../crm/segment.repository';
 
 const VALID_PARTNER_TYPES = ['본사', '대리점', '직영점', '백화점', '아울렛', '온라인', '직영', '가맹'];
 
@@ -73,6 +74,12 @@ class PartnerController extends BaseController<Partner> {
     }
     const partner = await partnerService.create(req.body);
     audit('partners', partner.partner_code, 'INSERT', req.user!.userId, null, partner);
+
+    // 기본 고객 세그먼트 10개 자동 생성
+    try {
+      await segmentRepository.createDefaultSegments(partner.partner_code, req.user!.userId);
+    } catch { /* 세그먼트 생성 실패해도 매장 생성은 성공 */ }
+
     res.status(201).json({ success: true, data: partner });
   });
 

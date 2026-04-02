@@ -61,9 +61,19 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (!user) return false;
     // ADMIN은 항상 모든 권한
     if (user.role === 'ADMIN') return true;
-    // permissions에 키가 없으면 기본 허용 (초기 마이그레이션 전 호환)
-    if (!(key in permissions)) return true;
-    return permissions[key] === true;
+    // permissions가 비어있거나 토글 형식이 아니면 기본 허용 (시드 형식 / 미설정 호환)
+    const keys = Object.keys(permissions);
+    if (keys.length === 0 || !keys.some(k => k.startsWith('/'))) return true;
+    // 정확한 키 매칭
+    if (key in permissions) return permissions[key] === true;
+    // 하위 라우트는 부모 메뉴 권한 상속 (예: /crm/list → /crm 체크)
+    const segments = key.split('/').filter(Boolean);
+    for (let i = segments.length - 1; i >= 1; i--) {
+      const parent = '/' + segments.slice(0, i).join('/');
+      if (parent in permissions) return permissions[parent] === true;
+    }
+    // 매칭되는 키 없으면 허용 (하위 페이지, 상세 페이지 등)
+    return true;
   },
 
   checkAuth: async () => {

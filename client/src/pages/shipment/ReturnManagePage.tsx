@@ -1,19 +1,21 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Table, Button, Input, Select, Space, Modal, Form, Popconfirm,
-  InputNumber, DatePicker, Badge, Card, Tag, Switch, message,
+  InputNumber, DatePicker, Badge, Card, Tag, Switch, Segmented, message,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined,
   DeleteOutlined, SendOutlined, CheckCircleOutlined,
   ClockCircleOutlined, StopOutlined, ArrowLeftOutlined,
   RollbackOutlined, UnorderedListOutlined, ExclamationCircleOutlined,
+  ShoppingOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import ShippedQtyModal from '../../components/shipment/ShippedQtyModal';
 import ReceivedQtyModal from '../../components/shipment/ReceivedQtyModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
+import { salesApi } from '../../modules/sales/sales.api';
 import { productApi } from '../../modules/product/product.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { apiFetch } from '../../core/api.client';
@@ -77,6 +79,35 @@ export default function ReturnManagePage() {
   // 반품처(from_partner) 재고 캐시
   const [stockMap, setStockMap] = useState<Record<number, number>>({});
   const [stockPartner, setStockPartner] = useState('');
+
+  /* ── 탭: 물류반품 / 매출반품 ── */
+  const [tab, setTab] = useState<'shipment' | 'sales'>('shipment');
+
+  /* ── 매출반품 데이터 ── */
+  const [salesReturnData, setSalesReturnData] = useState<any[]>([]);
+  const [salesReturnTotal, setSalesReturnTotal] = useState(0);
+  const [salesReturnPage, setSalesReturnPage] = useState(1);
+  const [salesReturnLoading, setSalesReturnLoading] = useState(false);
+
+  const RETURN_REASON_LABEL: Record<string, string> = {
+    SIZE: '사이즈 불일치', COLOR: '색상 불일치', DEFECT: '불량/하자',
+    CHANGE_MIND: '고객 변심', DAMAGE: '파손/오염', WRONG_ITEM: '오배송', OTHER: '기타',
+  };
+
+  const loadSalesReturns = useCallback(async (page: number) => {
+    setSalesReturnLoading(true);
+    try {
+      const params: Record<string, string> = { page: String(page), limit: '50' };
+      if (search) params.search = search;
+      if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
+      if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
+      if (isStore && user?.partnerCode) params.partner_code = user.partnerCode;
+      const result = await salesApi.returnList(params);
+      setSalesReturnData(result.data);
+      setSalesReturnTotal(result.total);
+    } catch (e: any) { message.error(e.message); }
+    finally { setSalesReturnLoading(false); }
+  }, [search, dateRange, isStore, user?.partnerCode]);
 
   const loadStockForPartner = async (partnerCode: string) => {
     if (!partnerCode) { setStockMap({}); setStockPartner(''); return; }
@@ -160,7 +191,7 @@ export default function ReturnManagePage() {
     finally { setAllLoading(false); }
   }, [buildParams]);
 
-  useEffect(() => { loadCounts(); loadAll(1); }, []);
+  useEffect(() => { loadCounts(); loadAll(1); loadSalesReturns(1); }, []);
   useEffect(() => {
     (async () => {
       try {
@@ -173,6 +204,7 @@ export default function ReturnManagePage() {
   }, []);
 
   const handleSearch = () => {
+    if (tab === 'sales') { setSalesReturnPage(1); loadSalesReturns(1); return; }
     if (view === 'dashboard') { loadCounts(); setAllPage(1); loadAll(1, statusFilter); }
     else { setListPage(1); loadList(view, 1); }
   };
@@ -602,9 +634,43 @@ export default function ReturnManagePage() {
     );
   };
 
+  /* ══════════ 매출반품 뷰 ══════════ */
+  const salesReturnColumns = [
+    { title: '반품일', dataIndex: 'sale_date', key: 'sale_date', width: 100,
+      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) : '-' },
+    { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 110, ellipsis: true },
+    { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150 },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
+    { title: '색상', dataIndex: 'color', key: 'color', width: 70 },
+    { title: '사이즈', dataIndex: 'size', key: 'size', width: 70 },
+    { title: '수량', dataIndex: 'qty', key: 'qty', width: 70, align: 'right' as const,
+      render: (v: number) => <strong>{v}</strong> },
+    { title: '금액', dataIndex: 'total_price', key: 'total_price', width: 110, align: 'right' as const,
+      render: (v: string) => <span style={{ color: '#cf1322', fontWeight: 600 }}>{Number(v).toLocaleString()}원</span> },
+    { title: '반품사유', dataIndex: 'return_reason', key: 'return_reason', width: 110,
+      render: (v: string) => v ? <Tag color="purple">{RETURN_REASON_LABEL[v] || v}</Tag> : '-' },
+    { title: '메모', dataIndex: 'memo', key: 'memo', width: 150, ellipsis: true, render: (v: string) => v || '-' },
+  ];
+
+  const renderSalesReturns = () => (
+    <Table
+      columns={salesReturnColumns}
+      dataSource={salesReturnData}
+      rowKey="sale_id"
+      loading={salesReturnLoading}
+      size="small"
+      scroll={{ x: 1100, y: 'calc(100vh - 300px)' }}
+      pagination={{
+        current: salesReturnPage, total: salesReturnTotal, pageSize: 50,
+        onChange: (p) => { setSalesReturnPage(p); loadSalesReturns(p); },
+        showTotal: (t) => `총 ${t}건`,
+      }}
+    />
+  );
+
   return (
     <div>
-      <PageHeader title="반품관리" extra={view === 'dashboard' ? (
+      <PageHeader title="반품관리" extra={tab === 'shipment' && view === 'dashboard' ? (
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           form.resetFields();
           setItems([]); setStockMap({}); setStockPartner(''); setIsClaim(false);
@@ -613,16 +679,28 @@ export default function ReturnManagePage() {
         }}>반품의뢰 등록</Button>
       ) : undefined} />
 
+      <div style={{ marginBottom: 16 }}>
+        <Segmented
+          value={tab}
+          onChange={(v) => { setTab(v as any); if (v === 'sales') loadSalesReturns(1); }}
+          options={[
+            { label: '물류반품 (매장→본사)', value: 'shipment', icon: <SendOutlined /> },
+            { label: '매출반품 (고객반품/A/S)', value: 'sales', icon: <ShoppingOutlined /> },
+          ]}
+          style={{ marginBottom: 16 }}
+        />
+      </div>
+
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+          <Input placeholder={tab === 'sales' ? '상품명/SKU/매장명 검색' : '의뢰번호 검색'} prefix={<SearchOutlined />} value={search}
             onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
         <Button onClick={handleSearch}>조회</Button>
       </div>
 
-      {view === 'dashboard' ? renderDashboard() : renderStatusView()}
+      {tab === 'sales' ? renderSalesReturns() : (view === 'dashboard' ? renderDashboard() : renderStatusView())}
 
       {/* ══ 모달 ══ */}
       <Modal title="반품의뢰 등록" open={modalOpen} onCancel={() => { setModalOpen(false); setIsClaim(false); }} onOk={() => form.submit()} confirmLoading={creating} okText="등록" cancelText="취소" width={700}>

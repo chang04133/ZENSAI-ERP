@@ -8,16 +8,17 @@ class SegmentRepository {
     const limit = Math.min(Number(rawLimit) || 50, 200);
     const offset = (page - 1) * limit;
 
-    let where = 'WHERE is_active = TRUE';
+    let where = 'WHERE cs.is_active = TRUE';
     const params: any[] = [];
     if (partner_code) {
       params.push(partner_code);
-      where += ` AND (partner_code = $${params.length} OR partner_code IS NULL)`;
+      where += ` AND cs.partner_code = $${params.length}`;
     }
 
-    const total = parseInt((await this.pool.query(`SELECT COUNT(*)::int AS cnt FROM customer_segments ${where}`, params)).rows[0].cnt, 10);
+    const baseSql = `FROM customer_segments cs LEFT JOIN partners pt ON cs.partner_code = pt.partner_code ${where}`;
+    const total = parseInt((await this.pool.query(`SELECT COUNT(*)::int AS cnt ${baseSql}`, params)).rows[0].cnt, 10);
     const data = (await this.pool.query(
-      `SELECT * FROM customer_segments ${where} ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      `SELECT cs.*, pt.partner_name ${baseSql} ORDER BY cs.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
       [...params, limit, offset])).rows;
     return { data, total, page, limit };
   }
@@ -89,6 +90,33 @@ class SegmentRepository {
     return { data, total, page, limit };
   }
 
+  /** 매장에 기본 세그먼트 10개 생성 (이미 있으면 skip) */
+  async createDefaultSegments(partnerCode: string, createdBy?: string) {
+    const existing = await this.pool.query(
+      'SELECT COUNT(*)::int AS cnt FROM customer_segments WHERE partner_code = $1', [partnerCode]);
+    if (parseInt(existing.rows[0].cnt, 10) > 0) return; // 이미 있으면 skip
+
+    const defaults = [
+      { name: '충성 고객', desc: '5회 이상 구매 + 최근 90일 이내', conditions: { min_purchase_count: 5, days_since_purchase_max: 90 } },
+      { name: '이탈 위험', desc: '2회 이상 구매 + 90~180일 미방문', conditions: { min_purchase_count: 2, days_since_purchase_max: 180, days_since_purchase_min: 90 } },
+      { name: '휴면 고객', desc: '180일 이상 미방문', conditions: { days_since_purchase_min: 180 } },
+      { name: '첫 구매 고객', desc: '최근 30일 내 첫 구매', conditions: { max_purchase_count: 1, min_purchase_count: 1, days_since_purchase_max: 30 } },
+      { name: '하이엔드 고객', desc: '누적 구매 300만원 이상', conditions: { min_amount: 3000000 } },
+      { name: 'VIP 후보', desc: '누적 구매 30~50만원', conditions: { min_amount: 300000, max_amount: 500000 } },
+      { name: '소액 다빈도', desc: '50만원 미만 + 5회 이상 구매', conditions: { max_amount: 500000, min_purchase_count: 5 } },
+      { name: '2030 세대', desc: '20~39세 고객', conditions: { age_min: 20, age_max: 39 } },
+      { name: '4050 세대', desc: '40~59세 고객', conditions: { age_min: 40, age_max: 59 } },
+      { name: '전체 고객', desc: '모든 활성 고객', conditions: {} },
+    ];
+
+    for (const seg of defaults) {
+      await this.pool.query(
+        `INSERT INTO customer_segments (segment_name, description, conditions, auto_refresh, created_by, partner_code)
+         VALUES ($1, $2, $3, TRUE, $4, $5)`,
+        [seg.name, seg.desc, JSON.stringify(seg.conditions), createdBy || 'system', partnerCode]);
+    }
+  }
+
   private buildFilter(conditions: any, partnerCode?: string): { where: string; params: any[] } {
     const clauses: string[] = [];
     const params: any[] = [];
@@ -101,6 +129,10 @@ class SegmentRepository {
     if (conditions.max_purchase_count !== undefined) { clauses.push(`ps.purchase_count <= $${idx}`); params.push(conditions.max_purchase_count); idx++; }
     if (conditions.last_purchase_from) { clauses.push(`ps.last_purchase_date >= $${idx}`); params.push(conditions.last_purchase_from); idx++; }
     if (conditions.last_purchase_to) { clauses.push(`ps.last_purchase_date <= $${idx}`); params.push(conditions.last_purchase_to); idx++; }
+    // 상대 날짜: N일 이내 구매 (last_purchase_date >= CURRENT_DATE - N)
+    if (conditions.days_since_purchase_max !== undefined) { clauses.push(`ps.last_purchase_date >= CURRENT_DATE - ($${idx})::int`); params.push(conditions.days_since_purchase_max); idx++; }
+    // 상대 날짜: N일 이상 경과 (last_purchase_date <= CURRENT_DATE - N)
+    if (conditions.days_since_purchase_min !== undefined) { clauses.push(`ps.last_purchase_date IS NOT NULL AND ps.last_purchase_date <= CURRENT_DATE - ($${idx})::int`); params.push(conditions.days_since_purchase_min); idx++; }
     if (conditions.age_min !== undefined) { clauses.push(`c.birth_date IS NOT NULL AND EXTRACT(YEAR FROM AGE(c.birth_date))::int >= $${idx}`); params.push(conditions.age_min); idx++; }
     if (conditions.age_max !== undefined) { clauses.push(`c.birth_date IS NOT NULL AND EXTRACT(YEAR FROM AGE(c.birth_date))::int <= $${idx}`); params.push(conditions.age_max); idx++; }
     if (conditions.partner_codes?.length) { clauses.push(`c.partner_code = ANY($${idx})`); params.push(conditions.partner_codes); idx++; }

@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Table, Button, Modal, Form, Input, Select, Switch, TimePicker, message, Tag, Space, Popconfirm, Card, Row, Col } from 'antd';
-import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { Table, Button, Modal, Form, Input, Select, Switch, TimePicker, message, Tag, Space, Popconfirm, Card, Row, Col, Empty, Tooltip } from 'antd';
+import { PlusOutlined, PlayCircleOutlined, DeleteOutlined, EditOutlined, HistoryOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import { autoCampaignApi } from '../../modules/crm/crm.api';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 
 const TRIGGER_OPTIONS = [
   { label: '생일', value: 'BIRTHDAY' },
@@ -13,13 +15,15 @@ const TRIGGER_OPTIONS = [
 const TYPE_OPTIONS = [
   { label: 'SMS', value: 'SMS' },
   { label: '이메일', value: 'EMAIL' },
-  { label: '카카오 알림톡', value: 'ALIMTALK' },
+  { label: '카카오 알림톡', value: 'KAKAO' },
 ];
 
 const TRIGGER_COLORS: Record<string, string> = { BIRTHDAY: 'magenta', ANNIVERSARY: 'purple', DORMANT_ALERT: 'orange' };
 const TRIGGER_LABELS: Record<string, string> = { BIRTHDAY: '생일', ANNIVERSARY: '기념일', DORMANT_ALERT: '휴면경고' };
 
 export default function AutoCampaignPage() {
+  const user = useAuthStore((s) => s.user);
+  const isAdmin = ([ROLES.ADMIN, ROLES.SYS_ADMIN] as string[]).includes(user?.role || '');
   const [data, setData] = useState<any[]>([]);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -39,12 +43,16 @@ export default function AutoCampaignPage() {
     finally { setLoading(false); }
   }, []);
 
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
     try {
       const result = await autoCampaignApi.history({ page: String(historyPage), limit: '50' });
       setHistory(result.data || []);
       setHistoryTotal(result.total || 0);
-    } catch { /* ignore */ }
+    } catch (e: any) { message.error(e.message || '이력 조회 실패'); }
+    finally { setHistoryLoading(false); }
   }, [historyPage]);
 
   useEffect(() => { load(); }, [load]);
@@ -140,7 +148,8 @@ export default function AutoCampaignPage() {
     { title: '전화번호', dataIndex: 'phone', width: 120 },
     { title: '상태', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={v === 'SENT' ? 'green' : 'red'}>{v}</Tag> },
     { title: '발송일시', dataIndex: 'sent_at', width: 150, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : '' },
-    { title: '에러', dataIndex: 'error_message', ellipsis: true },
+    { title: '에러', dataIndex: 'error_message', ellipsis: true,
+      render: (v: string) => v ? <Tooltip title={v}><span style={{ color: '#f5222d' }}>{v}</span></Tooltip> : '-' },
   ];
 
   return (
@@ -148,7 +157,7 @@ export default function AutoCampaignPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h3 style={{ margin: 0 }}>자동 캠페인 관리</h3>
         <Space>
-          <Button icon={<PlayCircleOutlined />} onClick={handleExecute}>수동 실행</Button>
+          {isAdmin && <Button icon={<PlayCircleOutlined />} onClick={handleExecute}>수동 실행</Button>}
           <Button type="primary" icon={<PlusOutlined />} onClick={() => openForm()}>추가</Button>
         </Space>
       </div>
@@ -162,9 +171,11 @@ export default function AutoCampaignPage() {
         </Col>
       </Row>
 
-      <Card title="발송 이력" size="small" style={{ marginTop: 16 }}>
+      <Card title={<><HistoryOutlined /> 발송 이력</>} size="small" style={{ marginTop: 16 }}>
         <Table dataSource={history} columns={historyColumns} rowKey="log_id"
+          loading={historyLoading}
           size="small" scroll={{ x: 800, y: 'calc(100vh - 500px)' }}
+          locale={{ emptyText: <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="발송 이력이 없습니다" /> }}
           pagination={{ current: historyPage, total: historyTotal, pageSize: 50, onChange: setHistoryPage, showTotal: (t: number) => `총 ${t}건` }} />
       </Card>
 

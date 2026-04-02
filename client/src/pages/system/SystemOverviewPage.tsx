@@ -4,6 +4,7 @@ import { SaveOutlined, ReloadOutlined, SafetyCertificateOutlined } from '@ant-de
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 import { menuItems, MenuItem } from '../../routes/menu';
+import { useAuthStore } from '../../modules/auth/auth.store';
 
 const { Text } = Typography;
 
@@ -69,15 +70,17 @@ export default function SystemOverviewPage() {
         const groups: RoleGroup[] = json.data;
         setRoleGroups(groups);
 
-        // DB permissions가 비어있으면 하드코딩 기본값 사용
+        // DB permissions → 토글 형식 변환
         const perms: Record<string, Record<string, boolean>> = {};
         for (const g of groups) {
           const dbPerms = g.permissions || {};
-          const hasKeys = Object.keys(dbPerms).length > 0;
-          if (hasKeys) {
+          const keys = Object.keys(dbPerms);
+          // 토글 형식 검증: 키가 '/'로 시작하고 값이 boolean이면 정상 형식
+          const isToggleFormat = keys.length > 0 && keys.some(k => k.startsWith('/') && typeof dbPerms[k] === 'boolean');
+          if (isToggleFormat) {
             perms[g.group_name] = { ...dbPerms };
           } else {
-            // 기본값: 현재 menu.ts의 roles 기반
+            // 시드 형식이거나 빈 경우 → menu.ts 기본값 사용
             perms[g.group_name] = {};
             for (const fm of flatMenu) {
               perms[g.group_name][fm.key] = !!(defaults[g.group_name]?.[fm.key]);
@@ -121,6 +124,8 @@ export default function SystemOverviewPage() {
     setDirty(true);
   };
 
+  const loadPermissions_auth = useAuthStore((s) => s.loadPermissions);
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -133,6 +138,8 @@ export default function SystemOverviewPage() {
       if (json.success) {
         message.success('권한이 저장되었습니다.');
         setDirty(false);
+        // 저장 후 자기 자신의 권한도 즉시 다시 로드
+        await loadPermissions_auth();
       } else {
         message.error(json.error || '저장 실패');
       }

@@ -31,16 +31,16 @@ class AsRepository {
 
   async create(data: any) {
     return (await this.pool.query(
-      `INSERT INTO after_sales_services (customer_id, partner_code, service_type, status, product_name, variant_info, description, received_date, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-      [data.customer_id, data.partner_code, data.service_type, data.status || '접수', data.product_name || null, data.variant_info || null, data.description || null, data.received_date || new Date().toISOString().slice(0, 10), data.created_by || null])).rows[0];
+      `INSERT INTO after_sales_services (customer_id, partner_code, service_type, status, product_name, variant_info, description, received_date, created_by, variant_id, unit_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING *`,
+      [data.customer_id, data.partner_code, data.service_type, data.status || '접수', data.product_name || null, data.variant_info || null, data.description || null, data.received_date || new Date().toISOString().slice(0, 10), data.created_by || null, data.variant_id || null, data.unit_price || null])).rows[0];
   }
 
   async update(id: number, data: any) {
     const sets: string[] = [];
     const params: any[] = [];
     let idx = 1;
-    for (const key of ['service_type', 'status', 'product_name', 'variant_info', 'description', 'resolution', 'received_date', 'completed_date']) {
+    for (const key of ['service_type', 'status', 'product_name', 'variant_info', 'description', 'resolution', 'received_date', 'completed_date', 'variant_id', 'unit_price', 'return_sale_id', 'shipment_request_id']) {
       if (data[key] !== undefined) { sets.push(`${key} = $${idx++}`); params.push(data[key]); }
     }
     if (!sets.length) return this.getById(id);

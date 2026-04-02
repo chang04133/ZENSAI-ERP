@@ -58,7 +58,7 @@ export interface CustomerPurchase {
 export interface MarketingCampaign {
   campaign_id: number;
   campaign_name: string;
-  campaign_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
+  campaign_type: 'SMS' | 'EMAIL' | 'KAKAO';
   status: 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'COMPLETED' | 'CANCELLED';
   subject: string | null;
   content: string;
@@ -71,6 +71,10 @@ export interface MarketingCampaign {
   failed_count: number;
   created_by: string;
   partner_code: string | null;
+  is_ab_test: boolean;
+  content_b: string | null;
+  subject_b: string | null;
+  ab_split_ratio: number;
   created_at: string;
   updated_at: string;
 }
@@ -85,13 +89,14 @@ export interface CampaignRecipient {
   sent_at: string | null;
   opened_at: string | null;
   error_message: string | null;
+  ab_variant: 'A' | 'B' | null;
   created_at: string;
 }
 
 export interface MessageTemplate {
   template_id: number;
   template_name: string;
-  template_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
+  template_type: 'SMS' | 'EMAIL' | 'KAKAO';
   subject: string | null;
   content: string;
   created_by: string | null;
@@ -248,7 +253,7 @@ export interface AutoCampaign {
   auto_campaign_id: number;
   campaign_name: string;
   trigger_type: 'BIRTHDAY' | 'ANNIVERSARY' | 'DORMANT_ALERT';
-  campaign_type: 'SMS' | 'EMAIL' | 'ALIMTALK';
+  campaign_type: 'SMS' | 'EMAIL' | 'KAKAO';
   subject: string | null;
   content: string;
   days_before: number;
@@ -296,35 +301,59 @@ export interface PointTransaction {
   created_at: string;
 }
 
-/* ═══════════════ RFM 분석 ═══════════════ */
+/* ═══════════════ 쿠폰 ═══════════════ */
 
-export interface CustomerRfmScore {
-  customer_id: number;
-  customer_name?: string;
-  phone?: string;
-  customer_tier?: string;
-  partner_code?: string;
-  partner_name?: string;
-  recency_days: number;
-  recency_score: number;
-  frequency_count: number;
-  frequency_score: number;
-  monetary_amount: number;
-  monetary_score: number;
-  rfm_score: number;
-  rfm_segment: string;
-  calculated_at: string;
+export interface Coupon {
+  coupon_id: number;
+  coupon_code: string;
+  coupon_name: string;
+  coupon_type: 'PERCENTAGE' | 'FIXED' | 'FREE_SHIPPING';
+  discount_value: number;
+  min_purchase_amt: number;
+  max_discount_amt: number | null;
+  valid_days: number;
+  usage_limit: number | null;
+  usage_per_customer: number;
+  target_tier: string | null;
+  partner_code: string | null;
+  is_active: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+  issued_count?: number;
+  used_count?: number;
 }
 
-export interface RfmSegment {
-  segment_code: string;
-  segment_name: string;
-  description: string | null;
-  min_r: number;
-  min_f: number;
-  min_m: number;
-  color: string;
-  sort_order: number;
-  customer_count?: number;
-  avg_monetary?: number;
+export interface CustomerCoupon {
+  customer_coupon_id: number;
+  customer_id: number;
+  coupon_id: number;
+  coupon_name?: string;
+  coupon_code?: string;
+  coupon_type?: string;
+  discount_value?: number;
+  min_purchase_amt?: number;
+  status: 'ACTIVE' | 'USED' | 'EXPIRED';
+  issued_at: string;
+  expires_at: string | null;
+  used_at: string | null;
+  used_sale_id: number | null;
+  discount_amount: number | null;
+  issued_by: string | null;
+}
+
+/* ═══════════════ 택배발송 ═══════════════ */
+
+export interface CustomerShipment {
+  shipment_id: number;
+  customer_id: number;
+  partner_code: string;
+  partner_name?: string;
+  carrier: string;
+  tracking_number: string;
+  memo: string | null;
+  sms_sent: boolean;
+  sms_error: string | null;
+  created_by: string | null;
+  created_at: string;
 }

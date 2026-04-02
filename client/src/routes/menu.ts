@@ -24,6 +24,8 @@ export const menuItems: MenuItem[] = [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/event-price', label: '행사관리', icon: 'TagOutlined', roles: ADMIN_HQ },
+      { key: '/seasons', label: '시즌관리', icon: 'CalendarOutlined', roles: ADMIN_HQ },
+      { key: '/markdown', label: '마크다운 관리', icon: 'FallOutlined', roles: ADMIN_HQ },
     ],
   },
   {

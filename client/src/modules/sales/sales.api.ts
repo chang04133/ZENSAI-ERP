@@ -100,13 +100,22 @@ export const salesApi = {
   remove: async (id: number) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'DELETE' }));
   },
+  // 반품 가능 수량 조회
+  getReturnable: async (id: number): Promise<{ total: number; returned: number; remaining: number }> => {
+    return parse(await apiFetch(`/api/sales/${id}/returnable`));
+  },
   // 반품 등록 (원본 매출 기반)
   createReturn: async (id: number, body: { qty: number; reason?: string; return_reason: string }) => {
     return parse(await apiFetch(`/api/sales/${id}/return`, { method: 'POST', body: JSON.stringify(body) }));
   },
   // 직접 반품 등록 (매장 고객 반품용)
-  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string; return_reason: string }) => {
+  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string; return_reason: string; partner_code?: string }) => {
     return parse(await apiFetch('/api/sales/direct-return', { method: 'POST', body: JSON.stringify(body) }));
+  },
+  // 매출반품 목록 (반품관리 페이지용)
+  returnList: async (params?: Record<string, string>): Promise<PaginatedResponse<any>> => {
+    const q = params ? '?' + new URLSearchParams(params).toString() : '';
+    return parse(await apiFetch(`/api/sales/returns${q}`));
   },
   // 교환 처리
   createExchange: async (id: number, body: { new_variant_id: number; new_qty: number; new_unit_price: number; return_reason: string; memo?: string }) => {
@@ -118,24 +127,6 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/exchanges/list${q}`));
   },
 
-  // 신상 판매분 분석
-  newProductSales: async (params: {
-    date_from: string;
-    date_to: string;
-    filter_type: 'season' | 'recent_days';
-    season?: string;
-    recent_days?: string;
-    category?: string;
-  }) => {
-    const sp = new URLSearchParams();
-    sp.set('date_from', params.date_from);
-    sp.set('date_to', params.date_to);
-    sp.set('filter_type', params.filter_type);
-    if (params.season) sp.set('season', params.season);
-    if (params.recent_days) sp.set('recent_days', params.recent_days);
-    if (params.category) sp.set('category', params.category);
-    return parse(await apiFetch(`/api/sales/new-product-sales?${sp}`));
-  },
 
   // 바코드/SKU 스캔 조회
   scanProduct: async (code: string) => {

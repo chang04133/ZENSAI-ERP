@@ -4,107 +4,10 @@ import { requireRole } from '../../middleware/role-guard';
 import { validateRequired } from '../../middleware/validate';
 import { salesRepository } from './sales.repository';
 import { inventoryRepository } from '../inventory/inventory.repository';
-import { shipmentService } from '../shipment/shipment.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
 
 const router = Router();
-
-// 매출현황 대시보드
-router.get('/dashboard-stats', authMiddleware, asyncHandler(async (req, res) => {
-  const year = req.query.year ? Number(req.query.year) : undefined;
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.dashboardStats(year, partnerCode);
-  res.json({ success: true, data });
-}));
-
-// 분석 라우트 (CRUD보다 먼저 등록 - 경로 충돌 방지)
-router.get('/monthly-sales', authMiddleware, asyncHandler(async (req, res) => {
-  const query: any = { ...req.query };
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  if ((role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc) query.partner_code = pc;
-  const data = await salesRepository.monthlySales(query);
-  res.json({ success: true, data });
-}));
-
-// 스타일 판매 분석 (전년대비 종합)
-router.get('/style-analytics', authMiddleware, asyncHandler(async (req, res) => {
-  const year = Number(req.query.year) || new Date().getFullYear();
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.styleAnalytics(year, partnerCode);
-  res.json({ success: true, data });
-}));
-
-// 연도별 매출현황 (최근 6년)
-router.get('/yearly-overview', authMiddleware, asyncHandler(async (req, res) => {
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.yearlyOverview(partnerCode);
-  res.json({ success: true, data });
-}));
-
-// 연단위 비교
-router.get('/year-comparison', authMiddleware, asyncHandler(async (req, res) => {
-  const year = Number(req.query.year) || new Date().getFullYear();
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.yearComparison(year, partnerCode);
-  res.json({ success: true, data });
-}));
-
-// 스타일별 판매현황 (기간별)
-router.get('/style-by-range', authMiddleware, asyncHandler(async (req, res) => {
-  const { date_from, date_to, category, sub_category, season, fit, color, size, search, sale_status, year_from, year_to, length } = req.query as Record<string, string | undefined>;
-  if (!date_from || !date_to) {
-    res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
-    return;
-  }
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const filters = { sub_category, season, fit, color, size, search, sale_status, year_from, year_to, length };
-  const data = await salesRepository.styleSalesByRange(date_from, date_to, partnerCode, category || undefined, filters);
-  res.json({ success: true, data });
-}));
-
-// 상품별 컬러/사이즈 판매 상세
-router.get('/product-variant-sales', authMiddleware, asyncHandler(async (req, res) => {
-  const { product_code, date_from, date_to } = req.query as { product_code?: string; date_from?: string; date_to?: string };
-  if (!product_code || !date_from || !date_to) {
-    res.status(400).json({ success: false, error: 'product_code, date_from, date_to 파라미터가 필요합니다.' });
-    return;
-  }
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.productVariantSales(product_code, date_from, date_to, partnerCode);
-  res.json({ success: true, data });
-}));
-
-// 판매 리스트 (기간별: 일별/주별/월별)
-router.get('/products-by-range', authMiddleware, asyncHandler(async (req, res) => {
-  const { date_from, date_to, category, sub_category, season, fit, length, color, size, search, partner_code, year_from, year_to, sale_status } = req.query as Record<string, string | undefined>;
-  if (!date_from || !date_to) {
-    res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
-    return;
-  }
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  // 매장 역할: 자기 매장만, 본사: partner_code 파라미터 or 전체
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : (partner_code || undefined);
-  const filters = { category, sub_category, season, fit, length, color, size, search, year_from, year_to, sale_status };
-  // 빈 문자열 제거
-  const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) as any;
-  const data = await salesRepository.salesProductsByRange(date_from, date_to, partnerCode, Object.keys(cleanFilters).length > 0 ? cleanFilters : undefined);
-  res.json({ success: true, data });
-}));
 
 // 바코드/SKU 스캔 조회
 router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
@@ -145,30 +48,6 @@ router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
   }
   delete row.event_store_codes;
   res.json({ success: true, data: row });
-}));
-
-// 판매율 분석 (품번별/사이즈별/카테고리별/일자별)
-router.get('/sell-through', authMiddleware, asyncHandler(async (req, res) => {
-  const { date_from, date_to, category } = req.query as { date_from?: string; date_to?: string; category?: string };
-  if (!date_from || !date_to) {
-    res.status(400).json({ success: false, error: 'date_from, date_to 파라미터가 필요합니다.' });
-    return;
-  }
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.sellThroughAnalysis(date_from, date_to, partnerCode, category || undefined);
-  res.json({ success: true, data });
-}));
-
-// 드랍 분석 (출시일 기준 판매율/코호트/판매속도)
-router.get('/drop-analysis', authMiddleware, asyncHandler(async (req, res) => {
-  const { category } = req.query as { category?: string };
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerCode = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
-  const data = await salesRepository.dropAnalysis(partnerCode, category || undefined);
-  res.json({ success: true, data });
 }));
 
 // 종합 매출조회
@@ -293,45 +172,6 @@ router.get('/by-product/:code', authMiddleware, asyncHandler(async (req: Request
   res.json({ success: true, data: result.rows });
 }));
 
-// 매출반품 목록 (반품관리 페이지용)
-router.get('/returns', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const role = req.user?.role;
-  const { page = '1', limit = '50', search, partner_code, date_from, date_to } = req.query as Record<string, string>;
-  const pc = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && req.user?.partnerCode
-    ? req.user.partnerCode
-    : partner_code || undefined;
-
-  const pool = getPool();
-  const params: any[] = [];
-  let idx = 1;
-  const conditions = [`s.sale_type = '반품'`];
-
-  if (pc) { conditions.push(`s.partner_code = $${idx++}`); params.push(pc); }
-  if (search) {
-    conditions.push(`(p.product_name ILIKE $${idx} OR pv.sku ILIKE $${idx} OR pt.partner_name ILIKE $${idx})`);
-    params.push(`%${search}%`); idx++;
-  }
-  if (date_from) { conditions.push(`s.sale_date >= $${idx++}`); params.push(date_from); }
-  if (date_to) { conditions.push(`s.sale_date <= $${idx++}`); params.push(date_to); }
-
-  const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
-  const countSql = `SELECT COUNT(*) FROM sales s JOIN product_variants pv ON s.variant_id = pv.variant_id JOIN products p ON pv.product_code = p.product_code JOIN partners pt ON s.partner_code = pt.partner_code ${where}`;
-  const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
-
-  const offset = (Number(page) - 1) * Number(limit);
-  const dataSql = `
-    SELECT s.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
-    FROM sales s
-    JOIN product_variants pv ON s.variant_id = pv.variant_id
-    JOIN products p ON pv.product_code = p.product_code
-    JOIN partners pt ON s.partner_code = pt.partner_code
-    ${where} ORDER BY s.sale_date DESC, s.created_at DESC
-    LIMIT $${idx++} OFFSET $${idx++}`;
-  const data = (await pool.query(dataSql, [...params, Number(limit), offset])).rows;
-
-  res.json({ success: true, data: { data, total, page: Number(page), limit: Number(limit) } });
-}));
-
 // 매출 목록 (JOIN 포함)
 router.get('/', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
   const role = req.user?.role;
@@ -363,6 +203,17 @@ router.post('/batch',
     }
     const globalTaxFree = !!tax_free;
     const pool = getPool();
+
+    // 중복 등록 방지: 동일 거래처+날짜로 5초 이내 배치 등록이 있으면 거부
+    const dupCheck = await pool.query(
+      `SELECT COUNT(*)::int AS cnt FROM sales
+       WHERE partner_code = $1 AND sale_date = $2 AND created_at > NOW() - INTERVAL '5 seconds'`,
+      [pc, sale_date],
+    );
+    if (dupCheck.rows[0]?.cnt > 0) {
+      res.status(409).json({ success: false, error: '중복 등록 감지: 잠시 후 다시 시도해주세요.' });
+      return;
+    }
 
     // 거래처 활성 상태 검증
     const partnerCheck = await pool.query('SELECT is_active, partner_name FROM partners WHERE partner_code = $1', [pc]);
@@ -400,17 +251,21 @@ router.post('/batch',
           skipped.push(`항목 ${i + 1}: 수량은 양수여야 합니다 (qty=${qty})`);
           continue;
         }
-        if (Number(unit_price) < 0) {
-          skipped.push(`항목 ${i + 1}: 단가는 0 이상이어야 합니다 (unit_price=${unit_price})`);
-          continue;
-        }
-        const total_price = Math.round(qty * unit_price);
+        // 상품관리 가격 강제 적용: DB에서 variant/product 가격 조회
+        const priceRow = await client.query(
+          `SELECT COALESCE(pv.price, p.base_price, 0) AS db_price
+           FROM product_variants pv JOIN products p ON pv.product_code = p.product_code
+           WHERE pv.variant_id = $1`, [variant_id],
+        );
+        const dbPrice = priceRow.rows[0]?.db_price ?? unit_price;
+        const effectivePrice = Number(dbPrice);
+        const total_price = Math.round(qty * effectivePrice);
         const itemTaxFree = items[i].tax_free !== undefined ? !!items[i].tax_free : globalTaxFree;
         const batchCustomerId = req.body.customer_id || null;
         const sale = await client.query(
           `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo, customer_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-          [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', itemTaxFree, memo || null, batchCustomerId],
+          [sale_date, pc, variant_id, qty, effectivePrice, total_price, sale_type || '정상', itemTaxFree, memo || null, batchCustomerId],
         );
         await inventoryRepository.applyChange(
           pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
@@ -444,9 +299,6 @@ router.post('/batch',
           }
           const { crmService } = await import('../crm/crm.service');
           await crmService.recalculateTier(batchCid).catch(() => {});
-          const totalAmount = results.reduce((sum: number, s: any) => sum + Number(s.total_price), 0);
-          const { pointsService } = await import('../crm/points.service');
-          await pointsService.earn(batchCid, null, totalAmount, req.user!.userId).catch(() => {});
         } catch { /* CRM 연동 실패해도 매출은 유지 */ }
       }
 
@@ -475,8 +327,16 @@ router.post('/',
       return;
     }
     const pc = (req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF') ? req.user.partnerCode : partner_code;
-    const total_price = Math.round(qty * unit_price);
     const pool = getPool();
+
+    // 상품관리 가격 강제 적용: DB에서 variant/product 가격 조회
+    const priceRow = await pool.query(
+      `SELECT COALESCE(pv.price, p.base_price, 0) AS db_price
+       FROM product_variants pv JOIN products p ON pv.product_code = p.product_code
+       WHERE pv.variant_id = $1`, [variant_id],
+    );
+    const effectivePrice = Number(priceRow.rows[0]?.db_price ?? unit_price);
+    const total_price = Math.round(qty * effectivePrice);
 
     // 거래처 활성 상태 검증
     const partnerCheck = await pool.query('SELECT is_active, partner_name FROM partners WHERE partner_code = $1', [pc]);
@@ -503,14 +363,14 @@ router.post('/',
       const sale = await client.query(
         `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, tax_free, memo, customer_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [sale_date, pc, variant_id, qty, unit_price, total_price, sale_type || '정상', !!tax_free, memo || null, customerId],
+        [sale_date, pc, variant_id, qty, effectivePrice, total_price, sale_type || '정상', !!tax_free, memo || null, customerId],
       );
       await inventoryRepository.applyChange(
         pc, variant_id, -qty, 'SALE', sale.rows[0].sale_id, req.user!.userId, client,
       );
       await client.query('COMMIT');
 
-      // 고객 연동: 구매이력 자동 생성 + 등급 재계산 + 포인트 적립
+      // 고객 연동: 구매이력 자동 생성 + 등급 재계산
       if (customerId) {
         try {
           const vInfo = await pool.query(
@@ -522,13 +382,11 @@ router.post('/',
             await pool.query(
               `INSERT INTO customer_purchases (customer_id, partner_code, purchase_date, product_name, variant_info, qty, unit_price, total_price, sale_id, auto_created, created_by)
                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, $10)`,
-              [customerId, pc, sale_date, v.product_name, `${v.color || ''}/${v.size || ''}`, qty, unit_price, total_price, sale.rows[0].sale_id, req.user!.userId],
+              [customerId, pc, sale_date, v.product_name, `${v.color || ''}/${v.size || ''}`, qty, effectivePrice, total_price, sale.rows[0].sale_id, req.user!.userId],
             );
           }
           const { crmService } = await import('../crm/crm.service');
           await crmService.recalculateTier(customerId).catch(() => {});
-          const { pointsService } = await import('../crm/points.service');
-          await pointsService.earn(customerId, sale.rows[0].sale_id, total_price, req.user!.userId).catch(() => {});
         } catch { /* CRM 연동 실패해도 매출은 유지 */ }
       }
 
@@ -584,11 +442,27 @@ router.put('/:id',
           return;
         }
       }
-      // 매장 매니저: 단가/면세 변경 불가 — 원래 값 강제 유지
-      const isStoreManager = req.user?.role === 'STORE_MANAGER';
-      const effectiveUnitPrice = isStoreManager ? Number(old.unit_price) : unit_price;
-      const effectiveTaxFree = isStoreManager ? old.tax_free : (tax_free !== undefined ? !!tax_free : old.tax_free);
+      // 단가 변경 불가 — 원래 값 강제 유지 (가격은 상품관리에서만 변경)
+      const effectiveUnitPrice = Number(old.unit_price);
+      const isStoreRole = req.user?.role === 'STORE_MANAGER' || req.user?.role === 'STORE_STAFF';
+      const effectiveTaxFree = isStoreRole ? old.tax_free : (tax_free !== undefined ? !!tax_free : old.tax_free);
       const qtyDiff = old.qty - qty; // 양수면 줄어듬→재고 복원, 음수면 늘어남→재고 차감
+
+      // 수량 증가 시 재고 사전 검증
+      if (qtyDiff < 0) {
+        const stockCheck = await client.query(
+          'SELECT COALESCE(qty, 0)::int AS qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
+          [old.partner_code, old.variant_id],
+        );
+        const currentStock = stockCheck.rows[0]?.qty || 0;
+        const needMore = -qtyDiff; // 추가 필요 수량
+        if (currentStock < needMore) {
+          await client.query('ROLLBACK');
+          res.status(400).json({ success: false, error: `재고가 부족합니다. (현재 ${currentStock}개, 추가 필요 ${needMore}개)` });
+          return;
+        }
+      }
+
       const total_price = Math.round(qty * effectiveUnitPrice);
 
       // 매출 업데이트
@@ -643,7 +517,7 @@ router.delete('/:id',
       if (old.sale_type !== '반품') {
         const linkedReturns = await client.query(
           `SELECT COUNT(*)::int AS cnt FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-          [`%원본#${saleId})%`],
+          [`%(원본#${saleId})%`],
         );
         if (linkedReturns.rows[0].cnt > 0) {
           await client.query('ROLLBACK');
@@ -662,6 +536,52 @@ router.delete('/:id',
         await inventoryRepository.applyChange(
           old.partner_code, old.variant_id, -old.qty, 'SALE_DELETE', saleId, req.user!.userId, client,
         );
+
+        // 연결된 물류반품 자동 취소 (재고 복구)
+        if (old.shipment_request_id) {
+          const linkedShip = await client.query(
+            'SELECT * FROM shipment_requests WHERE request_id = $1 FOR UPDATE',
+            [old.shipment_request_id],
+          );
+          const ship = linkedShip.rows[0];
+          if (ship && ship.status !== 'CANCELLED') {
+            if (ship.status === 'RECEIVED') {
+              await client.query('ROLLBACK');
+              res.status(400).json({ success: false, error: '본사에서 수령완료된 물류반품이 연결되어 있어 삭제할 수 없습니다.' });
+              return;
+            }
+            const shipItems = await client.query(
+              'SELECT variant_id, shipped_qty, received_qty FROM shipment_request_items WHERE request_id = $1',
+              [ship.request_id],
+            );
+            // SHIPPED/DISCREPANCY: from_partner 재고 복구
+            if (ship.from_partner && (ship.status === 'SHIPPED' || ship.status === 'DISCREPANCY')) {
+              for (const si of shipItems.rows) {
+                if (Number(si.shipped_qty) > 0) {
+                  await inventoryRepository.applyChange(
+                    ship.from_partner, si.variant_id, Number(si.shipped_qty),
+                    'RETURN', ship.request_id, req.user!.userId, client,
+                  );
+                }
+              }
+            }
+            // DISCREPANCY: to_partner received_qty 차감
+            if (ship.status === 'DISCREPANCY' && ship.to_partner) {
+              for (const si of shipItems.rows) {
+                if (Number(si.received_qty) > 0) {
+                  await inventoryRepository.applyChange(
+                    ship.to_partner, si.variant_id, -Number(si.received_qty),
+                    'RETURN', ship.request_id, req.user!.userId, client,
+                  );
+                }
+              }
+            }
+            await client.query(
+              `UPDATE shipment_requests SET status = 'CANCELLED', memo = COALESCE(memo, '') || ' [반품삭제 자동취소]', updated_at = NOW() WHERE request_id = $1`,
+              [ship.request_id],
+            );
+          }
+        }
       }
 
       await client.query('DELETE FROM sales WHERE sale_id = $1', [saleId]);
@@ -675,336 +595,5 @@ router.delete('/:id',
     }
   }),
 );
-
-// 직접 반품 등록 (원본 매출 없이 - 매장 고객 반품용)
-router.post('/direct-return',
-  ...managerRoles,
-  asyncHandler(async (req: Request, res: Response) => {
-    const { variant_id, qty, unit_price, reason, return_reason } = req.body;
-    if (!variant_id || !qty || !unit_price) {
-      res.status(400).json({ success: false, error: 'variant_id, qty, unit_price 필수' });
-      return;
-    }
-    if (!return_reason) {
-      res.status(400).json({ success: false, error: '반품 사유를 선택해주세요.' });
-      return;
-    }
-    if (Number(qty) <= 0) {
-      res.status(400).json({ success: false, error: '반품 수량은 양수여야 합니다.' });
-      return;
-    }
-    if (Number(unit_price) <= 0) {
-      res.status(400).json({ success: false, error: '단가는 양수여야 합니다.' });
-      return;
-    }
-
-    const role = req.user?.role;
-    const pc = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') ? req.user!.partnerCode : req.body.partner_code;
-    if (!pc) {
-      res.status(400).json({ success: false, error: 'partner_code 필수' });
-      return;
-    }
-
-    const total_price = Math.round(qty * unit_price);
-    const pool = getPool();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      const returnSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
-        [pc, variant_id, qty, unit_price, -total_price, return_reason, reason || '매장 고객 반품'],
-      );
-
-      // 재고 복원 (+qty)
-      await inventoryRepository.applyChange(
-        pc, variant_id, qty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
-      );
-
-      await client.query('COMMIT');
-
-      // 물류반품 자동 생성 (매장→본사창고) — 매출반품 커밋 후 별도 트랜잭션
-      try {
-        // 본사 파트너 확인 (활성 본사 창고)
-        const hqResult = await pool.query(
-          `SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE ORDER BY partner_code LIMIT 1`
-        );
-        const hqCode = hqResult.rows[0]?.partner_code;
-        if (hqCode && pc !== hqCode) {
-          await shipmentService.createWithItems(
-            {
-              from_partner: pc,
-              to_partner: hqCode,
-              request_type: '반품',
-              memo: `매출반품 자동생성 (Sale#${returnSale.rows[0].sale_id})`,
-              requested_by: req.user!.userId,
-            },
-            [{ variant_id, request_qty: qty }],
-          );
-        }
-      } catch (shipErr: any) {
-        // 물류반품 실패해도 매출반품은 이미 커밋됨 — 로그만 남기고 진행
-        console.error('[direct-return] 물류반품 자동생성 실패:', shipErr.message);
-      }
-
-      res.status(201).json({ success: true, data: returnSale.rows[0] });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  }),
-);
-
-// 반품 가능 수량 조회
-router.get('/:id/returnable', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const saleId = Number(req.params.id);
-  const pool = getPool();
-  const orig = await pool.query('SELECT qty FROM sales WHERE sale_id = $1', [saleId]);
-  if (orig.rows.length === 0) {
-    res.status(404).json({ success: false, error: '매출 데이터를 찾을 수 없습니다.' });
-    return;
-  }
-  const totalQty = Number(orig.rows[0].qty);
-  const prevReturns = await pool.query(
-    `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
-     FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-    [`%원본#${saleId})%`],
-  );
-  const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
-  res.json({ success: true, data: { total: totalQty, returned: alreadyReturned, remaining: totalQty - alreadyReturned } });
-}));
-
-// 반품 등록 (원본 매출 기반)
-router.post('/:id/return',
-  ...managerRoles,
-  asyncHandler(async (req: Request, res: Response) => {
-    const saleId = Number(req.params.id);
-    const { qty, reason, return_reason } = req.body;
-    if (!return_reason) {
-      res.status(400).json({ success: false, error: '반품 사유를 선택해주세요.' });
-      return;
-    }
-
-    const pool = getPool();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const orig = await client.query('SELECT * FROM sales WHERE sale_id = $1', [saleId]);
-      if (orig.rows.length === 0) {
-        await client.query('ROLLBACK');
-        res.status(404).json({ success: false, error: '원본 매출 데이터를 찾을 수 없습니다.' });
-        return;
-      }
-      const old = orig.rows[0];
-
-      // 반품 기간 제한: 판매일 기준 30일 이내 (ADMIN/HQ_MANAGER는 무제한)
-      const role = req.user?.role;
-      if (role === 'STORE_MANAGER' || role === 'STORE_STAFF') {
-        const dateCheck = await client.query(
-          `SELECT (CURRENT_DATE - sale_date::date) AS days_ago FROM sales WHERE sale_id = $1`, [saleId],
-        );
-        if (dateCheck.rows[0]?.days_ago > 30) {
-          await client.query('ROLLBACK');
-          res.status(403).json({ success: false, error: '판매일로부터 30일이 지난 매출은 본사 승인이 필요합니다.' });
-          return;
-        }
-      }
-
-      const returnQty = qty || old.qty;
-
-      // 이전 반품 누적 수량 조회 (원본#saleId 패턴으로 연결된 반품 건)
-      const prevReturns = await client.query(
-        `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
-         FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-        [`반품(원본#${saleId})%`],
-      );
-      const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
-      const remainingQty = old.qty - alreadyReturned;
-
-      if (returnQty > remainingQty) {
-        await client.query('ROLLBACK');
-        res.status(400).json({
-          success: false,
-          error: remainingQty <= 0
-            ? `이미 전량 반품 처리되었습니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개)`
-            : `반품 가능 수량을 초과합니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개, 남은 ${remainingQty}개)`,
-        });
-        return;
-      }
-      const total_price = Math.round(returnQty * old.unit_price);
-
-      // 반품 매출 레코드 생성
-      const returnSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
-        [old.partner_code, old.variant_id, returnQty, old.unit_price, -total_price, return_reason, reason ? `반품(원본#${saleId}) ${reason}` : `반품(원본#${saleId})`],
-      );
-
-      // 재고 복원 (+qty)
-      await inventoryRepository.applyChange(
-        old.partner_code, old.variant_id, returnQty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
-      );
-
-      await client.query('COMMIT');
-      res.status(201).json({ success: true, data: returnSale.rows[0] });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  }),
-);
-
-// 교환 처리 (반품 + 새 판매를 단일 트랜잭션으로)
-router.post('/:id/exchange',
-  ...managerRoles,
-  asyncHandler(async (req: Request, res: Response) => {
-    const originalSaleId = Number(req.params.id);
-    const { new_variant_id, new_qty, new_unit_price, return_reason, memo } = req.body;
-    if (!new_variant_id || !new_qty || new_unit_price === undefined || new_unit_price === null) {
-      res.status(400).json({ success: false, error: 'new_variant_id, new_qty, new_unit_price 필수' });
-      return;
-    }
-    if (!return_reason) {
-      res.status(400).json({ success: false, error: '교환 사유를 선택해주세요.' });
-      return;
-    }
-
-    const pool = getPool();
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-
-      // 원본 매출 조회
-      const orig = await client.query('SELECT * FROM sales WHERE sale_id = $1', [originalSaleId]);
-      if (orig.rows.length === 0) {
-        await client.query('ROLLBACK');
-        res.status(404).json({ success: false, error: '원본 매출을 찾을 수 없습니다.' });
-        return;
-      }
-      const old = orig.rows[0];
-
-      // 교환 기간 제한: 판매일 기준 30일 이내 (ADMIN/HQ_MANAGER는 무제한)
-      const exRole = req.user?.role;
-      if (exRole === 'STORE_MANAGER' || exRole === 'STORE_STAFF') {
-        const daysAgo = Math.floor((Date.now() - new Date(old.sale_date).getTime()) / (1000 * 60 * 60 * 24));
-        if (daysAgo > 30) {
-          await client.query('ROLLBACK');
-          res.status(403).json({ success: false, error: '판매일로부터 30일이 지난 매출은 본사 승인이 필요합니다.' });
-          return;
-        }
-      }
-
-      // 이미 반품된 수량 확인 (중복 반품 방지)
-      const prevReturns = await client.query(
-        `SELECT COALESCE(SUM(qty), 0)::int AS total_returned
-         FROM sales WHERE sale_type = '반품' AND memo LIKE $1`,
-        [`%원본#${originalSaleId})%`],
-      );
-      const alreadyReturned = prevReturns.rows[0]?.total_returned || 0;
-      const remainingQty = old.qty - alreadyReturned;
-
-      if (remainingQty <= 0) {
-        await client.query('ROLLBACK');
-        res.status(400).json({
-          success: false,
-          error: `이미 전량 반품 처리되었습니다. (원본 ${old.qty}개, 반품완료 ${alreadyReturned}개)`,
-        });
-        return;
-      }
-
-      // 반품 처리 (남은 수량만큼만)
-      const returnQty = remainingQty;
-      const returnTotal = Math.round(returnQty * old.unit_price);
-      const returnSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, return_reason, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
-        [old.partner_code, old.variant_id, returnQty, old.unit_price, -returnTotal, return_reason, `교환반품(원본#${originalSaleId})`],
-      );
-      await inventoryRepository.applyChange(
-        old.partner_code, old.variant_id, returnQty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
-      );
-
-      // 새 판매 처리 (교환 상품)
-      const newTotal = Math.round(new_qty * new_unit_price);
-      const newSale = await client.query(
-        `INSERT INTO sales (sale_date, partner_code, variant_id, qty, unit_price, total_price, sale_type, memo)
-         VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '정상', $6) RETURNING *`,
-        [old.partner_code, new_variant_id, new_qty, new_unit_price, newTotal, `교환판매(원본#${originalSaleId})`],
-      );
-      await inventoryRepository.applyChange(
-        old.partner_code, new_variant_id, -new_qty, 'SALE', newSale.rows[0].sale_id, req.user!.userId, client,
-      );
-
-      // 교환 레코드 생성
-      await client.query(
-        `INSERT INTO sales_exchanges (original_sale_id, return_sale_id, new_sale_id, exchange_date, memo, created_by)
-         VALUES ($1, $2, $3, CURRENT_DATE, $4, $5)`,
-        [originalSaleId, returnSale.rows[0].sale_id, newSale.rows[0].sale_id, memo || null, req.user!.userId],
-      );
-
-      await client.query('COMMIT');
-      res.status(201).json({
-        success: true,
-        data: {
-          return_sale: returnSale.rows[0],
-          new_sale: newSale.rows[0],
-        },
-      });
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-  }),
-);
-
-// 교환 이력 조회
-router.get('/exchanges/list', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
-  const { page = '1', limit = '50' } = req.query;
-  const p = parseInt(page as string, 10);
-  const l = Math.min(parseInt(limit as string, 10), 100);
-  const offset = (p - 1) * l;
-  const pool = getPool();
-
-  const role = req.user?.role;
-  const pc = req.user?.partnerCode;
-  const partnerFilter = (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc
-    ? 'AND os.partner_code = $3' : '';
-  const params: any[] = [l, offset];
-  if (partnerFilter) params.push(pc);
-
-  const countSql = `SELECT COUNT(*) FROM sales_exchanges se
-    JOIN sales os ON se.original_sale_id = os.sale_id
-    WHERE 1=1 ${partnerFilter ? 'AND os.partner_code = $1' : ''}`;
-  const countParams = partnerFilter ? [pc] : [];
-  const total = parseInt((await pool.query(countSql, countParams)).rows[0].count, 10);
-
-  const dataSql = `
-    SELECT se.*,
-      os.variant_id AS orig_variant_id, os.qty AS orig_qty, os.unit_price AS orig_unit_price,
-      opv.sku AS orig_sku, op.product_name AS orig_product_name, opv.color AS orig_color, opv.size AS orig_size,
-      ns.variant_id AS new_variant_id, ns.qty AS new_qty, ns.unit_price AS new_unit_price,
-      npv.sku AS new_sku, np.product_name AS new_product_name, npv.color AS new_color, npv.size AS new_size,
-      pa.partner_name
-    FROM sales_exchanges se
-    JOIN sales os ON se.original_sale_id = os.sale_id
-    JOIN sales ns ON se.new_sale_id = ns.sale_id
-    JOIN product_variants opv ON os.variant_id = opv.variant_id
-    JOIN products op ON opv.product_code = op.product_code
-    JOIN product_variants npv ON ns.variant_id = npv.variant_id
-    JOIN products np ON npv.product_code = np.product_code
-    JOIN partners pa ON os.partner_code = pa.partner_code
-    WHERE 1=1 ${partnerFilter}
-    ORDER BY se.created_at DESC
-    LIMIT $1 OFFSET $2`;
-  const data = await pool.query(dataSql, params);
-  res.json({ success: true, data: { data: data.rows, total, page: p, limit: l, totalPages: Math.ceil(total / l) } });
-}));
 
 export default router;

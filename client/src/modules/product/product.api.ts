@@ -19,11 +19,12 @@ export const productApi = {
     return data.data as { colors: string[]; sizes: string[] };
   },
 
-  searchVariants: async (search: string) => {
-    const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(search)}`);
+  searchVariants: async (search: string, partnerCode?: string) => {
+    const pcParam = partnerCode ? `&partner_code=${encodeURIComponent(partnerCode)}` : '';
+    const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(search)}${pcParam}`);
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
-    return data.data as Array<{ variant_id: number; sku: string; color: string; size: string; price: number; product_code: string; product_name: string; category: string }>;
+    return data.data as Array<{ variant_id: number; sku: string; color: string; size: string; price: number; product_code: string; product_name: string; category: string; current_stock?: number; base_price?: number; discount_price?: number; event_price?: number }>;
   },
 
   // Variant 일괄 조회 (variant_id 배열 → 상품+variant 상세)

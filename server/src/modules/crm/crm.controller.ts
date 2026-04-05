@@ -368,30 +368,6 @@ class CrmController extends BaseController<Customer> {
     res.json({ success: true });
   });
 
-  /* ─── Tier Benefits ─── */
-  getTierBenefits = asyncHandler(async (req: Request, res: Response) => {
-    const t = req.params.tier || req.query.tier_name;
-    const tierName = typeof t === 'string' ? t : undefined;
-    const includeInactive = req.query.include_inactive === 'true';
-    const data = await crmService.getTierBenefits(tierName, includeInactive);
-    res.json({ success: true, data });
-  });
-
-  upsertTierBenefit = asyncHandler(async (req: Request, res: Response) => {
-    const { tier_name, benefit_type, benefit_name } = req.body;
-    if (!tier_name || !benefit_type || !benefit_name) {
-      res.status(400).json({ success: false, error: '등급, 혜택유형, 혜택명은 필수입니다.' });
-      return;
-    }
-    const data = await crmService.upsertTierBenefit(req.body);
-    res.json({ success: true, data });
-  });
-
-  deleteTierBenefit = asyncHandler(async (req: Request, res: Response) => {
-    await crmService.deleteTierBenefit(Number(req.params.bid));
-    res.json({ success: true });
-  });
-
   /* ─── Flags ─── */
   listFlags = asyncHandler(async (_req: Request, res: Response) => {
     const data = await crmService.listFlags();

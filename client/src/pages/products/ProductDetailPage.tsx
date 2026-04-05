@@ -302,7 +302,7 @@ export default function ProductDetailPage() {
               <Select options={SIZE_OPTIONS} style={{ width: 120 }} />
             </Form.Item>
             <Form.Item name="price" label="가격">
-              <InputNumber min={0} style={{ width: 120 }} />
+              <InputNumber min={0} style={{ width: 120 }} disabled={isStore} />
             </Form.Item>
           </Space>
           <Form.Item name="custom_barcode" label="별도 바코드 (선택)">
@@ -337,7 +337,7 @@ export default function ProductDetailPage() {
               <Select options={SIZE_OPTIONS} style={{ width: 120 }} />
             </Form.Item>
             <Form.Item name="price" label="가격">
-              <InputNumber min={0} style={{ width: 120 }} />
+              <InputNumber min={0} style={{ width: 120 }} disabled={isStore} />
             </Form.Item>
           </Space>
           <Form.Item name="custom_barcode" label="별도 바코드 (선택)">

@@ -6,14 +6,15 @@ import {
 import {
   BarcodeOutlined, SearchOutlined, CheckCircleOutlined,
   WarningOutlined, EditOutlined, ShoppingCartOutlined,
-  TagOutlined, SkinOutlined, InboxOutlined, CameraOutlined, StopOutlined,
+  TagOutlined, SkinOutlined, InboxOutlined,
 } from '@ant-design/icons';
 import { productApi } from '../../modules/product/product.api';
 import { salesApi } from '../../modules/sales/sales.api';
 import PendingActionsBanner from '../../components/PendingActionsBanner';
-import BarcodeScanner from '../../components/BarcodeScanner';
 import { fmt } from '../../utils/format';
 import { CAT_TAG_COLORS as CAT_COLORS } from '../../utils/constants';
+import { useAuthStore } from '../../modules/auth/auth.store';
+import { ROLES } from '../../../../shared/constants/roles';
 
 interface ScanResult {
   variant_id: number;
@@ -46,6 +47,9 @@ interface VariantRow {
 }
 
 export default function BarcodeDashboardPage() {
+  const user = useAuthStore((s) => s.user);
+  const canEdit = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
+
   const [stats, setStats] = useState<any>(null);
   const [variants, setVariants] = useState<VariantRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -57,7 +61,6 @@ export default function BarcodeDashboardPage() {
   const [editBarcode, setEditBarcode] = useState('');
   const [editLoading, setEditLoading] = useState(false);
   const [filter, setFilter] = useState<'all' | 'with' | 'without'>('all');
-  const [cameraMode, setCameraMode] = useState(false);
   const scanRef = useRef<any>(null);
 
   const load = async () => {
@@ -148,24 +151,7 @@ export default function BarcodeDashboardPage() {
               loading={scanLoading}
               style={{ height: 52, width: 52, background: 'rgba(255,255,255,0.2)', border: 'none', color: '#fff' }} />
           </Col>
-          <Col>
-            <Button size="large" icon={cameraMode ? <StopOutlined /> : <CameraOutlined />}
-              onClick={() => setCameraMode(prev => !prev)}
-              style={{ height: 52, width: 52, background: cameraMode ? 'rgba(255,77,79,0.4)' : 'rgba(255,255,255,0.2)', border: 'none', color: '#fff' }} />
-          </Col>
         </Row>
-        {cameraMode && (
-          <div style={{ marginTop: 12 }}>
-            <BarcodeScanner
-              active={cameraMode}
-              onScan={(code) => {
-                setScanCode(code);
-                handleScanDirect(code);
-              }}
-              height={240}
-            />
-          </div>
-        )}
       </Card>
 
       {/* 스캔 결과 */}
@@ -306,10 +292,10 @@ export default function BarcodeDashboardPage() {
               sorter: (a, b) => a.stock_qty - b.stock_qty },
             { title: '가격', dataIndex: 'base_price', key: 'price', width: 90, align: 'right' as const,
               render: (v: number) => v ? `${fmt(v)}원` : '-' },
-            { title: '', key: 'action', width: 50, align: 'center' as const,
+            ...(canEdit ? [{ title: '', key: 'action', width: 50, align: 'center' as const,
               render: (_: any, r: VariantRow) => (
                 <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)} />
-              ) },
+              ) }] : []),
           ]}
           dataSource={filteredVariants}
           rowKey="variant_id"

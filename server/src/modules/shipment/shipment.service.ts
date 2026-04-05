@@ -14,11 +14,12 @@ class ShipmentService extends BaseService<ShipmentRequest> {
   async getWithItems(id: number) { return shipmentRepository.getWithItems(id); }
   async summary(options: { partner?: string } = {}) { return shipmentRepository.summary(options); }
 
-  async createWithItems(headerData: Record<string, any>, items: Array<{ variant_id: number; request_qty: number }>, options?: { autoReceive?: boolean }) {
+  async createWithItems(headerData: Record<string, any>, items: Array<{ variant_id: number; request_qty: number }>, options?: { externalClient?: any }) {
     const pool = getPool();
-    const client = await pool.connect();
+    const extClient = options?.externalClient;
+    const client = extClient || await pool.connect();
     try {
-      await client.query('BEGIN');
+      if (!extClient) await client.query('BEGIN');
 
       // 0) 거래처 활성 상태 검증
       const partnerCodes = [headerData.from_partner, headerData.to_partner].filter(Boolean);
@@ -42,14 +43,14 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         `SELECT request_id, request_no FROM shipment_requests
          WHERE from_partner = $1 AND to_partner = $2
            AND request_type = $3 AND status = 'SHIPPED'
-         ORDER BY created_at DESC LIMIT 1`,
+         ORDER BY created_at DESC LIMIT 1
+         FOR UPDATE`,
         [headerData.from_partner, toPartner, headerData.request_type],
       ) : { rows: [] };
 
-      const autoReceive = options?.autoReceive === true;
-      const initialStatus = autoReceive ? 'RECEIVED' : 'SHIPPED';
+      const initialStatus = 'SHIPPED';
 
-      if (existingCase.rows.length > 0 && !autoReceive) {
+      if (existingCase.rows.length > 0) {
         // 기존 케이스에 품목 추가 (merge) — autoReceive 시에는 merge 안 함
         requestId = existingCase.rows[0].request_id;
         mergedInto = existingCase.rows[0].request_no;
@@ -104,7 +105,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         );
         requestId = header.rows[0].request_id;
 
-        const rcvQty = autoReceive ? '$3' : '0';
+        const rcvQty = '0';
         for (const item of items) {
           await client.query(
             `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
@@ -128,21 +129,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
-      // autoReceive: to_partner 재고 즉시 추가 (수령 완료 처리)
-      if (autoReceive && toPartner) {
-        const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER', '출고요청': 'SHIPMENT' };
-        const txType = txTypeMap[headerData.request_type] || 'SHIPMENT';
-        for (const item of items) {
-          if (item.request_qty > 0) {
-            await inventoryRepository.applyChange(
-              toPartner, item.variant_id, item.request_qty,
-              txType, requestId, headerData.requested_by, client,
-            );
-          }
-        }
-      }
-
-      await client.query('COMMIT');
+      if (!extClient) await client.query('COMMIT');
 
       // 알림 생성 (비동기)
       if (mergedInto) {
@@ -152,19 +139,18 @@ class ShipmentService extends BaseService<ShipmentRequest> {
           requestId, toPartner, headerData.requested_by,
         );
       } else {
-        const notifTitle = autoReceive ? '출고확정' : '출고등록';
-        const notifMsg = autoReceive
-          ? `${headerData.request_type} #${requestId}이(가) 출고 확정되었습니다. (재고 반영 완료)`
-          : `${headerData.request_type} #${requestId}이(가) 출고 등록되었습니다.`;
+        const notifTitle = '출고등록';
+        const notifMsg = `${headerData.request_type} #${requestId}이(가) 출고 등록되었습니다.`;
         createNotification(
           'SHIPMENT', notifTitle, notifMsg,
           requestId, toPartner, headerData.requested_by,
         );
       }
 
+      if (extClient) return { request_id: requestId } as any;
       return shipmentRepository.getWithItems(requestId);
     } catch (e: any) {
-      await client.query('ROLLBACK');
+      if (!extClient) await client.query('ROLLBACK');
       if (e.code === '23503') {
         if (e.constraint?.includes('variant')) throw new Error('존재하지 않는 상품(variant_id)이 포함되어 있습니다.');
         if (e.constraint?.includes('partner')) throw new Error('존재하지 않는 거래처 코드입니다.');
@@ -172,7 +158,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       }
       throw e;
     } finally {
-      client.release();
+      if (!extClient) client.release();
     }
   }
 
@@ -523,7 +509,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
-      // DISCREPANCY 재확인: 이미 DISCREPANCY 상태에서 다시 수령확인하는 경우 불일치 재판단
+      // 초회 수령: 불일치 시 DISCREPANCY / 재확인: 수량만 갱신, 상태는 DISCREPANCY 유지 (최종 확정은 ADMIN)
       const newStatus = hasDiscrepancy ? 'DISCREPANCY' : 'RECEIVED';
       await client.query(
         `UPDATE shipment_requests SET status = $1, updated_at = NOW() WHERE request_id = $2`,

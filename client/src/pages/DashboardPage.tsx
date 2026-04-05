@@ -1,16 +1,19 @@
-import { useEffect, useState, CSSProperties } from 'react';
-import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, message } from 'antd';
+import { useEffect, useState, useRef, useCallback, CSSProperties } from 'react';
+import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, Input, Select, message, Empty } from 'antd';
+import type { InputRef } from 'antd';
 import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, TruckOutlined,
   CheckOutlined, BellOutlined, SendOutlined,
   SwapOutlined, ReloadOutlined, PercentageOutlined, WarningOutlined,
+  PlusOutlined, BarcodeOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
 import { apiFetch, safeJson } from '../core/api.client';
 import { salesApi } from '../modules/sales/sales.api';
+import { productApi } from '../modules/product/product.api';
 import dayjs from 'dayjs';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -160,7 +163,19 @@ export default function DashboardPage() {
     } catch (e: any) { message.error('처리 실패: ' + e.message); }
   };
 
-  useEffect(() => { loadStats(); loadNotifications(); loadGeneralNotifs(); if (!isStore) loadSellThrough(); if (isStore) loadMyPendingRequests(); }, []);
+  const refreshAll = useCallback(() => {
+    loadStats(); loadNotifications(); loadGeneralNotifs();
+    if (!isStore) loadSellThrough();
+    if (isStore) loadMyPendingRequests();
+  }, [isStore]);
+
+  // 초기 로드 + 탭 전환/페이지 복귀 시 자동 새로고침
+  useEffect(() => {
+    refreshAll();
+    const onFocus = () => refreshAll();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [refreshAll]);
 
   // 재고 요청 (매장 매니저용)
   const [requestingIds, setRequestingIds] = useState<Set<string>>(new Set());
@@ -208,6 +223,58 @@ export default function DashboardPage() {
     }
   };
 
+
+  // ── 빠른 매출 등록 (매장 전용) ──
+  const [quickSaleOpen, setQuickSaleOpen] = useState(false);
+  const [scanCode, setScanCode] = useState('');
+  const [scannedProduct, setScannedProduct] = useState<any>(null);
+  const [quickQty, setQuickQty] = useState(1);
+  const [quickUnitPrice, setQuickUnitPrice] = useState(0);
+  const [quickSaleType, setQuickSaleType] = useState('정상');
+  const [quickSubmitting, setQuickSubmitting] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  const [quickSearchResults, setQuickSearchResults] = useState<any[]>([]);
+  const scanInputRef = useRef<InputRef>(null);
+
+  const handleScan = async () => {
+    if (!scanCode.trim()) return;
+    setScanning(true);
+    try {
+      const result = await salesApi.scanProduct(scanCode.trim());
+      if (result) {
+        setScannedProduct(result);
+        setQuickUnitPrice(result.selling_price || result.unit_price || 0);
+        setQuickQty(1);
+      } else {
+        message.warning('상품을 찾을 수 없습니다.');
+      }
+    } catch (e: any) { message.error(e.message); }
+    finally { setScanning(false); }
+  };
+
+  const handleQuickSale = async () => {
+    if (!scannedProduct) return;
+    setQuickSubmitting(true);
+    try {
+      await salesApi.createBatch({
+        sale_date: dayjs().format('YYYY-MM-DD'),
+        items: [{
+          variant_id: scannedProduct.variant_id,
+          qty: quickQty,
+          unit_price: quickUnitPrice,
+          sale_type: quickSaleType,
+        }],
+      });
+      message.success('매출 등록 완료');
+      setScannedProduct(null);
+      setScanCode('');
+      setQuickQty(1);
+      setQuickSaleType('정상');
+      setQuickSaleOpen(false);
+      loadStats(); // 대시보드 새로고침
+    } catch (e: any) { message.error(e.message); }
+    finally { setQuickSubmitting(false); }
+  };
 
   const pa = stats?.pendingActions || {};
   const discrepancyCount = pa.discrepancies?.length || 0;
@@ -556,24 +623,112 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* ── 매장 전용: 오늘 매출 히어로 카드 ── */}
+      {isStore && (
+        <div style={{
+          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6366f1 100%)',
+          borderRadius: 18, padding: '28px 32px', marginBottom: 16,
+          boxShadow: '0 8px 32px rgba(102, 126, 234, 0.35)',
+          position: 'relative', overflow: 'hidden',
+        }}>
+          <div style={{ position: 'absolute', top: -40, right: -20, width: 160, height: 160, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
+          <div style={{ position: 'absolute', bottom: -30, right: 100, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
+          <div style={{ position: 'relative', zIndex: 1 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <div style={{ fontSize: 14, color: 'rgba(255,255,255,0.75)', marginBottom: 6 }}>
+                  <DollarOutlined style={{ marginRight: 6 }} />오늘 매출
+                </div>
+                <div style={{ fontSize: 44, fontWeight: 900, color: '#fff', lineHeight: 1.1, letterSpacing: -1 }}>
+                  {Number(stats?.todaySales?.today_revenue || 0) >= 10000
+                    ? `${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(1)}만원`
+                    : `${Number(stats?.todaySales?.today_revenue || 0).toLocaleString()}원`}
+                </div>
+                <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
+                  <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>판매 수량</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>{Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개</div>
+                  </div>
+                  <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px' }}>
+                    <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>판매 건수</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>{(stats?.todaySalesDetail || []).length}건</div>
+                  </div>
+                </div>
+              </div>
+              <Button
+                type="primary" size="large"
+                icon={<PlusOutlined />}
+                onClick={() => { setQuickSaleOpen(true); setTimeout(() => scanInputRef.current?.focus(), 200); }}
+                style={{
+                  height: 52, fontSize: 16, fontWeight: 700, borderRadius: 14,
+                  background: 'rgba(255,255,255,0.95)', color: '#6366f1', border: 'none',
+                  boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
+                }}
+              >
+                매출 등록
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 매장 전용: 오늘 판매 내역 ── */}
+      {isStore && (
+        <Card
+          title={<span><ShoppingCartOutlined style={{ marginRight: 8, color: '#6366f1' }} />오늘 판매 내역</span>}
+          size="small"
+          style={{ borderRadius: 12, marginBottom: 16, borderLeft: '4px solid #6366f1' }}
+          extra={<a onClick={() => navigate('/sales/entry')}>전체보기</a>}
+        >
+          {(stats?.todaySalesDetail || []).length > 0 ? (
+            <Table
+              columns={[
+                { title: '시간', dataIndex: 'sale_time', key: 'time', width: 60 },
+                { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                { title: '컬러/사이즈', key: 'variant', width: 110,
+                  render: (_: any, r: any) => <span style={{ fontSize: 12, color: '#666' }}>{r.color}/{r.size}</span>,
+                },
+                { title: '유형', dataIndex: 'sale_type', key: 'type', width: 60,
+                  render: (v: string) => <Tag color={v === '정상' ? 'blue' : v === '반품' ? 'red' : 'orange'}>{v}</Tag>,
+                },
+                { title: '수량', dataIndex: 'qty', key: 'qty', width: 55, render: (v: number) => `${v}개` },
+                { title: '금액', dataIndex: 'total_price', key: 'price', width: 90, align: 'right' as const,
+                  render: (v: number) => <span style={{ fontWeight: 600 }}>{Number(v).toLocaleString()}원</span>,
+                },
+              ]}
+              dataSource={stats?.todaySalesDetail || []}
+              rowKey="sale_id"
+              pagination={false}
+              size="small"
+              scroll={{ x: 500 }}
+            />
+          ) : (
+            <Empty description="오늘 판매 내역이 없습니다" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
+        </Card>
+      )}
+
       {/* Main Stats */}
       <Row gutter={[16, 16]}>
-        <Col xs={24} sm={12} lg={6}>
-          <StatCard title={isStore ? '내 매장 오늘 매출' : '오늘 매출'} value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
-            icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
-            sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`} />
-        </Col>
-        <Col xs={24} sm={12} lg={6}>
+        {/* 매장: 히어로에서 오늘 매출 표시하므로 월간매출부터 */}
+        {!isStore && (
+          <Col xs={24} sm={12} lg={6}>
+            <StatCard title="오늘 매출" value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
+              icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
+              sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`} />
+          </Col>
+        )}
+        <Col xs={24} sm={12} lg={isStore ? 8 : 6}>
           <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
             icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
             sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`} />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={isStore ? 8 : 6}>
           <StatCard title={isStore ? '내 매장 재고' : '총 재고'} value={stats?.inventory?.totalQty || 0}
             icon={<InboxOutlined />} bg="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)" color="#fff"
             sub={`${stats?.inventory?.totalItems || 0}개 품목`} onClick={() => navigate('/inventory/status')} />
         </Col>
-        <Col xs={24} sm={12} lg={6}>
+        <Col xs={24} sm={12} lg={isStore ? 8 : 6}>
           <StatCard title={isStore ? '내 매장 대기 출고' : '대기 출고'} value={pendingCount}
             icon={<TruckOutlined />} bg="linear-gradient(135deg, #43e97b 0%, #38f9d7 100%)" color="#fff"
             sub={`출고완료 ${shippedCount}건`} onClick={() => navigate(isStore ? '/shipment/store-request' : '/shipment/view')} />
@@ -875,6 +1030,130 @@ export default function DashboardPage() {
             />
             <div style={{ marginTop: 12, color: '#888', fontSize: 12 }}>
               수평이동 의뢰가 생성되며, 출고확인 후 재고가 이동됩니다.
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── 빠른 매출 등록 모달 (매장 전용) ── */}
+      <Modal
+        title={<span><BarcodeOutlined style={{ marginRight: 8 }} />빠른 매출 등록</span>}
+        open={quickSaleOpen}
+        onCancel={() => { setQuickSaleOpen(false); setScannedProduct(null); setScanCode(''); setQuickSearchResults([]); }}
+        footer={null}
+        width={480}
+        destroyOnClose
+      >
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>바코드 / SKU 입력</div>
+          <Input.Search
+            ref={scanInputRef}
+            placeholder="바코드 스캔 또는 SKU 입력..."
+            value={scanCode}
+            onChange={(e) => setScanCode(e.target.value)}
+            onSearch={handleScan}
+            enterButton={<span><BarcodeOutlined /> 조회</span>}
+            loading={scanning}
+            size="large"
+            allowClear
+          />
+          <div style={{ marginTop: 12 }}>
+            <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>또는 상품명/SKU 검색</div>
+            <Select
+              showSearch placeholder="상품명 또는 SKU 2자 이상 입력"
+              filterOption={false} style={{ width: '100%' }} size="large"
+              value={scannedProduct?.variant_id}
+              onSearch={(v) => { if (v.length >= 2) productApi.searchVariants(v).then(setQuickSearchResults).catch(() => {}); }}
+              onChange={(v) => {
+                const found = quickSearchResults.find((r: any) => r.variant_id === v);
+                if (found) {
+                  setScannedProduct({ ...found, base_price: found.price, selling_price: found.price });
+                  setQuickUnitPrice(found.price || 0);
+                  setQuickQty(1);
+                }
+              }}
+              notFoundContent="2자 이상 입력"
+            >
+              {quickSearchResults.map((v: any) => (
+                <Select.Option key={v.variant_id} value={v.variant_id}>
+                  {v.sku} - {v.product_name} ({v.color}/{v.size})
+                </Select.Option>
+              ))}
+            </Select>
+          </div>
+        </div>
+
+        {scannedProduct && (
+          <div>
+            <div style={{
+              padding: 16, background: 'linear-gradient(135deg, #f0f4ff, #e8ecff)',
+              borderRadius: 12, marginBottom: 16, border: '1px solid #d4daff',
+            }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#333', marginBottom: 8 }}>
+                {scannedProduct.product_name}
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#666' }}>
+                <Tag>{scannedProduct.color}</Tag>
+                <Tag>{scannedProduct.size}</Tag>
+                <Tag color="blue">SKU: {scannedProduct.sku}</Tag>
+                {scannedProduct.current_stock !== undefined && (
+                  <Tag color={scannedProduct.current_stock > 0 ? 'green' : 'red'}>
+                    재고: {scannedProduct.current_stock}개
+                  </Tag>
+                )}
+              </div>
+            </div>
+
+            <Row gutter={12}>
+              <Col span={8}>
+                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>수량</div>
+                <InputNumber
+                  min={1} value={quickQty} onChange={(v) => setQuickQty(v || 1)}
+                  style={{ width: '100%' }} size="large"
+                />
+              </Col>
+              <Col span={8}>
+                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>단가</div>
+                <InputNumber
+                  min={0} value={quickUnitPrice} onChange={(v) => setQuickUnitPrice(v || 0)}
+                  style={{ width: '100%' }} size="large"
+                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                  parser={(v) => Number(v?.replace(/,/g, '') || 0)}
+                />
+              </Col>
+              <Col span={8}>
+                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>유형</div>
+                <Select value={quickSaleType} onChange={setQuickSaleType}
+                  style={{ width: '100%' }} size="large"
+                  options={[
+                    { value: '정상', label: '정상' },
+                    { value: '직원할인', label: '직원할인' },
+                    { value: '행사', label: '행사' },
+                    { value: '기타', label: '기타' },
+                  ]}
+                />
+              </Col>
+            </Row>
+
+            <div style={{
+              marginTop: 16, padding: 14, background: '#fafafa', borderRadius: 10,
+              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            }}>
+              <div>
+                <div style={{ fontSize: 13, color: '#888' }}>합계 금액</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: '#6366f1' }}>
+                  {(quickQty * quickUnitPrice).toLocaleString()}원
+                </div>
+              </div>
+              <Button
+                type="primary" size="large"
+                icon={<PlusOutlined />}
+                onClick={handleQuickSale}
+                loading={quickSubmitting}
+                style={{ height: 48, fontSize: 15, fontWeight: 700, borderRadius: 12, background: '#6366f1' }}
+              >
+                매출 등록
+              </Button>
             </div>
           </div>
         )}

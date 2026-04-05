@@ -201,15 +201,9 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       return;
     }
 
-    // 본사 권한(ADMIN/SYS_ADMIN/HQ_MANAGER)이면 바로 수령완료(RECEIVED) 처리
-    const role = req.user!.role;
-    const isHqRole = role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER';
-    const autoReceive = isHqRole && headerData.request_type === '출고';
-
     const result = await shipmentService.createWithItems(
       { ...headerData, requested_by: req.user!.userId },
       items,
-      { autoReceive },
     );
     res.status(201).json({ success: true, data: result });
   });

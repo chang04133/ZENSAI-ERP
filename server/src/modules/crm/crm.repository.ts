@@ -480,35 +480,6 @@ export class CrmRepository extends BaseRepository<Customer> {
     return { avg_rating: r.rows[0]?.avg_rating ? Number(r.rows[0].avg_rating) : null, count: r.rows[0]?.cnt || 0 };
   }
 
-  /* ─── Tier Benefits ─── */
-  async getTierBenefits(tierName?: string, includeInactive = false) {
-    const activeFilter = includeInactive ? '' : 'AND is_active = TRUE';
-    if (tierName) {
-      return (await this.pool.query(
-        `SELECT * FROM tier_benefits WHERE tier_name = $1 ${activeFilter} ORDER BY sort_order`, [tierName])).rows;
-    }
-    return (await this.pool.query(`SELECT * FROM tier_benefits WHERE 1=1 ${activeFilter} ORDER BY tier_name, sort_order`)).rows;
-  }
-
-  async upsertTierBenefit(data: any) {
-    if (data.benefit_id) {
-      return (await this.pool.query(
-        `UPDATE tier_benefits SET tier_name=$1, benefit_type=$2, benefit_name=$3, benefit_value=$4,
-         description=$5, is_active=$6, sort_order=$7, updated_at=NOW() WHERE benefit_id=$8 RETURNING *`,
-        [data.tier_name, data.benefit_type, data.benefit_name, data.benefit_value || null,
-         data.description || null, data.is_active ?? true, data.sort_order || 0, data.benefit_id])).rows[0];
-    }
-    return (await this.pool.query(
-      `INSERT INTO tier_benefits (tier_name, benefit_type, benefit_name, benefit_value, description, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [data.tier_name, data.benefit_type, data.benefit_name, data.benefit_value || null,
-       data.description || null, data.sort_order || 0])).rows[0];
-  }
-
-  async deleteTierBenefit(benefitId: number) {
-    await this.pool.query('UPDATE tier_benefits SET is_active = FALSE WHERE benefit_id = $1', [benefitId]);
-  }
-
   /* ─── Flags ─── */
   async listFlags() {
     return (await this.pool.query('SELECT * FROM customer_flags ORDER BY sort_order')).rows;
@@ -529,6 +500,59 @@ export class CrmRepository extends BaseRepository<Customer> {
 
   async removeCustomerFlag(customerId: number, flagId: number) {
     await this.pool.query('DELETE FROM customer_flag_map WHERE customer_id = $1 AND flag_id = $2', [customerId, flagId]);
+  }
+
+  /* ─── Birthday Customers ─── */
+  async getBirthdayCustomers(month: number, partnerCode?: string) {
+    const params: any[] = [month];
+    let pcFilter = '';
+    if (partnerCode) { params.push(partnerCode); pcFilter = 'AND c.partner_code = $2'; }
+    return (await this.pool.query(
+      `SELECT c.customer_id, c.customer_name, c.phone, c.customer_tier, c.birth_date, c.partner_code, pt.partner_name
+       FROM customers c LEFT JOIN partners pt ON c.partner_code = pt.partner_code
+       WHERE c.is_active = TRUE AND c.birth_date IS NOT NULL AND EXTRACT(MONTH FROM c.birth_date) = $1 ${pcFilter}
+       ORDER BY EXTRACT(DAY FROM c.birth_date)`, params)).rows;
+  }
+
+  /* ─── VIP Dormant Alerts ─── */
+  async getVipAlerts(days: number, partnerCode?: string) {
+    const params: any[] = [days];
+    let pcFilter = '';
+    if (partnerCode) { params.push(partnerCode); pcFilter = 'AND c.partner_code = $2'; }
+    return (await this.pool.query(
+      `SELECT c.customer_id, c.customer_name, c.phone, c.customer_tier, c.partner_code, pt.partner_name,
+              lp.last_date AS last_purchase_date, (CURRENT_DATE - lp.last_date)::int AS days_since
+       FROM customers c
+       LEFT JOIN partners pt ON c.partner_code = pt.partner_code
+       LEFT JOIN LATERAL (SELECT MAX(purchase_date) AS last_date FROM customer_purchases WHERE customer_id = c.customer_id) lp ON TRUE
+       WHERE c.is_active = TRUE AND c.customer_tier IN ('VVIP', 'VIP')
+         AND lp.last_date IS NOT NULL AND lp.last_date < CURRENT_DATE - MAKE_INTERVAL(days => $1)
+         ${pcFilter}
+       ORDER BY days_since DESC`, params)).rows;
+  }
+
+  /* ─── Daily Summary ─── */
+  async getDailySummary(date: string, partnerCode?: string) {
+    const params: any[] = [date];
+    let pcIdx = 2;
+    const pcParams = partnerCode ? [partnerCode] : [];
+    const pcFilter = partnerCode ? `AND partner_code = $${pcIdx}` : '';
+    const pcFilterC = partnerCode ? `AND c.partner_code = $${pcIdx}` : '';
+    const allParams = [...params, ...pcParams];
+
+    const [newCust, sales, asCount, visitCount] = await Promise.all([
+      this.pool.query(`SELECT COUNT(*)::int AS cnt FROM customers c WHERE c.is_active = TRUE AND c.created_at::date = $1 ${pcFilterC}`, allParams),
+      this.pool.query(`SELECT COUNT(*)::int AS cnt, COALESCE(SUM(total_price), 0)::numeric AS total FROM customer_purchases WHERE purchase_date = $1 ${pcFilter}`, allParams),
+      this.pool.query(`SELECT COUNT(*)::int AS cnt FROM after_sales_services WHERE received_date = $1 ${pcFilter}`, allParams),
+      this.pool.query(`SELECT COUNT(*)::int AS cnt FROM customer_visits WHERE visit_date = $1 ${pcFilter}`, allParams),
+    ]);
+    return {
+      new_customers: newCust.rows[0].cnt,
+      sales_count: sales.rows[0].cnt,
+      sales_total: Number(sales.rows[0].total),
+      as_count: asCount.rows[0].cnt,
+      visit_count: visitCount.rows[0].cnt,
+    };
   }
 
   /* ─── Export ─── */

@@ -46,10 +46,15 @@ export default function SeasonManagePage() {
   const handleCreate = async () => {
     try {
       const vals = await form.validateFields();
-      const seasonCode = `${String(vals.year).slice(2)}${vals.season_type}`;
+      const seasonType = vals.season_type; // SA, SM, WN
+      const yearStr = String(vals.year);
+      const seasonCode = `${yearStr.slice(2)}${seasonType}`;
+      const nameMap: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
       await seasonApi.create({
         season_code: seasonCode,
-        season_name: vals.season_name || `${vals.year} ${vals.season_type === 'SS' ? 'Spring/Summer' : vals.season_type === 'FW' ? 'Fall/Winter' : vals.season_type}`,
+        season_name: vals.season_name || `${yearStr} ${nameMap[seasonType] || seasonType}`,
+        season_type: seasonType,
+        year: yearStr,
         plan_start_date: vals.dates?.[0]?.format('YYYY-MM-DD'),
         plan_end_date: vals.dates?.[1]?.format('YYYY-MM-DD'),
         target_styles: vals.target_styles,
@@ -208,7 +213,7 @@ export default function SeasonManagePage() {
         <Form form={form} layout="vertical">
           <Row gutter={16}>
             <Col span={8}><Form.Item label="연도" name="year" rules={[{ required: true }]}><Select options={[{ value: 2025, label: '2025' }, { value: 2026, label: '2026' }, { value: 2027, label: '2027' }]} /></Form.Item></Col>
-            <Col span={8}><Form.Item label="시즌" name="season_type" rules={[{ required: true }]}><Select options={[{ value: 'SS', label: 'Spring/Summer' }, { value: 'FW', label: 'Fall/Winter' }]} /></Form.Item></Col>
+            <Col span={8}><Form.Item label="시즌" name="season_type" rules={[{ required: true }]}><Select options={[{ value: 'SA', label: '봄/가을 (SA)' }, { value: 'SM', label: '여름 (SM)' }, { value: 'WN', label: '겨울 (WN)' }]} /></Form.Item></Col>
             <Col span={8}><Form.Item label="시즌명" name="season_name"><Input placeholder="자동 생성" /></Form.Item></Col>
           </Row>
           <Form.Item label="기간" name="dates"><DatePicker.RangePicker style={{ width: '100%' }} /></Form.Item>

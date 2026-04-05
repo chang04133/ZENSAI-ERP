@@ -197,25 +197,6 @@ export const crmApi = {
     return res.json();
   },
 
-  /* ─── Tier Benefits (등급 혜택) ─── */
-  getTierBenefits: async (tierName?: string, includeInactive = false) => {
-    const params = new URLSearchParams();
-    if (tierName) params.set('tier_name', tierName);
-    if (includeInactive) params.set('include_inactive', 'true');
-    const qs = params.toString();
-    const res = await apiFetch(`${BASE}/tiers/benefits${qs ? `?${qs}` : ''}`);
-    const json = await res.json();
-    return json.data;
-  },
-  upsertTierBenefit: async (data: any) => {
-    const res = await apiFetch(`${BASE}/tiers/benefits`, { method: 'POST', body: JSON.stringify(data) });
-    return res.json();
-  },
-  deleteTierBenefit: async (benefitId: number) => {
-    const res = await apiFetch(`${BASE}/tiers/benefits/${benefitId}`, { method: 'DELETE' });
-    return res.json();
-  },
-
   /* ─── Flags (고객 플래그) ─── */
   listFlags: async () => {
     const res = await apiFetch(`${BASE}/flags`);
@@ -234,6 +215,26 @@ export const crmApi = {
   removeCustomerFlag: async (customerId: number, flagId: number) => {
     const res = await apiFetch(`${BASE}/${customerId}/flags/${flagId}`, { method: 'DELETE' });
     return res.json();
+  },
+
+  /* ─── Birthday / VIP Alerts / Daily Summary ─── */
+  getBirthdayCustomers: async (month?: number) => {
+    const qs = month ? `?month=${month}` : '';
+    const res = await apiFetch(`${BASE}/birthdays${qs}`);
+    const json = await res.json();
+    return json.data;
+  },
+  getVipAlerts: async (days?: number) => {
+    const qs = days ? `?days=${days}` : '';
+    const res = await apiFetch(`${BASE}/vip-alerts${qs}`);
+    const json = await res.json();
+    return json.data;
+  },
+  getDailySummary: async (date?: string) => {
+    const qs = date ? `?date=${date}` : '';
+    const res = await apiFetch(`${BASE}/daily-summary${qs}`);
+    const json = await res.json();
+    return json.data;
   },
 
   /* ─── RFM / LTV ─── */
@@ -389,6 +390,11 @@ export const afterSalesApi = {
     const json = await asJson(await apiFetch(`${AS}/stats`));
     return json.data;
   },
+  /** 본사에 반품요청 (수선/클레임) */
+  returnToHq: async (serviceId: number) => {
+    const json = await asJson(await apiFetch(`${AS}/${serviceId}/return-to-hq`, { method: 'POST' }));
+    return json.data;
+  },
 };
 
 /* ═══════════════ 캠페인 API ═══════════════ */
@@ -533,53 +539,6 @@ export const consentQrApi = {
     const res = await apiFetch(`${CAMP}/consent-qr${qs}`);
     const json = await res.json();
     return json.data;
-  },
-};
-
-/* ═══════════════ 쿠폰 API ═══════════════ */
-
-const COUPON = `${BASE}/coupons`;
-
-export const couponApi = {
-  list: async (params: Record<string, string> = {}) => {
-    const qs = new URLSearchParams(params).toString();
-    const res = await apiFetch(`${COUPON}?${qs}`);
-    return res.json();
-  },
-  detail: async (id: number) => {
-    const res = await apiFetch(`${COUPON}/${id}`);
-    const json = await res.json();
-    return json.data;
-  },
-  create: async (data: any) => {
-    const res = await apiFetch(COUPON, { method: 'POST', body: JSON.stringify(data) });
-    return res.json();
-  },
-  update: async (id: number, data: any) => {
-    const res = await apiFetch(`${COUPON}/${id}`, { method: 'PUT', body: JSON.stringify(data) });
-    return res.json();
-  },
-  remove: async (id: number) => {
-    const res = await apiFetch(`${COUPON}/${id}`, { method: 'DELETE' });
-    return res.json();
-  },
-  issue: async (id: number, customerIds: number[]) => {
-    const res = await apiFetch(`${COUPON}/${id}/issue`, { method: 'POST', body: JSON.stringify({ customer_ids: customerIds }) });
-    return res.json();
-  },
-  issueBySegment: async (id: number, segmentId: number) => {
-    const res = await apiFetch(`${COUPON}/${id}/issue-segment`, { method: 'POST', body: JSON.stringify({ segment_id: segmentId }) });
-    return res.json();
-  },
-  /** 고객별 쿠폰 */
-  getCustomerCoupons: async (customerId: number) => {
-    const res = await apiFetch(`${BASE}/${customerId}/coupons`);
-    const json = await res.json();
-    return json.data;
-  },
-  issueToCustomer: async (customerId: number, couponId: number) => {
-    const res = await apiFetch(`${BASE}/${customerId}/coupons/${couponId}`, { method: 'POST' });
-    return res.json();
   },
 };
 

@@ -34,11 +34,11 @@ interface ItemRow {
 }
 
 const STEPS = [
-  { key: 'PENDING', label: '요청중', desc: '본사 출고 대기 중인 요청', icon: <ClockCircleOutlined />, color: '#1677ff', bg: '#e6f4ff' },
+  { key: 'PENDING', label: '요청중', desc: '본사에서 입고 대기 중인 요청', icon: <ClockCircleOutlined />, color: '#1677ff', bg: '#e6f4ff' },
   { key: 'SHIPPED', label: '출고완료', desc: '본사에서 출고 완료, 수령 대기 중', icon: <SendOutlined />, color: '#fa8c16', bg: '#fff7e6' },
   { key: 'DISCREPANCY', label: '수량불일치', desc: '수령 수량이 출고 수량과 다른 건', icon: <ExclamationCircleOutlined />, color: '#fa541c', bg: '#fff2e8' },
   { key: 'RECEIVED', label: '수령완료', desc: '매장에서 수령까지 완료된 건', icon: <CheckCircleOutlined />, color: '#52c41a', bg: '#f6ffed' },
-  { key: 'CANCELLED', label: '취소', desc: '취소된 출고요청', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
+  { key: 'CANCELLED', label: '취소', desc: '취소된 입고요청', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
 ] as const;
 
 export default function StoreShipmentRequestPage() {
@@ -170,7 +170,7 @@ export default function StoreShipmentRequestPage() {
         const json = await res.json();
         if (json.success && json.data?.data) setPartners(json.data.data);
       } catch {}
-      try { setVariantOptions(await productApi.searchVariants('')); } catch {}
+      try { setVariantOptions(await productApi.searchVariants('', undefined)); } catch {}
     })();
   }, []);
 
@@ -187,8 +187,10 @@ export default function StoreShipmentRequestPage() {
   /* ══════════ 이벤트 핸들러 ══════════ */
   const handleVariantSearch = async (value: string) => {
     if (value.length >= 2) {
-      try { setVariantOptions(await productApi.searchVariants(value)); }
-      catch { setVariantOptions([]); }
+      try {
+        const pc = form.getFieldValue('from_partner');
+        setVariantOptions(await productApi.searchVariants(value, pc || undefined));
+      } catch { setVariantOptions([]); }
     }
   };
 
@@ -220,7 +222,7 @@ export default function StoreShipmentRequestPage() {
       };
       // from_partner: 사용자가 선택한 출고창고, to_partner: 서버에서 요청자 매장으로 자동설정
       await shipmentApi.create(body);
-      message.success('출고요청이 등록되었습니다.');
+      message.success('입고요청이 등록되었습니다.');
       setModalOpen(false); form.resetFields(); setItems([]);
       if (view === 'PENDING') loadList('PENDING', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
@@ -244,7 +246,7 @@ export default function StoreShipmentRequestPage() {
   const handleDelete = async (id: number) => {
     try {
       await shipmentApi.remove(id);
-      message.success('출고요청이 삭제되었습니다.');
+      message.success('입고요청이 삭제되었습니다.');
       setExpandedDetails((prev) => { const next = { ...prev }; delete next[id]; return next; });
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
       else { loadList(view, listPage); loadCounts(); }
@@ -315,8 +317,12 @@ export default function StoreShipmentRequestPage() {
       const rItems = (receiveTarget as any).items.map((item: any) => ({
         variant_id: item.variant_id, received_qty: receivedQtys[item.variant_id] || 0,
       }));
-      await shipmentApi.receive(receiveTarget.request_id, rItems);
-      message.success('수령이 완료되었습니다. (매장 재고가 증가했습니다)');
+      const result = await shipmentApi.receive(receiveTarget.request_id, rItems);
+      if ((result as any).status === 'DISCREPANCY') {
+        message.success('수령수량이 갱신되었습니다. 최종 확정은 관리자가 처리합니다.');
+      } else {
+        message.success('수령이 완료되었습니다. (매장 재고가 증가했습니다)');
+      }
       setExpandedDetails((prev) => { const next = { ...prev }; delete next[receiveTarget.request_id]; return next; });
       setReceiveModalOpen(false); setReceiveTarget(null);
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
@@ -542,7 +548,7 @@ export default function StoreShipmentRequestPage() {
           {view === 'PENDING' && isStore && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields(); setItems([]); setStockMap({}); setStockPartner(''); setModalOpen(true);
-            }}>출고요청</Button>
+            }}>입고요청</Button>
           )}
         </div>
 
@@ -580,8 +586,8 @@ export default function StoreShipmentRequestPage() {
 
   return (
     <div>
-      <PageHeader title="출고요청" extra={view === 'dashboard' ? (
-        <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreateModal}>출고요청</Button>
+      <PageHeader title="입고요청" extra={view === 'dashboard' ? (
+        <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreateModal}>입고요청</Button>
       ) : undefined} />
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
@@ -596,10 +602,10 @@ export default function StoreShipmentRequestPage() {
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}
 
       {/* ══ 출고요청 등록 모달 ══ */}
-      <Modal title="출고요청 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={creating} okText="요청" cancelText="취소" width={700}>
+      <Modal title="입고요청 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={creating} okText="요청" cancelText="취소" width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <div style={{ padding: '12px 16px', background: '#e6f4ff', borderRadius: 8, marginBottom: 16, fontSize: 13, color: '#1677ff' }}>
-            <ShoppingCartOutlined /> 출고창고에 출고를 요청합니다. 요청 후 출고확인 시 재고가 차감됩니다.
+            <ShoppingCartOutlined /> 본사 창고에 입고를 요청합니다. 본사 출고확인 후 매장에서 수령확인하면 재고에 반영됩니다.
           </div>
 
           <Form.Item name="from_partner" label="요청 창고 (재고 출발지)" rules={[{ required: true, message: '요청할 창고를 선택해주세요' }]}>
@@ -613,7 +619,7 @@ export default function StoreShipmentRequestPage() {
               onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
               notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
               {variantOptions.map((v) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size})</Select.Option>
+                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
               ))}
             </Select>
           </Form.Item>

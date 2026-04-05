@@ -2,6 +2,16 @@ import { getPool } from '../../db/connection';
 
 const STATUS_ORDER = ['PLANNING', 'CONFIRMED', 'IN_SEASON', 'MARKDOWN', 'CLOSED'];
 
+/** season_code(예: "26SA")에서 season_type + year 추출하는 헬퍼 */
+function parseSeasonCode(code: string) {
+  // season_configs에 season_type/year가 있으면 그걸 사용하고,
+  // 없으면 code에서 파싱 (예: "26SA" → type="SA", year="2026")
+  if (code.length >= 4) {
+    return { seasonType: code.slice(2), year: '20' + code.slice(0, 2) };
+  }
+  return { seasonType: code, year: '' };
+}
+
 export const seasonService = {
   /** 시즌 목록 (집계 통계 포함) */
   async list() {
@@ -56,6 +66,20 @@ export const seasonService = {
   /** 시즌별 상품 목록 */
   async getProducts(code: string) {
     const pool = getPool();
+    // season_configs에서 season_type, year 조회
+    const { rows: [sc] } = await pool.query(
+      `SELECT season_type, year FROM season_configs WHERE season_code = $1`, [code],
+    );
+    const seasonType = sc?.season_type || parseSeasonCode(code).seasonType;
+    const year = sc?.year || parseSeasonCode(code).year;
+
+    const params: any[] = [seasonType];
+    let yearFilter = '';
+    if (year) {
+      yearFilter = ' AND p.year = $2';
+      params.push(year);
+    }
+
     const { rows } = await pool.query(`
       SELECT p.product_code, p.product_name, p.category, p.sub_category,
         p.base_price, p.event_price, p.season, p.year,
@@ -81,15 +105,28 @@ export const seasonService = {
         WHERE s.sale_type IN ('retail','online','wholesale')
         GROUP BY pv.product_code
       ) sl ON sl.product_code = p.product_code
-      WHERE p.season = $1 AND ($2 = '' OR p.year = $2) AND p.is_active = true
+      WHERE p.season = $1${yearFilter} AND p.is_active = true
       ORDER BY sl.sold_qty DESC NULLS LAST
-    `, [code.slice(-2), code.length > 2 ? '20' + code.slice(0, 2) : '']);
+    `, params);
     return rows;
   },
 
   /** 시즌 분석 (카테고리별 판매율) */
   async getAnalytics(code: string) {
     const pool = getPool();
+    const { rows: [sc] } = await pool.query(
+      `SELECT season_type, year FROM season_configs WHERE season_code = $1`, [code],
+    );
+    const seasonType = sc?.season_type || parseSeasonCode(code).seasonType;
+    const year = sc?.year || parseSeasonCode(code).year;
+
+    const params: any[] = [seasonType];
+    let yearFilter = '';
+    if (year) {
+      yearFilter = ' AND p.year = $2';
+      params.push(year);
+    }
+
     // 카테고리별 집계
     const { rows: byCategory } = await pool.query(`
       SELECT p.category,
@@ -116,10 +153,10 @@ export const seasonService = {
         WHERE s.sale_type IN ('retail','online','wholesale')
         GROUP BY pv.product_code
       ) sl ON sl.product_code = p.product_code
-      WHERE p.season = $1 AND p.is_active = true
+      WHERE p.season = $1${yearFilter} AND p.is_active = true
       GROUP BY p.category
       ORDER BY sold_qty DESC
-    `, [code]);
+    `, params);
 
     // 월별 매출 추이
     const { rows: monthlyTrend } = await pool.query(`
@@ -129,10 +166,10 @@ export const seasonService = {
       FROM sales s
       JOIN product_variants pv ON pv.variant_id = s.variant_id
       JOIN products p ON p.product_code = pv.product_code
-      WHERE p.season = $1 AND s.sale_type IN ('retail','online','wholesale')
+      WHERE p.season = $1${yearFilter} AND s.sale_type IN ('retail','online','wholesale')
       GROUP BY TO_CHAR(s.sale_date, 'YYYY-MM')
       ORDER BY month
-    `, [code]);
+    `, params);
 
     return { byCategory, monthlyTrend };
   },
@@ -141,11 +178,12 @@ export const seasonService = {
   async create(data: any) {
     const pool = getPool();
     const { rows } = await pool.query(`
-      INSERT INTO season_configs (season_code, season_name, status, plan_start_date, plan_end_date, target_styles, target_qty, target_revenue, memo, created_by)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      INSERT INTO season_configs (season_code, season_name, status, plan_start_date, plan_end_date, target_styles, target_qty, target_revenue, memo, created_by, season_type, year)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
       RETURNING *
     `, [data.season_code, data.season_name, data.status || 'PLANNING', data.plan_start_date, data.plan_end_date,
-        data.target_styles || 0, data.target_qty || 0, data.target_revenue || 0, data.memo, data.created_by]);
+        data.target_styles || 0, data.target_qty || 0, data.target_revenue || 0, data.memo, data.created_by,
+        data.season_type, data.year]);
     return rows[0];
   },
 

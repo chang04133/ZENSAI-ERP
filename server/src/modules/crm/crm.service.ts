@@ -111,16 +111,16 @@ class CrmService extends BaseService<Customer> {
   async deleteFeedback(feedbackId: number) { return this.repo.deleteFeedback(feedbackId); }
   async getAvgRating(customerId: number) { return this.repo.getAvgRating(customerId); }
 
-  /* ─── Tier Benefits ─── */
-  async getTierBenefits(tierName?: string, includeInactive = false) { return this.repo.getTierBenefits(tierName, includeInactive); }
-  async upsertTierBenefit(data: any) { return this.repo.upsertTierBenefit(data); }
-  async deleteTierBenefit(benefitId: number) { return this.repo.deleteTierBenefit(benefitId); }
-
   /* ─── Flags ─── */
   async listFlags() { return this.repo.listFlags(); }
   async getCustomerFlags(customerId: number) { return this.repo.getCustomerFlags(customerId); }
   async addCustomerFlag(customerId: number, flagId: number, flaggedBy?: string) { return this.repo.addCustomerFlag(customerId, flagId, flaggedBy); }
   async removeCustomerFlag(customerId: number, flagId: number) { return this.repo.removeCustomerFlag(customerId, flagId); }
+
+  /* ─── Birthday / VIP Alerts / Daily Summary ─── */
+  async getBirthdayCustomers(month: number, partnerCode?: string) { return this.repo.getBirthdayCustomers(month, partnerCode); }
+  async getVipAlerts(days: number, partnerCode?: string) { return this.repo.getVipAlerts(days, partnerCode); }
+  async getDailySummary(date: string, partnerCode?: string) { return this.repo.getDailySummary(date, partnerCode); }
 
   /* ─── Export ─── */
   async listForExport(partnerCode?: string) { return this.repo.listForExport(partnerCode); }

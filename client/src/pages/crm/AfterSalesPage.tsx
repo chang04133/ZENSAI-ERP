@@ -4,13 +4,12 @@ import {
   DatePicker, message, Popconfirm, Card, Row, Col,
 } from 'antd';
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ToolOutlined, RollbackOutlined,
+  PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined, ToolOutlined, SendOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import dayjs from 'dayjs';
 import { crmApi, afterSalesApi } from '../../modules/crm/crm.api';
 import { productApi } from '../../modules/product/product.api';
-import { salesApi } from '../../modules/sales/sales.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 
@@ -23,27 +22,16 @@ const STATUS_COLORS: Record<string, string> = {
 
 const TYPE_COLORS: Record<string, string> = {
   '수선': 'cyan',
-  '교환': 'purple',
   '클레임': 'red',
   '기타': 'default',
 };
 
-const SERVICE_TYPES = ['수선', '교환', '클레임', '기타'];
+const SERVICE_TYPES = ['수선', '클레임', '기타'];
 const STATUS_OPTIONS = ['접수', '진행', '완료', '취소'];
-const RETURN_REASON_OPTIONS = [
-  { label: '사이즈 불일치', value: 'SIZE' },
-  { label: '색상 불일치', value: 'COLOR' },
-  { label: '불량/하자', value: 'DEFECT' },
-  { label: '고객 변심', value: 'CHANGE_MIND' },
-  { label: '파손/오염', value: 'DAMAGE' },
-  { label: '오배송', value: 'WRONG_ITEM' },
-  { label: '기타', value: 'OTHER' },
-];
 
 export default function AfterSalesPage() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
-  const isHqOrAbove = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
 
   /* ── 목록 데이터 ── */
   const [data, setData] = useState<any[]>([]);
@@ -74,13 +62,6 @@ export default function AfterSalesPage() {
   const [variantOptions, setVariantOptions] = useState<any[]>([]);
   const [variantSearching, setVariantSearching] = useState(false);
   const variantTimerRef = useRef<ReturnType<typeof setTimeout>>();
-
-  /* ── 반품처리 모달 ── */
-  const [returnOpen, setReturnOpen] = useState(false);
-  const [returnTarget, setReturnTarget] = useState<any>(null);
-  const [returnQty, setReturnQty] = useState(1);
-  const [returnReason, setReturnReason] = useState('');
-  const [returnSubmitting, setReturnSubmitting] = useState(false);
 
   const handleCustomerSearch = (keyword: string) => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -128,39 +109,14 @@ export default function AfterSalesPage() {
     }
   };
 
-  /* ── 반품처리 핸들러 ── */
-  const openReturn = (record: any) => {
-    setReturnTarget(record);
-    setReturnQty(1);
-    setReturnReason('');
-    setReturnOpen(true);
-  };
-
-  const handleReturnSubmit = async () => {
-    if (!returnTarget?.variant_id) return;
-    if (!returnReason) { message.warning('반품 사유를 선택하세요.'); return; }
-    setReturnSubmitting(true);
+  /* ── 본사에 반품요청 핸들러 (수선/클레임 → 물류이동만, 매출 영향 없음) ── */
+  const handleReturnToHq = async (record: any) => {
     try {
-      const result = await salesApi.createDirectReturn({
-        variant_id: returnTarget.variant_id,
-        qty: returnQty,
-        unit_price: returnTarget.unit_price || 0,
-        return_reason: returnReason,
-        partner_code: returnTarget.partner_code,
-      });
-      // 매장매니저: '진행' (본사 확인 필요), 본사/admin: '완료'
-      const nextStatus = isHqOrAbove ? '완료' : '진행';
-      await afterSalesApi.update(returnTarget.service_id, {
-        return_sale_id: result?.sale_id,
-        status: nextStatus,
-        ...(isHqOrAbove ? { completed_date: dayjs().format('YYYY-MM-DD') } : {}),
-      });
-      message.success(isHqOrAbove ? '반품처리가 완료되었습니다.' : '반품처리가 접수되었습니다. 본사 확인 후 완료됩니다.');
-      setReturnOpen(false);
+      await afterSalesApi.returnToHq(record.service_id);
+      message.success('본사에 반품 요청이 등록되었습니다.');
       load();
       loadStats();
     } catch (e: any) { message.error(e.message); }
-    finally { setReturnSubmitting(false); }
   };
 
   /* ══════════ 데이터 로드 ══════════ */
@@ -297,12 +253,8 @@ export default function AfterSalesPage() {
       render: (v: string) => v || '-',
     },
     {
-      title: '반품', dataIndex: 'return_sale_id', key: 'return_info', width: 100,
-      render: (v: number, r: any) => v
-        ? <Tag color="purple" style={{ fontSize: 11 }}>반품완료</Tag>
-        : r.status === '진행' && r.variant_id
-          ? <Tag color="orange" style={{ fontSize: 11 }}>반품진행</Tag>
-          : null,
+      title: '본사반품', dataIndex: 'shipment_request_id', key: 'hq_return', width: 90,
+      render: (v: number) => v ? <Tag color="volcano" style={{ fontSize: 11 }}>반품요청</Tag> : null,
     },
     {
       title: '완료일', dataIndex: 'completed_date', key: 'completed_date', width: 100,
@@ -310,24 +262,27 @@ export default function AfterSalesPage() {
     },
     {
       title: '', key: 'actions', width: 130, align: 'center' as const,
-      render: (_: any, r: any) => (
-        <Space size={4}>
-          {r.variant_id && !r.return_sale_id && r.status !== '취소' && (
-            <Popconfirm title="반품처리 하시겠습니까?" onConfirm={() => openReturn(r)}
-              okText="진행" cancelText="취소">
-              <Button size="small" type="primary" ghost icon={<RollbackOutlined />}
-                onClick={(e) => e.stopPropagation()}>반품</Button>
+      render: (_: any, r: any) => {
+        const canReturnToHq = r.variant_id && !r.shipment_request_id && r.status !== '취소' && r.status !== '완료';
+        return (
+          <Space size={4}>
+            {canReturnToHq && (
+              <Popconfirm title="본사에 반품 요청하시겠습니까?" onConfirm={() => handleReturnToHq(r)}
+                okText="요청" cancelText="취소">
+                <Button size="small" style={{ color: '#fa8c16', borderColor: '#fa8c16' }} icon={<SendOutlined />}
+                  onClick={(e) => e.stopPropagation()}>본사반품</Button>
+              </Popconfirm>
+            )}
+            <Button size="small" icon={<EditOutlined />}
+              onClick={(e) => { e.stopPropagation(); openForm(r); }} />
+            <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleDelete(r.service_id)}
+              okText="삭제" cancelText="취소">
+              <Button size="small" danger icon={<DeleteOutlined />}
+                onClick={(e) => e.stopPropagation()} />
             </Popconfirm>
-          )}
-          <Button size="small" icon={<EditOutlined />}
-            onClick={(e) => { e.stopPropagation(); openForm(r); }} />
-          <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleDelete(r.service_id)}
-            okText="삭제" cancelText="취소">
-            <Button size="small" danger icon={<DeleteOutlined />}
-              onClick={(e) => e.stopPropagation()} />
-          </Popconfirm>
-        </Space>
-      ),
+          </Space>
+        );
+      },
     },
   ];
 
@@ -335,8 +290,6 @@ export default function AfterSalesPage() {
   const openCount = stats?.openCount ?? 0;
   const byType: Record<string, number> = {};
   (stats?.byType || []).forEach((r: any) => { byType[r.service_type] = r.count; });
-  const byStatus: Record<string, number> = {};
-  (stats?.byStatus || []).forEach((r: any) => { byStatus[r.status] = r.count; });
 
   return (
     <div>
@@ -362,18 +315,18 @@ export default function AfterSalesPage() {
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card size="small" style={{ borderRadius: 10 }}>
-            <div style={{ fontSize: 12, color: '#888' }}>교환</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#722ed1' }}>
-              {byType['교환'] || 0}
+            <div style={{ fontSize: 12, color: '#888' }}>클레임</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#ff4d4f' }}>
+              {byType['클레임'] || 0}
               <span style={{ fontSize: 14, fontWeight: 400, color: '#999', marginLeft: 4 }}>건</span>
             </div>
           </Card>
         </Col>
         <Col xs={24} sm={12} lg={6}>
           <Card size="small" style={{ borderRadius: 10 }}>
-            <div style={{ fontSize: 12, color: '#888' }}>클레임</div>
-            <div style={{ fontSize: 28, fontWeight: 700, color: '#ff4d4f' }}>
-              {byType['클레임'] || 0}
+            <div style={{ fontSize: 12, color: '#888' }}>기타</div>
+            <div style={{ fontSize: 28, fontWeight: 700, color: '#8c8c8c' }}>
+              {byType['기타'] || 0}
               <span style={{ fontSize: 14, fontWeight: 400, color: '#999', marginLeft: 4 }}>건</span>
             </div>
           </Card>
@@ -498,17 +451,17 @@ export default function AfterSalesPage() {
           <Row gutter={16}>
             <Col span={8}>
               <Form.Item name="product_name" label="상품명">
-                <Input placeholder="상품명" />
+                <Input placeholder="상품 검색으로 입력" readOnly />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item name="variant_info" label="옵션">
-                <Input placeholder="색상/사이즈" />
+                <Input placeholder="상품 검색으로 입력" readOnly />
               </Form.Item>
             </Col>
             <Col span={8}>
               <Form.Item name="unit_price" label="단가">
-                <InputNumber min={0} style={{ width: '100%' }} placeholder="0"
+                <InputNumber min={0} style={{ width: '100%' }} placeholder="0" disabled
                   formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
               </Form.Item>
             </Col>
@@ -540,49 +493,6 @@ export default function AfterSalesPage() {
             </Col>
           </Row>
         </Form>
-      </Modal>
-
-      {/* 반품처리 모달 */}
-      <Modal
-        title="A/S 반품처리"
-        open={returnOpen}
-        onCancel={() => setReturnOpen(false)}
-        onOk={handleReturnSubmit}
-        confirmLoading={returnSubmitting}
-        okText="반품처리"
-        cancelText="취소"
-        width={400}
-        okButtonProps={{ disabled: !returnReason }}
-      >
-        {returnTarget && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
-            <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 6 }}>
-              <div style={{ fontWeight: 600 }}>{returnTarget.product_name}</div>
-              <div style={{ fontSize: 12, color: '#666' }}>{returnTarget.variant_info}</div>
-              <div style={{ fontSize: 12, color: '#666' }}>
-                단가: {Number(returnTarget.unit_price || 0).toLocaleString()}원
-              </div>
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 수량</div>
-              <InputNumber min={1} value={returnQty} onChange={(v) => setReturnQty(v || 1)}
-                style={{ width: '100%' }} />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>반품 사유 <span style={{ color: '#ff4d4f' }}>*</span></div>
-              <Select
-                placeholder="반품 사유 선택"
-                options={RETURN_REASON_OPTIONS}
-                value={returnReason || undefined}
-                onChange={setReturnReason}
-                style={{ width: '100%' }}
-              />
-            </div>
-            <div style={{ textAlign: 'right', fontSize: 16, fontWeight: 600, color: '#cf1322' }}>
-              반품 금액: -{(returnQty * Number(returnTarget.unit_price || 0)).toLocaleString()}원
-            </div>
-          </div>
-        )}
       </Modal>
     </div>
   );

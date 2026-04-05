@@ -3,7 +3,7 @@ import { Card, Col, Row, Table, Tag, Progress, Button, DatePicker, Space, messag
 import {
   DollarOutlined, RiseOutlined, ShoppingCartOutlined,
   CalendarOutlined, TagsOutlined, ShopOutlined, TrophyOutlined,
-  CrownOutlined, SearchOutlined,
+  CrownOutlined, SearchOutlined, SkinOutlined,
 } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import PageHeader from '../../components/PageHeader';
@@ -188,6 +188,10 @@ export default function SalesDashboardPage() {
   const [compLoading, setCompLoading] = useState(false);
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().startOf('month'), dayjs()]);
 
+  // ── 오늘 매출 ──
+  const [todayData, setTodayData] = useState<any>(null);
+  const [todayLoading, setTodayLoading] = useState(true);
+
   // ── Dashboard charts (배경) ──
   const [stats, setStats] = useState<any>(null);
   const [chartLoading, setChartLoading] = useState(true);
@@ -236,8 +240,19 @@ export default function SalesDashboardPage() {
     } catch { /* ignore */ }
   };
 
+  const loadToday = async () => {
+    setTodayLoading(true);
+    try {
+      const today = dayjs().format('YYYY-MM-DD');
+      const d = await salesApi.styleByRange(today, today);
+      setTodayData(d);
+    } catch { /* ignore */ }
+    finally { setTodayLoading(false); }
+  };
+
   useEffect(() => {
     loadComprehensive(range[0], range[1]);
+    loadToday();
     loadStats();
     loadYearlyOverview();
     if (!isStore) loadStoreComparison();
@@ -393,6 +408,82 @@ export default function SalesDashboardPage() {
             icon={<ShoppingCartOutlined />} bg="linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%)" color="#fff" />
         </Col>
       </Row>
+
+      {/* ── 오늘 매출 ── */}
+      <Card
+        title={<span><CalendarOutlined style={{ marginRight: 8 }} />오늘 매출 <span style={{ fontSize: 12, color: '#888', fontWeight: 400 }}>{dayjs().format('YYYY.MM.DD (ddd)')}</span></span>}
+        size="small" style={{ borderRadius: 10, marginTop: 16 }} loading={todayLoading}
+      >
+        {(() => {
+          const t = todayData?.totals || {};
+          const todayProducts = todayData?.topProducts || [];
+          const todayAmt = Number(t.total_amount || 0);
+          const todayQty = Number(t.total_qty || 0);
+          const todayCnt = Number(t.sale_count || 0);
+          const todayVariants = Number(t.variant_count || 0);
+
+          if (!todayAmt && !todayQty && todayProducts.length === 0) {
+            return <div style={{ textAlign: 'center', padding: 24, color: '#aaa' }}>오늘 판매 내역이 없습니다.</div>;
+          }
+
+          return (
+            <>
+              <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                {[
+                  { label: '매출액', value: fmtWon(todayAmt), icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
+                  { label: '판매 수량', value: `${todayQty.toLocaleString()}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
+                  { label: '판매 건수', value: `${todayCnt}건`, icon: <TagsOutlined />, color: '#fa8c16', bg: '#fff7e6' },
+                  { label: '판매 상품', value: `${todayVariants}종`, icon: <SkinOutlined />, color: '#722ed1', bg: '#f9f0ff' },
+                ].map((item) => (
+                  <Col xs={12} sm={6} key={item.label}>
+                    <div style={{ background: item.bg, borderRadius: 8, padding: '10px 14px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{ fontSize: 20, color: item.color }}>{item.icon}</div>
+                        <div>
+                          <div style={{ fontSize: 11, color: '#888' }}>{item.label}</div>
+                          <div style={{ fontSize: 17, fontWeight: 700, color: item.color }}>{item.value}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </Col>
+                ))}
+              </Row>
+              {todayProducts.length > 0 && (
+                <Table
+                  columns={[
+                    { title: '#', key: 'rank', width: 36,
+                      render: (_: any, __: any, i: number) => (
+                        <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600 }}>{i + 1}</span>
+                      ) },
+                    { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 120 },
+                    { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+                    { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
+                      render: (v: string) => <Tag color={CAT_COLORS[v] || 'default'}>{v}</Tag> },
+                    { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, align: 'right' as const,
+                      render: (v: number) => <strong>{Number(v).toLocaleString()}</strong> },
+                    { title: '매출액', dataIndex: 'total_amount', key: 'amt', width: 120, align: 'right' as const,
+                      render: (v: number) => <strong>{fmtWon(Number(v))}</strong> },
+                  ]}
+                  dataSource={todayProducts}
+                  rowKey="product_code"
+                  pagination={false} size="small" scroll={{ x: 600 }}
+                  summary={(rows) => {
+                    const sumQty = rows.reduce((s, r) => s + Number(r.total_qty), 0);
+                    const sumAmt = rows.reduce((s, r) => s + Number(r.total_amount), 0);
+                    return (
+                      <Table.Summary.Row>
+                        <Table.Summary.Cell index={0} colSpan={4} align="right"><strong>합계</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} align="right"><strong>{sumQty.toLocaleString()}</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={5} align="right"><strong>{fmtWon(sumAmt)}</strong></Table.Summary.Cell>
+                      </Table.Summary.Row>
+                    );
+                  }}
+                />
+              )}
+            </>
+          );
+        })()}
+      </Card>
 
       {/* ── 서브 통계 ── */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>

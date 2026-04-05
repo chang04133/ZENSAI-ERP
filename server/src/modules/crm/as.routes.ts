@@ -59,6 +59,8 @@ router.post('/:id/return-to-hq', requireRole(...roles), asyncHandler(async (req:
     [{ variant_id: record.variant_id, request_qty: 1 }],
   );
 
+  if (!shipment) { res.status(500).json({ success: false, error: '반품 요청 생성에 실패했습니다.' }); return; }
+
   // A/S 레코드에 연결 + 상태 '진행'
   await asRepository.update(serviceId, {
     shipment_request_id: shipment.request_id,

@@ -233,7 +233,17 @@ class ProductionService extends BaseService<ProductionPlan> {
       const hqResult = await client.query(
         `SELECT partner_code FROM warehouses WHERE is_default = TRUE AND is_active = TRUE LIMIT 1`,
       );
-      const inboundPartner = hqResult.rows[0]?.partner_code || 'HQ';
+      let inboundPartner = hqResult.rows[0]?.partner_code;
+      if (!inboundPartner) {
+        // 기본 창고가 없으면 본사 거래처에서 조회
+        const hqFallback = await client.query(
+          `SELECT partner_code FROM partners WHERE partner_type = '본사' AND is_active = TRUE ORDER BY partner_code LIMIT 1`,
+        );
+        inboundPartner = hqFallback.rows[0]?.partner_code;
+        if (!inboundPartner) {
+          throw new Error('본사 창고가 설정되지 않았습니다. 시스템 설정에서 본사 창고를 확인해주세요.');
+        }
+      }
 
       // expected_qty: produced_qty 기준, 미입력 시 plan_qty 대체
       const expectedResult = await client.query(

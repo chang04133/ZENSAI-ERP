@@ -89,8 +89,8 @@ router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) =
   res.json({ success: true, data: { stats, variants: safeVariants } });
 }));
 
-// 바코드 등록/수정 (매장 매니저도 가능) - custom_barcode 저장
-router.put('/variants/:id/barcode', authMiddleware, asyncHandler(async (req, res) => {
+// 바코드 등록/수정 (본사 이상 권한) - custom_barcode 저장
+router.put('/variants/:id/barcode', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const variantId = parseInt(req.params.id as string, 10);
   const { barcode } = req.body;

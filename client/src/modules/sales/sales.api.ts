@@ -109,7 +109,7 @@ export const salesApi = {
     return parse(await apiFetch(`/api/sales/${id}/return`, { method: 'POST', body: JSON.stringify(body) }));
   },
   // 직접 반품 등록 (매장 고객 반품용)
-  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string; return_reason: string; partner_code?: string }) => {
+  createDirectReturn: async (body: { variant_id: number; qty: number; unit_price: number; reason?: string; return_reason: string; partner_code?: string; skip_shipment?: boolean }) => {
     return parse(await apiFetch('/api/sales/direct-return', { method: 'POST', body: JSON.stringify(body) }));
   },
   // 매출반품 목록 (반품관리 페이지용)

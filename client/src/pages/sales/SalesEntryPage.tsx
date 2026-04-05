@@ -1,8 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Table, Button, Modal, Select, InputNumber, Space, DatePicker, Tag, message, Divider, Upload, Alert, Segmented, Input, Switch } from 'antd';
 import type { InputRef } from 'antd';
-import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined, CameraOutlined, SwapOutlined } from '@ant-design/icons';
-import BarcodeScanner from '../../components/BarcodeScanner';
+import { PlusOutlined, DeleteOutlined, ShoppingCartOutlined, UploadOutlined, DownloadOutlined, BarcodeOutlined, MinusOutlined, EditOutlined, RollbackOutlined, ExclamationCircleOutlined, SwapOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { salesApi } from '../../modules/sales/sales.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -78,23 +77,16 @@ export default function SalesEntryPage() {
   const handleToggleAllTaxFree = (checked: boolean) => {
     setItems(prev => prev.map(i => {
       if (i.tax_free === checked) return i;
-      const updated = { ...i, tax_free: checked };
-      if (checked) {
-        // 과세 → 면세: 부가세(10%) 제외
-        updated.unit_price = Math.round(i.unit_price / 1.1);
-      } else {
-        // 면세 → 과세: 원래 가격 복원
-        updated.unit_price = getPrice(i.sale_type, i);
-      }
-      return updated;
+      return { ...i, tax_free: checked };
     }));
   };
 
   // 바코드 스캔 모드
-  const [entryMode, setEntryMode] = useState<'manual' | 'barcode' | 'camera'>('manual');
+  const [entryMode, setEntryMode] = useState<'manual' | 'barcode'>('manual');
   const [barcodeInput, setBarcodeInput] = useState('');
   const [scanning, setScanning] = useState(false);
   const barcodeInputRef = useRef<InputRef>(null);
+  const customerDebounceRef = useRef<ReturnType<typeof setTimeout>>();
 
   // 수정 모달 상태
   const [editModalOpen, setEditModalOpen] = useState(false);
@@ -165,39 +157,17 @@ export default function SalesEntryPage() {
     }
   }, []);
 
-  const handleCustomerSearch = useCallback(async (value: string) => {
-    if (value.length >= 2) {
+  /** 고객 검색 (전화번호 또는 이름, 디바운스) */
+  const handleCustomerSearch = useCallback((value: string) => {
+    if (customerDebounceRef.current) clearTimeout(customerDebounceRef.current);
+    setCustomerPhone(value);
+    if (!value || value.trim().length < 2) { setCustomerSearch([]); return; }
+    customerDebounceRef.current = setTimeout(async () => {
       try {
-        const r = await crmApi.list({ search: value, limit: '20' });
+        const r = await crmApi.list({ search: value.trim(), limit: '20' });
         setCustomerSearch(r.data || []);
       } catch { setCustomerSearch([]); }
-    }
-  }, []);
-
-  /** 전화번호로 고객 자동 조회 */
-  const handlePhoneLookup = useCallback(async (phone: string) => {
-    const cleaned = phone.replace(/[^0-9]/g, '');
-    setCustomerPhone(phone);
-    if (cleaned.length < 10) {
-      setCustomerInfo(null);
-      setCustomerId(undefined);
-      return;
-    }
-    setCustomerSearching(true);
-    try {
-      const r = await crmApi.list({ search: cleaned, limit: '5' });
-      const customers = r.data || [];
-      const match = customers.find((c: any) => c.phone?.replace(/[^0-9]/g, '') === cleaned);
-      if (match) {
-        setCustomerInfo(match);
-        setCustomerId(match.customer_id);
-        message.success(`고객 연결: ${match.customer_name} (${match.customer_tier || '일반'})`);
-      } else {
-        setCustomerInfo(null);
-        setCustomerId(undefined);
-      }
-    } catch { setCustomerInfo(null); setCustomerId(undefined); }
-    finally { setCustomerSearching(false); }
+    }, 300);
   }, []);
 
   /** 신규등록 모달 열기 */
@@ -234,11 +204,12 @@ export default function SalesEntryPage() {
   const handleVariantSearch = useCallback(async (key: number, value: string) => {
     if (value.length >= 2) {
       try {
-        const results = await productApi.searchVariants(value);
+        const pc = isStore ? user?.partnerCode : partnerCode;
+        const results = await productApi.searchVariants(value, pc || undefined);
         setVariantSearchMap(prev => ({ ...prev, [key]: results }));
       } catch (e: any) { message.error('품목 검색 실패: ' + e.message); }
     }
-  }, []);
+  }, [isStore, user?.partnerCode, partnerCode]);
 
   const updateItem = (key: number, field: string, value: any) => {
     setItems(prev => prev.map(item => {
@@ -252,28 +223,14 @@ export default function SalesEntryPage() {
           updated.base_price = v.base_price || v.price || 0;
           updated.discount_price = v.discount_price;
           updated.event_price = v.event_price;
+          updated.current_stock = v.current_stock;
           updated.variantLabel = `${v.sku} - ${v.product_name} (${v.color}/${v.size})`;
-          // 가격 적용 (택스프리면 부가세 제외)
-          let price = getPrice(updated.sale_type, v);
-          if (updated.tax_free) price = Math.round(price / 1.1);
-          updated.unit_price = price;
+          updated.unit_price = getPrice(updated.sale_type, v);
         }
       }
       // 매출유형 변경 시 가격 재적용
       if (field === 'sale_type') {
-        let price = getPrice(value, updated);
-        if (updated.tax_free) price = Math.round(price / 1.1);
-        updated.unit_price = price;
-      }
-      // 택스프리 토글 시 부가세(10%) 조정
-      if (field === 'tax_free') {
-        if (value) {
-          // 과세 → 면세: 부가세(10%) 제외
-          updated.unit_price = Math.round(item.unit_price / 1.1);
-        } else {
-          // 면세 → 과세: 원래 가격 복원
-          updated.unit_price = getPrice(item.sale_type, item);
-        }
+        updated.unit_price = getPrice(value, updated);
       }
       return updated;
     }));
@@ -301,14 +258,13 @@ export default function SalesEntryPage() {
         message.success(`${product.sku} 수량 +1 (총 ${existing.qty + 1}개)`);
       } else {
         const basePrice = product.base_price || 0;
-        const price = allTaxFree ? Math.round(basePrice / 1.1) : basePrice;
         const item: SaleItem = {
           key: ++itemKeyRef.current,
           variant_id: product.variant_id,
           variantLabel: `${product.sku} - ${product.product_name} (${product.color}/${product.size})`,
           sale_type: '정상',
           qty: 1,
-          unit_price: price,
+          unit_price: basePrice,
           base_price: product.base_price,
           discount_price: product.discount_price,
           event_price: product.event_price,
@@ -462,6 +418,7 @@ export default function SalesEntryPage() {
     setDirectReturnBarcode('');
     setDirectReturnSearchResults([]);
     setDirectReturnPartner(undefined);
+    setCustomerId(undefined); setCustomerInfo(null); setCustomerPhone(''); setCustomerSearch([]);
     setDirectReturnOpen(true);
     setTimeout(() => directReturnBarcodeRef.current?.focus(), 100);
   };
@@ -489,7 +446,8 @@ export default function SalesEntryPage() {
   const handleDirectReturnSearch = async (value: string) => {
     if (value.length >= 2) {
       try {
-        const results = await productApi.searchVariants(value);
+        const pc = isStore ? user?.partnerCode : directReturnPartner;
+        const results = await productApi.searchVariants(value, pc || undefined);
         setDirectReturnSearchResults(results);
       } catch (e: any) { message.error('검색 실패: ' + e.message); }
     }
@@ -511,6 +469,7 @@ export default function SalesEntryPage() {
         reason: '',
         return_reason: directReturnReason,
         ...(!isStore && directReturnPartner ? { partner_code: directReturnPartner } : {}),
+        skip_shipment: true,
       });
       message.success(`${directReturnQty}개 반품이 등록되었습니다.`);
       setDirectReturnOpen(false);
@@ -533,7 +492,8 @@ export default function SalesEntryPage() {
   const handleExchangeSearch = async (value: string) => {
     if (value.length >= 2) {
       try {
-        const results = await productApi.searchVariants(value);
+        const pc = isStore ? user?.partnerCode : partnerCode;
+        const results = await productApi.searchVariants(value, pc || undefined);
         setExchangeSearchResults(results);
       } catch (e: any) { message.error('검색 실패: ' + e.message); }
     }
@@ -719,18 +679,25 @@ export default function SalesEntryPage() {
     {
       title: '상품', dataIndex: 'variant_id', key: 'variant_id', width: 300,
       render: (_: any, record: SaleItem) => (
-        <Select
-          showSearch placeholder="SKU/상품명 검색 (2자 이상)" filterOption={false} style={{ width: '100%' }}
-          value={record.variant_id} onSearch={(v) => handleVariantSearch(record.key, v)}
-          onChange={(v) => updateItem(record.key, 'variant_id', v)}
-          notFoundContent="2자 이상 입력"
-        >
-          {(variantSearchMap[record.key] || []).map((v: any) => (
-            <Select.Option key={v.variant_id} value={v.variant_id}>
-              {v.sku} - {v.product_name} ({v.color}/{v.size})
-            </Select.Option>
-          ))}
-        </Select>
+        <div>
+          <Select
+            showSearch placeholder="SKU/상품명 검색 (2자 이상)" filterOption={false} style={{ width: '100%' }}
+            value={record.variant_id} onSearch={(v) => handleVariantSearch(record.key, v)}
+            onChange={(v) => updateItem(record.key, 'variant_id', v)}
+            notFoundContent="2자 이상 입력"
+          >
+            {(variantSearchMap[record.key] || []).map((v: any) => (
+              <Select.Option key={v.variant_id} value={v.variant_id}>
+                {v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}
+              </Select.Option>
+            ))}
+          </Select>
+          {record.variant_id && record.current_stock != null && (
+            <span style={{ fontSize: 12, color: record.current_stock < 5 ? '#cf1322' : '#888', marginTop: 2, display: 'inline-block' }}>
+              현재 재고: {record.current_stock}개{record.current_stock < 5 ? ' (부족)' : ''}
+            </span>
+          )}
+        </div>
       ),
     },
     {
@@ -750,9 +717,8 @@ export default function SalesEntryPage() {
     {
       title: '단가', dataIndex: 'unit_price', key: 'unit_price', width: 130,
       render: (_: any, record: SaleItem) => (
-        <InputNumber min={0} value={record.unit_price} style={{ width: 120 }}
-          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-          onChange={(v) => updateItem(record.key, 'unit_price', v || 0)} />
+        <InputNumber min={0} value={record.unit_price} style={{ width: 120 }} disabled
+          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
       ),
     },
     {
@@ -807,27 +773,52 @@ export default function SalesEntryPage() {
                 value={partnerCode} onChange={setPartnerCode} style={{ width: 250 }} />
             </div>
           )}
-          <div style={{ minWidth: 280 }}>
-            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 전화번호</div>
-            <Space.Compact style={{ width: '100%' }}>
-              <Input
-                placeholder="010-0000-0000"
-                value={customerPhone}
-                onChange={(e) => handlePhoneLookup(e.target.value)}
-                style={{ width: 180 }}
-                allowClear
-                onClear={() => { setCustomerInfo(null); setCustomerId(undefined); setCustomerPhone(''); }}
-              />
-              {customerInfo ? (
-                <Tag color="green" style={{ lineHeight: '30px', margin: 0, borderRadius: '0 6px 6px 0', padding: '0 8px' }}>
-                  {customerInfo.customer_name} ({customerInfo.customer_tier || '일반'})
-                  {customerInfo.available_points > 0 && ` | ${customerInfo.available_points}P`}
-                </Tag>
-              ) : customerPhone.replace(/[^0-9]/g, '').length >= 10 && !customerSearching ? (
-                <Button type="primary" size="small" onClick={handleOpenQuickRegister}
-                  style={{ borderRadius: '0 6px 6px 0', height: 32 }}>신규등록</Button>
-              ) : null}
-            </Space.Compact>
+          <div style={{ minWidth: 300 }}>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 검색</div>
+            {customerInfo ? (
+              <Tag closable onClose={() => { setCustomerInfo(null); setCustomerId(undefined); setCustomerPhone(''); setCustomerSearch([]); }}
+                color="green" style={{ fontSize: 13, padding: '4px 10px', lineHeight: '24px' }}>
+                {customerInfo.customer_name} ({customerInfo.phone}) | {customerInfo.customer_tier || '일반'}
+              </Tag>
+            ) : (
+              <Select
+                showSearch
+                placeholder="전화번호 또는 이름 (2자 이상)"
+                filterOption={false}
+                onSearch={handleCustomerSearch}
+                onChange={(v: number) => {
+                  const c = customerSearch.find((c: any) => c.customer_id === v);
+                  if (c) {
+                    setCustomerInfo(c); setCustomerId(c.customer_id); setCustomerPhone(c.phone || '');
+                    setCustomerSearch([]);
+                    message.success(`고객 연결: ${c.customer_name} (${c.customer_tier || '일반'})`);
+                  }
+                }}
+                value={undefined as any}
+                style={{ width: 300 }}
+                notFoundContent={
+                  customerPhone.trim().length >= 2 ? (
+                    <div style={{ padding: '4px 0' }}>
+                      <div style={{ color: '#999', marginBottom: 4 }}>검색 결과 없음</div>
+                      {customerPhone.replace(/[^0-9]/g, '').length >= 10 && (
+                        <Button type="link" size="small" style={{ padding: 0 }} onClick={handleOpenQuickRegister}>
+                          신규 고객 등록
+                        </Button>
+                      )}
+                    </div>
+                  ) : '2자 이상 입력'
+                }
+              >
+                {customerSearch.map((c: any) => (
+                  <Select.Option key={c.customer_id} value={c.customer_id}>
+                    <span style={{ fontWeight: 500 }}>{c.customer_name}</span>
+                    <span style={{ color: '#888', marginLeft: 6 }}>{c.phone}</span>
+                    <span style={{ color: '#1677ff', marginLeft: 6, fontSize: 12 }}>{c.customer_tier || '일반'}</span>
+                    {Number(c.total_amount) > 0 && <span style={{ color: '#999', marginLeft: 6, fontSize: 11 }}>{Number(c.total_amount).toLocaleString()}원</span>}
+                  </Select.Option>
+                ))}
+              </Select>
+            )}
           </div>
           <div>
             <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>Tax Free (전체)</div>
@@ -843,13 +834,12 @@ export default function SalesEntryPage() {
           <Segmented
             value={entryMode}
             onChange={(v) => {
-              setEntryMode(v as 'manual' | 'barcode' | 'camera');
+              setEntryMode(v as 'manual' | 'barcode');
               if (v === 'barcode') setTimeout(() => barcodeInputRef.current?.focus(), 100);
             }}
             options={[
               { label: '수동 입력', value: 'manual' },
               { label: '바코드 스캔', value: 'barcode', icon: <BarcodeOutlined /> },
-              { label: '카메라 스캔', value: 'camera', icon: <CameraOutlined /> },
             ]}
           />
         </div>
@@ -870,17 +860,9 @@ export default function SalesEntryPage() {
           />
         )}
 
-        {entryMode === 'camera' && (
-          <BarcodeScanner
-            active={entryMode === 'camera' && modalOpen}
-            onScan={(code) => handleBarcodeScan(code)}
-            height={220}
-          />
-        )}
-
         <Table
-          columns={entryMode === 'barcode' || entryMode === 'camera' ? barcodeItemColumns : itemColumns}
-          dataSource={items.filter(i => entryMode === 'barcode' || entryMode === 'camera' ? i.variant_id : true)}
+          columns={entryMode === 'barcode' ? barcodeItemColumns : itemColumns}
+          dataSource={items.filter(i => entryMode === 'barcode' ? i.variant_id : true)}
           rowKey="key" size="small"
           pagination={false} scroll={{ y: 300 }}
         />
@@ -926,11 +908,10 @@ export default function SalesEntryPage() {
                 <InputNumber min={1} value={editQty} style={{ width: '100%' }} onChange={(v) => setEditQty(v || 1)} />
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가{isStoreManager && ' (변경불가)'}</div>
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>단가 (변경불가)</div>
                 <InputNumber min={0} value={editUnitPrice} style={{ width: '100%' }}
                   formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  onChange={(v) => setEditUnitPrice(v || 0)}
-                  disabled={isStoreManager} />
+                  disabled />
               </div>
             </div>
             <div>
@@ -1011,6 +992,42 @@ export default function SalesEntryPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Alert type="info" message="바코드 스캔 또는 상품 검색으로 반품할 상품을 선택하세요" showIcon style={{ marginBottom: 0 }} />
 
+          <div>
+            <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>고객 검색</div>
+            {customerInfo ? (
+              <Tag closable onClose={() => { setCustomerInfo(null); setCustomerId(undefined); setCustomerPhone(''); setCustomerSearch([]); }}
+                color="green" style={{ fontSize: 13, padding: '4px 10px', lineHeight: '24px' }}>
+                {customerInfo.customer_name} ({customerInfo.phone}) | {customerInfo.customer_tier || '일반'}
+              </Tag>
+            ) : (
+              <Select
+                showSearch
+                placeholder="전화번호 또는 이름 (2자 이상)"
+                filterOption={false}
+                onSearch={handleCustomerSearch}
+                onChange={(v: number) => {
+                  const c = customerSearch.find((c: any) => c.customer_id === v);
+                  if (c) {
+                    setCustomerInfo(c); setCustomerId(c.customer_id); setCustomerPhone(c.phone || '');
+                    setCustomerSearch([]);
+                    message.success(`고객 연결: ${c.customer_name} (${c.customer_tier || '일반'})`);
+                  }
+                }}
+                value={undefined as any}
+                style={{ width: '100%' }}
+                notFoundContent={customerPhone.trim().length >= 2 ? '검색 결과 없음' : '2자 이상 입력'}
+              >
+                {customerSearch.map((c: any) => (
+                  <Select.Option key={c.customer_id} value={c.customer_id}>
+                    <span style={{ fontWeight: 500 }}>{c.customer_name}</span>
+                    <span style={{ color: '#888', marginLeft: 6 }}>{c.phone}</span>
+                    <span style={{ color: '#1677ff', marginLeft: 6, fontSize: 12 }}>{c.customer_tier || '일반'}</span>
+                  </Select.Option>
+                ))}
+              </Select>
+            )}
+          </div>
+
           {!isStore && (
             <div>
               <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>거래처 *</div>
@@ -1055,7 +1072,7 @@ export default function SalesEntryPage() {
             >
               {directReturnSearchResults.map((v: any) => (
                 <Select.Option key={v.variant_id} value={v.variant_id}>
-                  {v.sku} - {v.product_name} ({v.color}/{v.size})
+                  {v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}
                 </Select.Option>
               ))}
             </Select>
@@ -1148,7 +1165,7 @@ export default function SalesEntryPage() {
               >
                 {exchangeSearchResults.map((v: any) => (
                   <Select.Option key={v.variant_id} value={v.variant_id}>
-                    {v.sku} - {v.product_name} ({v.color}/{v.size})
+                    {v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}
                   </Select.Option>
                 ))}
               </Select>

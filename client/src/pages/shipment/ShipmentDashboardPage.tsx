@@ -288,8 +288,12 @@ export default function ShipmentDashboardPage() {
     setRecvConfirmLoading(true);
     try {
       const items = Object.entries(recvQtys).map(([vid, qty]) => ({ variant_id: Number(vid), received_qty: qty }));
-      await shipmentApi.receive(recvDetail.request_id, items);
-      message.success('수령확인 완료');
+      const result = await shipmentApi.receive(recvDetail.request_id, items);
+      if ((result as any).status === 'DISCREPANCY') {
+        message.success('수령수량이 갱신되었습니다. 최종 확정은 관리자가 처리합니다.');
+      } else {
+        message.success('수령확인 완료');
+      }
       setRecvOpen(false);
       refreshAll();
     } catch (e: any) { message.error(e.message); }

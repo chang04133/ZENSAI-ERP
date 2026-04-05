@@ -54,6 +54,7 @@ export default function LossManagePage() {
   const [regForm] = Form.useForm();
   const [partners, setPartners] = useState<Array<{ partner_code: string; partner_name: string }>>([]);
   const [variantOptions, setVariantOptions] = useState<Array<{ value: string; label: string; data: any }>>([]);
+  const [selectedStock, setSelectedStock] = useState<number | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout>>();
 
   // Load data
@@ -94,12 +95,14 @@ export default function LossManagePage() {
     if (!value || value.length < 1) { setVariantOptions([]); return; }
     searchTimer.current = setTimeout(async () => {
       try {
-        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}&limit=20`);
+        const pc = regForm.getFieldValue('partner_code') || '';
+        const pcParam = pc ? `&partner_code=${encodeURIComponent(pc)}` : '';
+        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}&limit=20${pcParam}`);
         const d = await res.json();
         if (d.success && d.data) {
           setVariantOptions(d.data.map((v: any) => ({
             value: String(v.variant_id),
-            label: `${v.product_name} / ${v.color} / ${v.size} (${v.sku})`,
+            label: `${v.product_name} / ${v.color} / ${v.size} (${v.sku})${v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}`,
             data: v,
           })));
         }
@@ -213,6 +216,7 @@ export default function LossManagePage() {
         <div style={{ flex: 1 }} />
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           regForm.resetFields();
+          setSelectedStock(null);
           if (user?.partnerCode) regForm.setFieldValue('partner_code', user.partnerCode);
           if (typeFilter) regForm.setFieldValue('loss_type', typeFilter);
           setRegOpen(true);
@@ -269,9 +273,15 @@ export default function LossManagePage() {
               onSelect={(val: string, opt: any) => {
                 regForm.setFieldValue('variant_id', val);
                 regForm.setFieldValue('_variant_label', opt.label);
+                setSelectedStock(opt.data?.current_stock ?? null);
               }}
             />
           </Form.Item>
+          {selectedStock != null && (
+            <div style={{ marginTop: -12, marginBottom: 12, fontSize: 13, color: selectedStock === 0 ? '#ff4d4f' : '#52c41a', fontWeight: 600 }}>
+              현재 재고: {selectedStock}개{selectedStock === 0 ? ' (재고 없음)' : ''}
+            </div>
+          )}
           <Form.Item name="qty" label="수량" rules={[{ required: true, message: '수량 입력' }]}>
             <InputNumber min={1} style={{ width: '100%' }} />
           </Form.Item>

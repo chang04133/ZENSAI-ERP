@@ -28,6 +28,7 @@ interface VariantRow {
   size: string;
   qty: number;
   unit_price: number;
+  current_stock?: number;
 }
 
 /* ── 입고 등록 탭 ── */
@@ -111,11 +112,13 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     searchTimerRef.current = setTimeout(async () => {
       setSearchLoading(true);
       try {
-        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
+        const pc = form.getFieldValue('partner_code') || '';
+        const pcParam = pc ? `&partner_code=${encodeURIComponent(pc)}` : '';
+        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}${pcParam}`);
         const d = await res.json();
         if (d.success) {
           setVariantOptions((d.data || []).map((v: any) => ({
-            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
+            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}${v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}`,
             value: v.variant_id,
             raw: v,
           })));
@@ -143,6 +146,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
         size: row.size,
         qty: 1,
         unit_price: row.base_price || 0,
+        current_stock: row.current_stock ?? undefined,
       },
     ]);
   };
@@ -193,6 +197,14 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     }
   };
 
+  // 본사 거래처 자동 설정
+  const hqPartner = partners.find((p: any) => p.partner_type === '본사');
+  useEffect(() => {
+    if (hqPartner) {
+      form.setFieldsValue({ partner_code: hqPartner.partner_code });
+    }
+  }, [hqPartner, form]);
+
   if (!isHQ) {
     return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>입고 등록 권한이 없습니다.</div>;
   }
@@ -207,6 +219,12 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     { title: '컬러', dataIndex: 'color', width: 70 },
     { title: '사이즈', dataIndex: 'size', width: 65 },
     {
+      title: '현재고', dataIndex: 'current_stock', width: 70, align: 'right' as const,
+      render: (v: number | undefined) => v != null
+        ? <span style={{ color: v === 0 ? '#ff4d4f' : '#52c41a', fontWeight: 600 }}>{v}</span>
+        : <span style={{ color: '#ccc' }}>-</span>,
+    },
+    {
       title: '수량', dataIndex: 'qty', width: 90,
       render: (_: number, r: VariantRow) => (
         <InputNumber min={1} value={r.qty} size="small" style={{ width: 70 }}
@@ -216,10 +234,8 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
     {
       title: '원가(원)', dataIndex: 'unit_price', width: 110,
       render: (_: number, r: VariantRow) => (
-        <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
-          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-          parser={(v) => Number((v || '').replace(/,/g, ''))}
-          onChange={(v) => updateItem(r.key, 'unit_price', v || 0)} />
+        <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }} disabled
+          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')} />
       ),
     },
     {
@@ -242,10 +258,8 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
       <Card size="small" style={{ marginBottom: 16 }}>
         <Form form={form} layout="inline" style={{ flexWrap: 'wrap', gap: 8 }}
           initialValues={{ inbound_date: dayjs(), partner_code: undefined }}>
-          <Form.Item name="partner_code" label="거래처" rules={[{ required: true, message: '거래처 선택' }]}>
-            <Select placeholder="거래처 선택" style={{ width: 180 }} showSearch
-              optionFilterProp="label"
-              options={partners.map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
+          <Form.Item name="partner_code" label="입고 창고" rules={[{ required: true, message: '거래처 선택' }]}>
+            <Input readOnly value={hqPartner?.partner_name || '본사'} style={{ width: 180, background: '#f5f5f5' }} />
           </Form.Item>
           <Form.Item name="inbound_date" label="입고일">
             <DatePicker style={{ width: 140 }} />
@@ -457,11 +471,13 @@ function HistoryTab({ partners }: { partners: any[] }) {
     searchTimerRef2.current = setTimeout(async () => {
       setSearchLoadingV(true);
       try {
-        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}`);
+        const pc = confirmRecord?.partner_code || '';
+        const pcParam = pc ? `&partner_code=${encodeURIComponent(pc)}` : '';
+        const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(value)}${pcParam}`);
         const d = await res.json();
         if (d.success) {
           setVariantOptions((d.data || []).map((v: any) => ({
-            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}`,
+            label: `${v.product_code} · ${v.product_name} · ${v.color}/${v.size}${v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}`,
             value: v.variant_id,
             raw: v,
           })));
@@ -489,6 +505,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
         size: row.size,
         qty: 1,
         unit_price: row.base_price || 0,
+        current_stock: row.current_stock ?? undefined,
       },
     ]);
   };
@@ -563,6 +580,12 @@ function HistoryTab({ partners }: { partners: any[] }) {
     { title: '품번', dataIndex: 'product_code', width: 100 },
     { title: '상품명', dataIndex: 'product_name', width: 150, ellipsis: true },
     { title: '컬러/사이즈', width: 100, render: (_: unknown, r: VariantRow) => `${r.color}/${r.size}` },
+    {
+      title: '현재고', dataIndex: 'current_stock', width: 70, align: 'right' as const,
+      render: (v: number | undefined) => v != null
+        ? <span style={{ color: v === 0 ? '#ff4d4f' : '#52c41a', fontWeight: 600 }}>{v}</span>
+        : <span style={{ color: '#ccc' }}>-</span>,
+    },
     { title: '수량', width: 90,
       render: (_: unknown, r: VariantRow) => (
         <InputNumber min={1} value={r.qty} size="small" style={{ width: 70 }}

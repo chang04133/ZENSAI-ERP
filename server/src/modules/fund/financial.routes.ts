@@ -150,7 +150,7 @@ router.get('/balance-sheet', ...adminOnly, asyncHandler(async (_req: Request, re
   // 재고 — 위치별
   const invByLocSql = `
     SELECT
-      CASE WHEN pt.biz_type IN ('창고','본사') THEN '창고/본사' ELSE '매장' END AS location,
+      CASE WHEN pt.partner_type IN ('본사') THEN '창고/본사' ELSE '매장' END AS location,
       COALESCE(SUM(i.qty * COALESCE(p.cost_price, 0)), 0)::bigint AS cost_value,
       COALESCE(SUM(i.qty), 0)::int AS qty
     FROM inventory i

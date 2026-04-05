@@ -9,7 +9,6 @@ import campaignRoutes from './campaign.routes';
 import segmentRoutes from './segment.routes';
 import asRoutes from './as.routes';
 import autoCampaignRoutes from './auto-campaign.routes';
-import couponRoutes from './coupon.routes';
 const router = Router();
 const readRoles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
 const writeRoles = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'];
@@ -21,7 +20,6 @@ router.use('/campaigns', campaignRoutes);
 router.use('/segments', segmentRoutes);
 router.use('/after-sales', asRoutes);
 router.use('/auto-campaigns', autoCampaignRoutes);
-router.use('/coupons', couponRoutes);
 // 대시보드
 router.get('/dashboard', requireRole(...readRoles), crmController.dashboard);
 
@@ -52,12 +50,6 @@ router.post('/excel/import', requireRole(...writeRoles), crmController.importCus
 
 // Flags (전역)
 router.get('/flags', requireRole(...readRoles), crmController.listFlags);
-
-// Tier Benefits (전역)
-router.get('/tiers/benefits', requireRole(...readRoles), crmController.getTierBenefits);
-router.get('/tiers/:tier/benefits', requireRole(...readRoles), crmController.getTierBenefits);
-router.post('/tiers/benefits', requireRole(...writeRoles), crmController.upsertTierBenefit);
-router.delete('/tiers/benefits/:bid', requireRole(...writeRoles), crmController.deleteTierBenefit);
 
 // RFM / LTV
 router.get('/rfm/distribution', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
@@ -92,6 +84,30 @@ router.post('/tiers/recalculate', requireRole(...writeRoles), asyncHandler(async
 router.get('/tiers/history', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
   const result = await crmService.getTierHistory(undefined, req.query);
   res.json({ success: true, ...result });
+}));
+
+// 생일 고객
+router.get('/birthdays', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const sc = getStorePartnerCode(req);
+  const month = Number(req.query.month) || new Date().getMonth() + 1;
+  const data = await crmService.getBirthdayCustomers(month, sc || undefined);
+  res.json({ success: true, data });
+}));
+
+// VIP 미방문 알림
+router.get('/vip-alerts', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const sc = getStorePartnerCode(req);
+  const days = Number(req.query.days) || 60;
+  const data = await crmService.getVipAlerts(days, sc || undefined);
+  res.json({ success: true, data });
+}));
+
+// 일일 요약
+router.get('/daily-summary', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const sc = getStorePartnerCode(req);
+  const date = (req.query.date as string) || new Date().toISOString().slice(0, 10);
+  const data = await crmService.getDailySummary(date, sc || undefined);
+  res.json({ success: true, data });
 }));
 
 // 고객 CRUD
@@ -146,6 +162,16 @@ router.delete('/:id/flags/:flagId', requireRole(...writeRoles), crmController.re
 // Dormant per-customer
 router.post('/:id/reactivate', requireRole(...writeRoles), crmController.reactivateCustomer);
 
+/** 매장 매니저 → 자기 매장 고객만 접근 가능 (인라인 핸들러용) */
+const checkCustomerAccess = async (req: Request, res: Response): Promise<boolean> => {
+  const sc = getStorePartnerCode(req);
+  if (!sc) return true;
+  const c = await crmService.getDetail(Number(req.params.id));
+  if (!c) { res.status(404).json({ success: false, error: '고객을 찾을 수 없습니다.' }); return false; }
+  if (c.partner_code !== sc) { res.status(403).json({ success: false, error: '다른 매장의 고객 정보에 접근할 수 없습니다.' }); return false; }
+  return true;
+};
+
 // 등급 per-customer
 router.post('/:id/tier/recalculate', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
   if (!await checkCustomerAccess(req, res)) return;
@@ -158,65 +184,12 @@ router.get('/:id/tier-history', requireRole(...readRoles), asyncHandler(async (r
   res.json({ success: true, ...result });
 }));
 
-/* ─── 포인트 ─── */
-/** 매장 매니저 → 자기 매장 고객만 접근 가능 (인라인 핸들러용) */
-const checkCustomerAccess = async (req: Request, res: Response): Promise<boolean> => {
-  const sc = getStorePartnerCode(req);
-  if (!sc) return true;
-  const c = await crmService.getDetail(Number(req.params.id));
-  if (!c) { res.status(404).json({ success: false, error: '고객을 찾을 수 없습니다.' }); return false; }
-  if (c.partner_code !== sc) { res.status(403).json({ success: false, error: '다른 매장의 고객 정보에 접근할 수 없습니다.' }); return false; }
-  return true;
-};
-
-router.get('/:id/points', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { pointsService } = await import('./points.service');
-  const data = await pointsService.getPoints(Number(req.params.id));
-  res.json({ success: true, data });
-}));
-router.post('/:id/points/earn', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { pointsService } = await import('./points.service');
-  const { amount, sale_id, description } = req.body;
-  const data = await pointsService.earn(Number(req.params.id), sale_id || null, amount || 0, req.user?.userId);
-  res.json({ success: true, data });
-}));
-router.post('/:id/points/use', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { pointsService } = await import('./points.service');
-  const { points, description } = req.body;
-  if (!points || points <= 0) { res.status(400).json({ success: false, error: '포인트는 양수여야 합니다.' }); return; }
-  const data = await pointsService.use(Number(req.params.id), points, description || '수동 사용', req.user?.userId);
-  res.json({ success: true, data });
-}));
-router.get('/:id/points/transactions', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { pointsService } = await import('./points.service');
-  const result = await pointsService.getTransactions(Number(req.params.id), req.query);
-  res.json({ success: true, ...result });
-}));
-
 /* ─── RFM (개별 고객) ─── */
 router.get('/:id/rfm', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
   if (!await checkCustomerAccess(req, res)) return;
   const { rfmService } = await import('./rfm.service');
   const data = await rfmService.getCustomerRfm(Number(req.params.id));
   res.json({ success: true, data });
-}));
-
-/* ─── 쿠폰 ─── */
-router.get('/:id/coupons', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { couponService } = await import('./coupon.service');
-  const data = await couponService.getCustomerCoupons(Number(req.params.id), req.query.status as string);
-  res.json({ success: true, data });
-}));
-router.post('/:id/coupons/:couponId', requireRole(...writeRoles), asyncHandler(async (req: Request, res: Response) => {
-  if (!await checkCustomerAccess(req, res)) return;
-  const { couponService } = await import('./coupon.service');
-  const result = await couponService.issue(Number(req.params.couponId), [Number(req.params.id)], req.user?.userId || 'system');
-  res.json({ success: true, data: result });
 }));
 
 export default router;

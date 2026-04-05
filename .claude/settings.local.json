@@ -266,7 +266,21 @@
       "Bash(source:*)",
       "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInJvbGUiOiJBRE1JTiIsInBhcnRuZXJDb2RlIjpudWxsLCJzdG9yZU5hbWUiOm51bGwsImlhdCI6MTc3NTEzMjg1MCwiZXhwIjoxNzc1MTQwMDUwfQ.JBoeiMcbm0kq7lAM3E_wF2swRY-CNrcDzRmusSCW7F0\")",
       "Bash(__NEW_LINE_465d677ee75ad5b2__ echo \"=== Season List ===\")",
-      "Bash(powershell.exe -Command \"Stop-Process -Id 360864 -Force\")"
+      "Bash(powershell.exe -Command \"Stop-Process -Id 360864 -Force\")",
+      "Bash(git ls-tree:*)",
+      "Bash(\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/server/src/db/migrations/093_as_shipment_link.ts\":*)",
+      "Bash(git config:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(powershell.exe -Command \"Get-CimInstance Win32_Process -Filter \"\"name=''node.exe''\"\" | Select-Object ProcessId, CommandLine | Format-List\")",
+      "Bash(powershell.exe -Command \"Get-Item ''C:\\\\Users\\\\woori\\\\OneDrive\\\\Desktop\\\\ZENSAI ERP\\\\server\\\\src\\\\db\\\\migrations\\\\090_markdown_preserve.ts'' | Select-Object CreationTime, LastWriteTime, Length\")",
+      "Bash(powershell.exe -Command \"Get-Item ''C:\\\\Users\\\\woori\\\\OneDrive\\\\Desktop\\\\ZENSAI ERP\\\\server\\\\src\\\\db\\\\migrations\\\\090_rfm_ltv.ts'' -ErrorAction SilentlyContinue | Select-Object CreationTime, LastWriteTime, Length; if \\(-not \\(Test-Path ''C:\\\\Users\\\\woori\\\\OneDrive\\\\Desktop\\\\ZENSAI ERP\\\\server\\\\src\\\\db\\\\migrations\\\\090_rfm_ltv.ts''\\)\\) { Write-Host ''FILE DOES NOT EXIST'' }\")",
+      "Bash(powershell.exe -Command \"Get-Item ''C:\\\\Users\\\\woori\\\\OneDrive\\\\Desktop\\\\ZENSAI ERP\\\\server\\\\src\\\\db\\\\migrations\\\\index.ts'' | Select-Object CreationTime, LastWriteTime, Length\")",
+      "Bash(powershell.exe -Command \"@\\(''091_product_recommendations.ts'',''092_ab_test.ts'',''093_as_shipment_link.ts''\\) | ForEach-Object { $p = ''C:\\\\Users\\\\woori\\\\OneDrive\\\\Desktop\\\\ZENSAI ERP\\\\server\\\\src\\\\db\\\\migrations\\\\'' + $_ if \\(Test-Path $p\\) { Write-Host \"\"$_EXISTS\"\" } else { Write-Host \"\"$_DELETED\"\" } }\")",
+      "Bash(powershell.exe -Command \"Get-CimInstance Win32_Process -Filter \"\"name=''claude.exe'' or name=''claude-code.exe'' or CommandLine like ''%claude%''\"\" | Select-Object ProcessId, CommandLine | Format-List\")",
+      "Bash(powershell.exe -Command \"Get-CimInstance Win32_Process -Filter \"\"name=''claude.exe''\"\" | Select-Object ProcessId | Measure-Object | Select-Object Count\")",
+      "Bash(\"/c/Users/woori/OneDrive/Desktop/ZENSAI ERP/server/src/db/migrations/094_customer_style.ts\":*)",
+      "Bash(npx vitest run)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJnYW5nbmFtIiwidXNlck5hbWUiOiLqsJXrgqjrp6TsnqUiLCJyb2xlIjoiU1RPUkVfTUFOQUdFUiIsInBhcnRuZXJDb2RlIjoiU0YwMDIiLCJwYXJ0bmVyTmFtZSI6IuyEseyImOyngeunpOyepSIsImlhdCI6MTc3NTE4ODkxOCwiZXhwIjoxNzc1Mjc1MzE4fQ.lL871cAy96zvFHjYX_6vw8Ebb0zk2OeS6W-FOBtPVSw\")"
     ]
   }
 }

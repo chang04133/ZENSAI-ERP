@@ -1,5 +1,5 @@
 /**
- * CRM 스케줄러 — 자동 캠페인 + 포인트 만료
+ * CRM 스케줄러 — 자동 캠페인 + RFM + 추천
  * node-cron 설치 필요: npm install node-cron
  */
 
@@ -38,32 +38,6 @@ export async function initCrmScheduler() {
       }
     });
 
-    // 매일 자정: 포인트 만료 처리
-    cron.schedule('0 0 * * *', async () => {
-      try {
-        const { pointsService } = await import('../modules/crm/points.service');
-        const result = await pointsService.expirePoints();
-        if (result.totalExpired > 0) {
-          console.log(`[CRM Scheduler] Points expired: ${result.totalExpired}P for ${result.customers} customers`);
-        }
-      } catch (err) {
-        console.error('[CRM Scheduler] Points expiry error:', err);
-      }
-    });
-
-    // 매일 자정: 쿠폰 만료 처리
-    cron.schedule('5 0 * * *', async () => {
-      try {
-        const { couponService } = await import('../modules/crm/coupon.service');
-        const result = await couponService.expireCoupons();
-        if (result.expired > 0) {
-          console.log(`[CRM Scheduler] Coupons expired: ${result.expired}`);
-        }
-      } catch (err) {
-        console.error('[CRM Scheduler] Coupon expiry error:', err);
-      }
-    });
-
     // 매주 월요일 새벽 3시: RFM 재계산
     cron.schedule('0 3 * * 1', async () => {
       try {
@@ -88,7 +62,7 @@ export async function initCrmScheduler() {
       }
     });
 
-    console.log('[CRM Scheduler] Initialized — auto campaigns (hourly) + scheduled campaigns (10min) + points/coupon expiry (daily) + RFM + recommendations (weekly)');
+    console.log('[CRM Scheduler] Initialized — auto campaigns (hourly) + scheduled campaigns (10min) + RFM + recommendations (weekly)');
   } catch {
     console.log('[CRM Scheduler] node-cron not installed, scheduler disabled');
   }

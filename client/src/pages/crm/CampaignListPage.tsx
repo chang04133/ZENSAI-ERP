@@ -499,6 +499,18 @@ export default function CampaignListPage() {
           <Form.Item name="content" label="메시지 내용 (A)" rules={[{ required: true, message: '내용을 입력하세요' }]}>
             <Input.TextArea rows={4} placeholder="발송할 메시지 내용을 입력하세요" />
           </Form.Item>
+          <Form.Item noStyle shouldUpdate={(prev, cur) => prev.content !== cur.content || prev.campaign_type !== cur.campaign_type}>
+            {({ getFieldValue: gfv }) => {
+              if (gfv('campaign_type') !== 'SMS') return null;
+              const raw = gfv('content') || '';
+              const final = `(광고) 매장명\n${raw}\n무료수신거부: 0000000000`;
+              const bytes = new TextEncoder().encode(final).length;
+              const smsType = bytes <= 90 ? 'SMS' : 'LMS';
+              return <div style={{ fontSize: 12, color: bytes > 90 ? '#fa8c16' : '#999', marginTop: -12, marginBottom: 12 }}>
+                최종 발송: {final.length}자 / {bytes}byte ({smsType})
+              </div>;
+            }}
+          </Form.Item>
 
           {/* A/B 테스트 */}
           <div style={{ background: '#f0f5ff', padding: 12, borderRadius: 8, marginBottom: 16 }}>

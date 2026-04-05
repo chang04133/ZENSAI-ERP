@@ -20,6 +20,8 @@ import shipmentExcelRoutes from './modules/shipment/shipment-excel.routes';
 import shipmentRoutes from './modules/shipment/shipment.routes';
 import inventoryRoutes from './modules/inventory/inventory.routes';
 import salesExcelRoutes from './modules/sales/sales-excel.routes';
+import salesAnalyticsRoutes from './modules/sales/sales-analytics.routes';
+import salesReturnRoutes from './modules/sales/sales-return.routes';
 import salesRoutes from './modules/sales/sales.routes';
 import systemRoutes from './modules/system/system.routes';
 import restockRoutes from './modules/restock/restock.routes';
@@ -108,7 +110,9 @@ app.use('/api/codes', codeRoutes);
 app.use('/api/shipments', shipmentExcelRoutes);  // Excel routes first
 app.use('/api/shipments', shipmentRoutes);
 app.use('/api/inventory', inventoryRoutes);
-app.use('/api/sales', salesExcelRoutes);   // Excel routes first (specific paths)
+app.use('/api/sales', salesExcelRoutes);       // Excel routes first (specific paths)
+app.use('/api/sales', salesAnalyticsRoutes);   // Analytics before CRUD (경로 충돌 방지)
+app.use('/api/sales', salesReturnRoutes);      // Return/Exchange before CRUD
 app.use('/api/sales', salesRoutes);
 app.use('/api/system', systemRoutes);
 app.use('/api/restocks', restockRoutes);

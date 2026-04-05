@@ -22,7 +22,7 @@ export const menuItems: MenuItem[] = [
     key: 'sub-products', label: '상품 관리', icon: 'TagsOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ },
       { key: '/products/event-price', label: '행사관리', icon: 'TagOutlined', roles: ADMIN_HQ },
       { key: '/seasons', label: '시즌관리', icon: 'CalendarOutlined', roles: ADMIN_HQ },
       { key: '/markdown', label: '마크다운 관리', icon: 'FallOutlined', roles: ADMIN_HQ },
@@ -33,7 +33,7 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
       { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ },
       { key: '/inventory/loss', label: '재고처리', icon: 'StopOutlined', roles: ADMIN_HQ },
       { key: '/inventory/transactions', label: '재고변동 내역', icon: 'FileSearchOutlined', roles: ADMIN_ONLY },
@@ -72,7 +72,7 @@ export const menuItems: MenuItem[] = [
     children: [
       { key: '/sales/dashboard', label: '종합매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/sales/sell-through', label: '판매율 분석', icon: 'RiseOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/sales/sell-through', label: '판매율 분석', icon: 'RiseOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: ALL },
       { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: ALL },
     ],

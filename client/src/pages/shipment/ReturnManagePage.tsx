@@ -199,7 +199,10 @@ export default function ReturnManagePage() {
         const json = await res.json();
         if (json.success && json.data?.data) setPartners(json.data.data);
       } catch {}
-      try { setVariantOptions(await productApi.searchVariants('')); } catch {}
+      try {
+        const pc = isStore && user?.partnerCode ? user.partnerCode : undefined;
+        setVariantOptions(await productApi.searchVariants('', pc));
+      } catch {}
     })();
   }, []);
 
@@ -217,8 +220,10 @@ export default function ReturnManagePage() {
   /* ══════════ 이벤트 핸들러 ══════════ */
   const handleVariantSearch = async (value: string) => {
     if (value.length >= 2) {
-      try { setVariantOptions(await productApi.searchVariants(value)); }
-      catch { setVariantOptions([]); }
+      try {
+        const pc = isStore ? user?.partnerCode : form.getFieldValue('from_partner');
+        setVariantOptions(await productApi.searchVariants(value, pc || undefined));
+      } catch { setVariantOptions([]); }
     }
   };
 
@@ -751,7 +756,7 @@ export default function ReturnManagePage() {
               onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
               notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
               {variantOptions.map((v) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size})</Select.Option>
+                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
               ))}
             </Select>
           </Form.Item>

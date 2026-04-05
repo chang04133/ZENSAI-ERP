@@ -19,7 +19,7 @@ router.get('/dead-stock', authMiddleware, inventoryController.deadStock);
 router.get('/', authMiddleware, inventoryController.list);
 router.get('/by-product/:code', authMiddleware, inventoryController.byProduct);
 router.get('/:id', authMiddleware, inventoryController.getById);
-router.post('/adjust', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), inventoryController.adjust);
-router.post('/register-loss', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), inventoryController.registerLoss);
+router.post('/adjust', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), inventoryController.adjust);
+router.post('/register-loss', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), inventoryController.registerLoss);
 
 export default router;

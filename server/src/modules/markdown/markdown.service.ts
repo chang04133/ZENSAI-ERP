@@ -59,14 +59,24 @@ export const markdownService = {
           data.start_date, data.end_date, data.target_filter ? JSON.stringify(data.target_filter) : null,
           data.created_by, data.partner_code]);
 
-      // 2) 대상 상품 조회 후 아이템 생성
+      // 2) 대상 상품 조회 후 아이템 생성 (시즌코드에서 season_type/year 추출)
       let productQuery = `SELECT product_code, base_price FROM products WHERE is_active = true`;
       const pParams: any[] = [];
       let pIdx = 1;
 
       if (data.season_code) {
-        productQuery += ` AND season = $${pIdx++}`;
-        pParams.push(data.season_code);
+        // season_configs에서 season_type, year 조회
+        const { rows: [sc] } = await client.query(
+          `SELECT season_type, year FROM season_configs WHERE season_code = $1`, [data.season_code],
+        );
+        if (sc?.season_type) {
+          productQuery += ` AND season = $${pIdx++}`;
+          pParams.push(sc.season_type);
+          if (sc.year) {
+            productQuery += ` AND year = $${pIdx++}`;
+            pParams.push(sc.year);
+          }
+        }
       }
       if (data.target_filter?.category) {
         productQuery += ` AND category = $${pIdx++}`;

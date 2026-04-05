@@ -46,19 +46,33 @@ class ProductController extends BaseController<Product> {
 
   searchVariants = asyncHandler(async (req: Request, res: Response) => {
     const search = ((req.query.search as string) || '').trim();
+    const stockPartner = (req.query.partner_code as string || '').trim();
     const pool = getPool();
     const lim = search ? 50 : 500;
+    const params: any[] = [];
+    let paramIdx = 1;
+    if (search) { params.push(`%${search}%`); paramIdx++; }
+
+    let stockJoin = '';
+    let stockCol = '';
+    if (stockPartner) {
+      stockJoin = `LEFT JOIN inventory i ON i.variant_id = pv.variant_id AND i.partner_code = $${paramIdx}`;
+      stockCol = ', COALESCE(i.qty, 0)::int AS current_stock';
+      params.push(stockPartner);
+    }
+
     const result = await pool.query(
       `SELECT pv.variant_id, pv.sku, pv.color, pv.size, pv.price,
               p.product_code, p.product_name, p.category,
-              p.base_price, p.discount_price, p.event_price, p.event_store_codes
+              p.base_price, p.discount_price, p.event_price, p.event_store_codes${stockCol}
        FROM product_variants pv
        JOIN products p ON pv.product_code = p.product_code
+       ${stockJoin}
        WHERE pv.is_active = TRUE AND p.is_active = TRUE
          ${search ? 'AND (pv.sku ILIKE $1 OR p.product_name ILIKE $1 OR p.product_code ILIKE $1)' : ''}
        ORDER BY p.product_code, pv.color, pv.size
        LIMIT ${lim}`,
-      search ? [`%${search}%`] : [],
+      params,
     );
     // 행사 매장 제한: 매장 사용자이면 해당 매장이 event_store_codes에 포함되지 않은 경우 event_price 제거
     const partnerCode = isStoreRole(req) ? req.user?.partnerCode : undefined;

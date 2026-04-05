@@ -170,6 +170,11 @@ class CampaignService {
       return { sent: 0, failed: 0 };
     }
 
+    if (customers.length > 10000) {
+      await campaignRepository.update(id, { status: 'DRAFT' } as any);
+      throw new Error(`발송 대상이 ${customers.length.toLocaleString()}명으로 최대 10,000명을 초과합니다.`);
+    }
+
     // A/B 테스트: 대상을 A/B 그룹으로 분할
     const isAB = campaign.is_ab_test && campaign.content_b;
     if (isAB) {

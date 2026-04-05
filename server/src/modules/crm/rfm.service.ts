@@ -64,29 +64,10 @@ class RfmService {
     assignScores(sortedF, 'f_score');
     assignScores(sortedM, 'm_score');
 
-    // 3. 세그먼트 분류 + LTV 계산
-    const scoreMap = new Map<number, any>();
-    for (const c of customers) scoreMap.set(c.customer_id, c);
-
-    // 점수 합산
-    for (const c of sortedR) {
-      const sc = scoreMap.get(c.customer_id)!;
-      sc.r_score = c.r_score;
-    }
-    for (const c of sortedF) {
-      const sc = scoreMap.get(c.customer_id)!;
-      sc.f_score = c.f_score;
-    }
-    for (const c of sortedM) {
-      const sc = scoreMap.get(c.customer_id)!;
-      sc.m_score = c.m_score;
-    }
-
-    // 4. UPSERT
+    // 3. 세그먼트 분류 + LTV 계산 + UPSERT
     let updated = 0;
     for (const c of customers) {
-      const sc = scoreMap.get(c.customer_id)!;
-      const segment = classifySegment(sc.r_score, sc.f_score, sc.m_score);
+      const segment = classifySegment(c.r_score, c.f_score, c.m_score);
 
       // LTV: 연간 예상 (총 구매액 / 활동 개월수 * 12)
       let ltvAnnual = 0;
@@ -101,7 +82,7 @@ class RfmService {
         ON CONFLICT (customer_id) DO UPDATE SET
           r_score = $2, f_score = $3, m_score = $4, rfm_segment = $5,
           recency_days = $6, frequency = $7, monetary = $8, ltv_annual = $9, calculated_at = NOW()`,
-        [c.customer_id, sc.r_score, sc.f_score, sc.m_score, segment,
+        [c.customer_id, c.r_score, c.f_score, c.m_score, segment,
          c.recency_days === 9999 ? null : c.recency_days, c.frequency, c.monetary, ltvAnnual]);
       updated++;
     }

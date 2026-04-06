@@ -253,7 +253,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       SELECT s.sale_id, s.qty, s.unit_price, s.total_price,
              COALESCE(s.sale_type, '정상') as sale_type,
              pv.sku, pv.color, pv.size, p.product_name,
-             TO_CHAR(s.created_at, 'HH24:MI') as sale_time
+             TO_CHAR(s.created_at AT TIME ZONE 'Asia/Seoul', 'HH24:MI') as sale_time
       FROM sales s
       LEFT JOIN product_variants pv ON s.variant_id = pv.variant_id
       LEFT JOIN products p ON pv.product_code = p.product_code

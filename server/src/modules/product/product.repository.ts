@@ -533,6 +533,64 @@ export class ProductRepository extends BaseRepository<Product> {
     return result.rows;
   }
 
+  // ── 거래처별 행사가 ──
+
+  /** 상품의 거래처별 행사가 전체 조회 */
+  async getEventPricesForProduct(productCode: string): Promise<any[]> {
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT pep.*, pt.partner_name
+       FROM product_event_prices pep
+       JOIN partners pt ON pep.partner_code = pt.partner_code
+       WHERE pep.product_code = $1
+       ORDER BY pt.partner_name`,
+      [productCode],
+    );
+    return result.rows;
+  }
+
+  /** 거래처별 행사가 일괄 저장 (upsert + 삭제) */
+  async saveEventPartnerPrices(
+    productCode: string,
+    entries: Array<{ partner_code: string; event_price: number; event_start_date?: string | null; event_end_date?: string | null }>,
+  ) {
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      // 기존 거래처별 행사가 모두 삭제
+      await client.query('DELETE FROM product_event_prices WHERE product_code = $1', [productCode]);
+      // 새로 등록
+      for (const entry of entries) {
+        await client.query(
+          `INSERT INTO product_event_prices (product_code, partner_code, event_price, event_start_date, event_end_date)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [productCode, entry.partner_code, entry.event_price, entry.event_start_date || null, entry.event_end_date || null],
+        );
+      }
+      await client.query('COMMIT');
+      return this.getEventPricesForProduct(productCode);
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** 판매 스캔용: 특정 거래처의 행사가 조회 (날짜 유효성 포함) */
+  async getEventPriceForPartner(productCode: string, partnerCode: string): Promise<number | null> {
+    const pool = getPool();
+    const result = await pool.query(
+      `SELECT event_price FROM product_event_prices
+       WHERE product_code = $1 AND partner_code = $2
+         AND (event_start_date IS NULL OR event_start_date <= CURRENT_DATE)
+         AND (event_end_date IS NULL OR event_end_date >= CURRENT_DATE)`,
+      [productCode, partnerCode],
+    );
+    return result.rows.length > 0 ? Number(result.rows[0].event_price) : null;
+  }
+
   /** 상품에 연결된 부자재 목록 조회 */
   async getProductMaterials(productCode: string): Promise<any[]> {
     const pool = getPool();

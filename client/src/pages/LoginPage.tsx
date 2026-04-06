@@ -10,6 +10,7 @@ const DEV_ACCOUNTS: Record<string, [string, string]> = {
   '5173': ['hq_mgr', 'test1234!'],
   '5174': ['gangnam', 'test1234!'],
   '5175': ['daegu', 'test1234!'],
+  '5176': ['cheonan', 'test1234!'],
 };
 
 export default function LoginPage() {

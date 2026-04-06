@@ -11,6 +11,7 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { exportToExcel } from '../../utils/export-excel';
+import { useCodeLabels } from '../../hooks/useCodeLabels';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
@@ -44,6 +45,7 @@ function SummaryCard({ title, count, icon, bg, color, sub, onClick }: {
 
 export default function RestockManagePage() {
   const navigate = useNavigate();
+  const { formatCode } = useCodeLabels();
 
   const [tab, setTab] = useState('suggestions');
   const [partners, setPartners] = useState<any[]>([]);
@@ -54,6 +56,7 @@ export default function RestockManagePage() {
   const [salesPeriodDays, setSalesPeriodDays] = useState(60);
   const [sugLoading, setSugLoading] = useState(false);
   const [sugCategoryFilter, setSugCategoryFilter] = useState<string[]>([]);
+  const [sugSeasonFilter, setSugSeasonFilter] = useState<string[]>([]);
   const [sugUrgencyFilter, setSugUrgencyFilter] = useState<string[]>([]);
 
   // ── 의뢰 목록 탭 ──
@@ -237,6 +240,7 @@ export default function RestockManagePage() {
   /* ── 제안 데이터: 필터 적용 ── */
   const filteredSuggestions = suggestions.filter(s => {
     if (sugCategoryFilter.length && !sugCategoryFilter.includes(s.category)) return false;
+    if (sugSeasonFilter.length && !sugSeasonFilter.includes(s.season)) return false;
     if (sugUrgencyFilter.length && !sugUrgencyFilter.includes(s.urgency)) return false;
     return true;
   });
@@ -248,6 +252,7 @@ export default function RestockManagePage() {
 
   /* ── 제안 카테고리 목록 ── */
   const sugCategories = [...new Set(suggestions.map(s => s.category).filter(Boolean))].sort();
+  const sugSeasons = [...new Set(suggestions.map(s => s.season).filter(Boolean))].sort();
 
   /* ── 진행관리 통계 ── */
   const getStat = (status: string) => {
@@ -379,6 +384,9 @@ export default function RestockManagePage() {
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
               <Select mode="multiple" maxTagCount="responsive" value={sugCategoryFilter} onChange={setSugCategoryFilter} placeholder="전체" allowClear style={{ width: 150 }}
                 options={sugCategories.map(c => ({ label: c, value: c }))} /></div>
+            <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>시즌</div>
+              <Select mode="multiple" maxTagCount="responsive" value={sugSeasonFilter} onChange={setSugSeasonFilter} placeholder="전체" allowClear style={{ width: 150 }}
+                options={sugSeasons.map(s => ({ label: formatCode('SEASON', s), value: s }))} /></div>
             <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>긴급도</div>
               <Select mode="multiple" maxTagCount="responsive" value={sugUrgencyFilter} onChange={setSugUrgencyFilter} placeholder="전체" allowClear style={{ width: 150 }}
                 options={[{ label: '위험', value: 'CRITICAL' }, { label: '주의', value: 'WARNING' }, { label: '보통', value: 'NORMAL' }]} /></div>

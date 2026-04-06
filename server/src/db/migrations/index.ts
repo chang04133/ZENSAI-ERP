@@ -86,5 +86,6 @@ import m090 from './090_markdown_preserve';
 import m091 from './091_sales_shipment_link';
 import m094 from './094_customer_style';
 import m095 from './095_shipment_rejected_status';
+import m096 from './096_product_event_prices';
 
-export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051, m052, m053, m054, m055, m056, m058, m059, m060, m061, m062, m063, m064, m065, m066, m067, m068, m069, m070, m071, m072, m073, m074, m075, m076, m077, m078, m079, m080, m082, m083, m084, m085, m086, m087, m088, m089, m090, m091, m094, m095];
+export const allMigrations: Migration[] = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019, m020, m021, m022, m023, m024, m025, m026, m027, m028, m029, m030, m031, m032, m033, m034, m035, m036, m037, m038, m039, m044, m045, m046, m047, m048, m049, m050, m051, m052, m053, m054, m055, m056, m058, m059, m060, m061, m062, m063, m064, m065, m066, m067, m068, m069, m070, m071, m072, m073, m074, m075, m076, m077, m078, m079, m080, m082, m083, m084, m085, m086, m087, m088, m089, m090, m091, m094, m095, m096];

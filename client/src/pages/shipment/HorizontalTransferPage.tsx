@@ -8,6 +8,7 @@ import {
   DeleteOutlined, SendOutlined, CheckCircleOutlined,
   ClockCircleOutlined, StopOutlined, ArrowLeftOutlined,
   SwapOutlined, UnorderedListOutlined, ExclamationCircleOutlined,
+  ImportOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
@@ -77,20 +78,60 @@ export default function HorizontalTransferPage() {
   const [stockMap, setStockMap] = useState<Record<number, number>>({});
   const [stockPartner, setStockPartner] = useState('');
 
+  const [stockRawData, setStockRawData] = useState<any[]>([]);
+  const [loadingAllStock, setLoadingAllStock] = useState(false);
+
   const loadStockForPartner = async (partnerCode: string) => {
-    if (!partnerCode) { setStockMap({}); setStockPartner(''); return; }
+    if (!partnerCode) { setStockMap({}); setStockPartner(''); setStockRawData([]); return; }
     if (partnerCode === stockPartner) return;
     try {
       const res = await apiFetch(`/api/inventory?partner_code=${partnerCode}&limit=5000&page=1`);
       const json = await res.json();
       if (json.success && json.data?.data) {
         const map: Record<number, number> = {};
+        const rawWithStock = json.data.data.filter((row: any) => row.qty > 0);
         for (const row of json.data.data) map[row.variant_id] = row.qty;
         setStockMap(map);
         setStockPartner(partnerCode);
+        setStockRawData(rawWithStock);
         setItems((prev) => prev.map((i) => ({ ...i, stock_qty: map[i.variant_id] ?? 0 })));
       }
     } catch {}
+  };
+
+  const handleLoadAllStock = async () => {
+    const fromPartner = isStore ? user?.partnerCode : form.getFieldValue('from_partner');
+    if (!fromPartner) { message.warning('출발 거래처를 먼저 선택해주세요'); return; }
+    if (stockRawData.length === 0) {
+      // 재고 로드가 안 됐으면 다시 로드
+      setStockPartner('');
+      await loadStockForPartner(fromPartner);
+    }
+    setLoadingAllStock(true);
+    try {
+      const variantIds = stockRawData.map((r: any) => r.variant_id).filter((id: number) => !items.find((i) => i.variant_id === id));
+      if (variantIds.length === 0) { message.info('추가할 재고가 없습니다'); setLoadingAllStock(false); return; }
+      const variants = await productApi.bulkGetVariants(variantIds);
+      const variantMap = new Map(variants.map((v) => [v.variant_id, v]));
+      const newItems: ItemRow[] = [];
+      for (const raw of stockRawData) {
+        if (items.find((i) => i.variant_id === raw.variant_id)) continue;
+        const v = variantMap.get(raw.variant_id);
+        if (!v) continue;
+        newItems.push({
+          variant_id: raw.variant_id,
+          request_qty: raw.qty,
+          sku: v.sku,
+          product_name: v.product_name,
+          color: v.color,
+          size: v.size,
+          stock_qty: raw.qty,
+        });
+      }
+      setItems((prev) => [...prev, ...newItems]);
+      message.success(`${newItems.length}개 품목이 추가되었습니다`);
+    } catch (e: any) { message.error(e.message); }
+    finally { setLoadingAllStock(false); }
   };
 
   /* ══════════ 데이터 로드 ══════════ */
@@ -574,7 +615,7 @@ export default function HorizontalTransferPage() {
           </div>
           {!isAdmin && (view === 'PENDING' || isAll) && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-              form.resetFields(); setItems([]); setStockMap({}); setStockPartner('');
+              form.resetFields(); setItems([]); setStockMap({}); setStockPartner(''); setStockRawData([]);
               if (isStore && user?.partnerCode) loadStockForPartner(user.partnerCode);
               setModalOpen(true);
             }}>수평이동 등록</Button>
@@ -607,7 +648,7 @@ export default function HorizontalTransferPage() {
     <div>
       <PageHeader title="수평이동" extra={!isAdmin && view === 'dashboard' ? (
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
-          form.resetFields(); setItems([]); setStockMap({}); setStockPartner('');
+          form.resetFields(); setItems([]); setStockMap({}); setStockPartner(''); setStockRawData([]);
               if (isStore && user?.partnerCode) loadStockForPartner(user.partnerCode);
               setModalOpen(true);
         }}>수평이동 등록</Button>
@@ -639,13 +680,16 @@ export default function HorizontalTransferPage() {
             <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
           </Form.Item>
           <Form.Item label="품목 추가">
-            <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
-              onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
-              notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
-              {variantOptions.map((v) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
-              ))}
-            </Select>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
+                onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
+                notFoundContent="2자 이상 입력해주세요" style={{ flex: 1 }}>
+                {variantOptions.map((v) => (
+                  <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
+                ))}
+              </Select>
+              <Button icon={<ImportOutlined />} loading={loadingAllStock} onClick={handleLoadAllStock}>전체재고</Button>
+            </div>
           </Form.Item>
           {items.length > 0 && (
             <Table size="small" dataSource={items} rowKey="variant_id" pagination={false} style={{ marginBottom: 16 }}

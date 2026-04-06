@@ -9,6 +9,7 @@
     "dev:master": "cd client && npx vite --port 5172",
     "dev:store": "cd client && npx vite --port 5174",
     "dev:staff": "cd client && npx vite --port 5175",
+    "dev:cheonan": "cd client && npx vite --port 5176",
     "build": "npm run build:client && npm run build:server",
     "build:server": "cd server && npm run build",
     "build:client": "cd client && npm run build",

@@ -354,6 +354,21 @@ export class SalesDetailedAnalysisRepository {
       ORDER BY total_amount DESC`;
     const bySeason = (await this.pool.query(seasonSql, params)).rows;
 
+    // 거래처별 매출
+    const partnerSql = `
+      SELECT s.partner_code, pt.partner_name, pt.partner_type,
+             SUM(s.qty)::int AS total_qty,
+             SUM(s.total_price)::bigint AS total_amount,
+             COUNT(DISTINCT p.product_code)::int AS product_count
+      FROM sales s
+      JOIN partners pt ON s.partner_code = pt.partner_code
+      JOIN product_variants pv ON s.variant_id = pv.variant_id
+      JOIN products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
+      GROUP BY s.partner_code, pt.partner_name, pt.partner_type
+      ORDER BY total_amount DESC`;
+    const byPartner = (await this.pool.query(partnerSql, params)).rows;
+
     // 깔때기 필터용: 해당 기간 판매된 상품 조합 (기본 필터만 적용)
     const comboParams: any[] = [dateFrom, dateTo];
     let comboPcFilter = '';
@@ -366,7 +381,7 @@ export class SalesDetailedAnalysisRepository {
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${comboPcFilter}`;
     const filterCombinations = (await this.pool.query(comboSql, comboParams)).rows;
 
-    return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason, filterCombinations };
+    return { dateFrom, dateTo, totals, byCategory, bySubCategory, byFit, byLength, bySize, byColor, topProducts, bySeason, byPartner, filterCombinations };
   }
 
   /** 상품별 컬러/사이즈 판매 상세 */

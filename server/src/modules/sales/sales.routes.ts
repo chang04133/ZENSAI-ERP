@@ -40,7 +40,23 @@ router.get('/scan', authMiddleware, asyncHandler(async (req, res) => {
     return;
   }
   const row = result.rows[0];
-  // 행사 매장 제한: event_store_codes가 설정되어 있고 현재 매장이 포함되지 않으면 event_price 제거
+  // 거래처별 행사가 우선 조회
+  if (partnerCode) {
+    const pepResult = await pool.query(
+      `SELECT event_price FROM product_event_prices
+       WHERE product_code = $1 AND partner_code = $2
+         AND (event_start_date IS NULL OR event_start_date <= CURRENT_DATE)
+         AND (event_end_date IS NULL OR event_end_date >= CURRENT_DATE)`,
+      [row.product_code, partnerCode],
+    );
+    if (pepResult.rows.length > 0) {
+      row.event_price = Number(pepResult.rows[0].event_price);
+      delete row.event_store_codes;
+      res.json({ success: true, data: row });
+      return;
+    }
+  }
+  // 거래처별 행사가 없으면 기존 로직: event_store_codes 기반 필터링
   if (row.event_price && row.event_store_codes && row.event_store_codes.length > 0 && partnerCode) {
     if (!row.event_store_codes.includes(partnerCode)) {
       row.event_price = null;
@@ -506,11 +522,16 @@ router.delete('/:id',
       }
       const old = orig.rows[0];
 
-      // 매장 매니저: 매출 삭제 불가 (일마감 후 데이터 보호)
+      // 매장 매니저: 당일 매출만 삭제 가능
       if (req.user?.role === 'STORE_MANAGER') {
-        await client.query('ROLLBACK');
-        res.status(403).json({ success: false, error: '매장매니저는 매출을 삭제할 수 없습니다. 본사에 문의해주세요.' });
-        return;
+        const dayCheck = await client.query(
+          `SELECT sale_date::date = CURRENT_DATE AS is_today FROM sales WHERE sale_id = $1`, [saleId],
+        );
+        if (!dayCheck.rows[0]?.is_today) {
+          await client.query('ROLLBACK');
+          res.status(403).json({ success: false, error: '당일 매출만 삭제할 수 있습니다. 본사에 문의해주세요.' });
+          return;
+        }
       }
 
       // 연결된 반품이 있는지 확인 (memo에 '원본#' 패턴으로 연결)

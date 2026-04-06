@@ -68,23 +68,31 @@ export default function DeadStockPage() {
 
   const columns = [
     { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 130, ellipsis: true,
+      sorter: (a: any, b: any) => a.product_code.localeCompare(b.product_code),
       render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a>,
     },
-    { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
-    { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true,
+      sorter: (a: any, b: any) => (a.product_name || '').localeCompare(b.product_name || ''),
+    },
+    { title: '카테고리', dataIndex: 'category', key: 'cat', width: 85,
+      sorter: (a: any, b: any) => (a.category || '').localeCompare(b.category || ''),
+      render: (v: string) => <Tag>{v}</Tag>,
+    },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 100,
+      sorter: (a: any, b: any) => (a.season || '').localeCompare(b.season || ''),
       render: (v: string) => v ? formatCode('SEASON', v) : '-',
     },
-    { title: '연도', dataIndex: 'year', key: 'year', width: 80,
-      render: (v: string, r: any) => v ? `${formatCode('YEAR', v)}` : '-',
+    { title: '연도', dataIndex: 'product_year', key: 'year', width: 80, align: 'right' as const,
+      sorter: (a: any, b: any) => Number(a.product_year) - Number(b.product_year),
+      render: (v: number) => v || '-',
     },
     {
-      title: '연차', dataIndex: 'age_years', key: 'age', width: 70, align: 'right' as const,
+      title: '연차', dataIndex: 'age_years', key: 'age', width: 60, align: 'right' as const,
       sorter: (a: any, b: any) => Number(a.age_years) - Number(b.age_years),
       render: (v: number) => {
         const age = Number(v);
         const color = age >= 4 ? '#ff4d4f' : age >= 3 ? '#fa8c16' : '#1890ff';
-        return <span style={{ fontWeight: 700, color }}>{age}년</span>;
+        return <span style={{ fontWeight: 700, color }}>{age}</span>;
       },
     },
     {
@@ -94,41 +102,55 @@ export default function DeadStockPage() {
       render: (v: number) => {
         const n = Number(v);
         const color = n >= 100 ? '#ff4d4f' : n >= 50 ? '#fa8c16' : '#333';
-        return <span style={{ fontWeight: 700, color, fontSize: 14 }}>{n.toLocaleString()}개</span>;
+        return <span style={{ fontWeight: 700, color }}>{n.toLocaleString()}</span>;
       },
     },
     {
       title: '판매량', dataIndex: 'sold_qty', key: 'sold', width: 70, align: 'right' as const,
       sorter: (a: any, b: any) => Number(a.sold_qty) - Number(b.sold_qty),
-      render: (v: number) => <span style={{ color: Number(v) === 0 ? '#ff4d4f' : '#888' }}>{Number(v).toLocaleString()}</span>,
-    },
-    {
-      title: '마지막 판매', dataIndex: 'last_sale_date', key: 'last', width: 100,
-      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : <Tag color="red">판매없음</Tag>,
-    },
-    {
-      title: '경과일', dataIndex: 'days_without_sale', key: 'days', width: 80, align: 'right' as const,
-      sorter: (a: any, b: any) => Number(a.days_without_sale) - Number(b.days_without_sale),
       render: (v: number) => {
-        if (v >= 9999) return <Tag color="red" style={{ fontWeight: 700 }}>-</Tag>;
-        const color = v >= 180 ? '#ff4d4f' : v >= 90 ? '#fa8c16' : '#faad14';
-        return <span style={{ fontWeight: 700, color }}>{v}일</span>;
+        const n = Number(v);
+        return <span style={{ color: n === 0 ? '#ff4d4f' : undefined }}>{n.toLocaleString()}</span>;
       },
     },
     {
-      title: '사이즈깨짐', dataIndex: 'broken_store_count', key: 'broken', width: 100, align: 'center' as const,
+      title: '마지막 판매', dataIndex: 'last_sale_date', key: 'last', width: 100,
+      sorter: (a: any, b: any) => {
+        const da = a.last_sale_date ? new Date(a.last_sale_date).getTime() : 0;
+        const db = b.last_sale_date ? new Date(b.last_sale_date).getTime() : 0;
+        return da - db;
+      },
+      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR') : <span style={{ color: '#ff4d4f' }}>-</span>,
+    },
+    {
+      title: '경과일', dataIndex: 'days_without_sale', key: 'days', width: 70, align: 'right' as const,
+      sorter: (a: any, b: any) => Number(a.days_without_sale) - Number(b.days_without_sale),
+      render: (v: number) => {
+        const n = Number(v);
+        const color = n >= 9999 ? '#ff4d4f' : n >= 180 ? '#ff4d4f' : n >= 90 ? '#fa8c16' : undefined;
+        return <span style={{ fontWeight: 700, color }}>{n >= 9999 ? '∞' : n.toLocaleString()}</span>;
+      },
+    },
+    {
+      title: '깨짐매장', dataIndex: 'broken_store_count', key: 'broken_store', width: 80, align: 'right' as const,
       sorter: (a: any, b: any) => Number(a.broken_store_count) - Number(b.broken_store_count),
-      render: (_: number, r: any) => {
-        const stores = Number(r.broken_store_count || 0);
-        const sizes = Number(r.broken_size_count || 0);
-        if (stores === 0) return <Tag color="green">정상</Tag>;
-        return <Tag color="red">{stores}거래처 {sizes}건</Tag>;
+      render: (v: number) => {
+        const n = Number(v || 0);
+        return <span style={{ fontWeight: 700, color: n > 0 ? '#ff4d4f' : '#52c41a' }}>{n}</span>;
+      },
+    },
+    {
+      title: '깨짐건수', dataIndex: 'broken_size_count', key: 'broken_size', width: 80, align: 'right' as const,
+      sorter: (a: any, b: any) => Number(a.broken_size_count) - Number(b.broken_size_count),
+      render: (v: number) => {
+        const n = Number(v || 0);
+        return <span style={{ fontWeight: 700, color: n > 0 ? '#ff4d4f' : '#52c41a' }}>{n}</span>;
       },
     },
     {
       title: '재고금액', dataIndex: 'stock_value', key: 'value', width: 110, align: 'right' as const,
       sorter: (a: any, b: any) => Number(a.stock_value) - Number(b.stock_value),
-      render: (v: number) => `${(Number(v) / 10000).toFixed(0)}만원`,
+      render: (v: number) => <span style={{ fontWeight: 700 }}>{Number(v).toLocaleString()}</span>,
     },
   ];
 

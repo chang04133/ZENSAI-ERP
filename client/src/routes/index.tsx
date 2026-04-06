@@ -72,12 +72,6 @@ const SystemSettingsPage = lazy(() => import('../pages/system/SystemSettingsPage
 const SystemOverviewPage = lazy(() => import('../pages/system/SystemOverviewPage'));
 const ActivityLogPage = lazy(() => import('../pages/system/ActivityLogPage'));
 
-// ── NEW: 신규 모듈 ──
-// Season (시즌/컬렉션)
-const SeasonManagePage = lazy(() => import('../pages/season/SeasonManagePage'));
-// Markdown (마크다운 관리)
-const MarkdownManagePage = lazy(() => import('../pages/markdown/MarkdownManagePage'));
-
 // Notice (공지사항)
 const NoticeBoardPage = lazy(() => import('../pages/notice/NoticeBoardPage'));
 
@@ -146,7 +140,7 @@ export const appRoutes: AppRoute[] = [
 
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ },
+  { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ },
   { path: '/inventory/loss', element: <LossManagePage />, roles: ADMIN_HQ },
@@ -178,13 +172,6 @@ export const appRoutes: AppRoute[] = [
   // Fund (마스터 전용)
   { path: '/fund', element: <FundPlanPage />, roles: ADMIN_ONLY },
   { path: '/fund/financial-statement', element: <FinancialStatementPage />, roles: ADMIN_ONLY },
-
-  // ── NEW: 신규 모듈 라우트 ──
-
-  // Season (시즌/컬렉션)
-  { path: '/seasons', element: <SeasonManagePage />, roles: ADMIN_HQ },
-  // Markdown (마크다운 관리)
-  { path: '/markdown', element: <MarkdownManagePage />, roles: ADMIN_HQ },
 
   // Notice (공지사항)
   { path: '/notices', element: <NoticeBoardPage />, roles: ALL },

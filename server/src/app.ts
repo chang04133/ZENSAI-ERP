@@ -37,16 +37,14 @@ import inboundRoutes from './modules/inbound/inbound.routes';
 import warehouseRoutes from './modules/warehouse/warehouse.routes';
 import crmRoutes from './modules/crm/crm.routes';
 import consentRoutes from './modules/crm/consent.routes';
-import seasonRoutes from './modules/season/season.routes';
-import markdownRoutes from './modules/markdown/markdown.routes';
 
 const app = express();
 
 // Middleware
 function getCorsOrigin(): cors.CorsOptions['origin'] {
   if (config.nodeEnv !== 'production') {
-    // 개발: 5172 마스터 + 5173 관리자 + 5174 매장매니저 + 5175 직원
-    return ['http://localhost:5172', config.clientUrl, 'http://localhost:5174', 'http://localhost:5175'];
+    // 개발: 5172 마스터 + 5173 관리자 + 5174 매장매니저 + 5175 직원 + 5176 천안
+    return ['http://localhost:5172', config.clientUrl, 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'];
   }
   // 프로덕션: CORS_ORIGINS 환경변수로 허용 도메인 지정, 미설정 시 same-origin만 허용
   if (config.corsOrigins) {
@@ -128,8 +126,6 @@ app.use('/api/inbounds', inboundRoutes);
 app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/consent', consentRoutes);
-app.use('/api/seasons', seasonRoutes);
-app.use('/api/markdowns', markdownRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

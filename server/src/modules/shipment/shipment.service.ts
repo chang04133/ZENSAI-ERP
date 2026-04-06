@@ -35,29 +35,29 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
-      // 1) 같은 출발/도착 거래처의 SHIPPED(수령대기) 케이스가 있으면 합치기
+      // 1) 같은 출발/도착 거래처의 PENDING(출고대기) 케이스가 있으면 합치기
       let requestId: number;
       let mergedInto: string | null = null;
       const toPartner = headerData.to_partner || null;
       const existingCase = toPartner ? await client.query(
         `SELECT request_id, request_no FROM shipment_requests
          WHERE from_partner = $1 AND to_partner = $2
-           AND request_type = $3 AND status = 'SHIPPED'
+           AND request_type = $3 AND status = 'PENDING'
          ORDER BY created_at DESC LIMIT 1
          FOR UPDATE`,
         [headerData.from_partner, toPartner, headerData.request_type],
       ) : { rows: [] };
 
-      const initialStatus = 'SHIPPED';
+      const initialStatus = 'PENDING';
 
       if (existingCase.rows.length > 0) {
-        // 기존 케이스에 품목 추가 (merge) — autoReceive 시에는 merge 안 함
+        // 기존 PENDING 케이스에 품목 추가 (merge)
         requestId = existingCase.rows[0].request_id;
         mergedInto = existingCase.rows[0].request_no;
 
         // 기존 품목 조회
         const existingItems = await client.query(
-          'SELECT variant_id, request_qty, shipped_qty FROM shipment_request_items WHERE request_id = $1',
+          'SELECT variant_id, request_qty FROM shipment_request_items WHERE request_id = $1',
           [requestId],
         );
         const existingMap = new Map(existingItems.rows.map((r: any) => [r.variant_id, r]));
@@ -65,18 +65,18 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         for (const item of items) {
           const existing = existingMap.get(item.variant_id);
           if (existing) {
-            // 같은 variant → 수량 합산
+            // 같은 variant → 의뢰수량만 합산 (shipped_qty는 출고확인 시 설정)
             await client.query(
               `UPDATE shipment_request_items
-               SET request_qty = request_qty + $1, shipped_qty = shipped_qty + $1
+               SET request_qty = request_qty + $1
                WHERE request_id = $2 AND variant_id = $3`,
               [item.request_qty, requestId, item.variant_id],
             );
           } else {
-            // 새 variant → 추가
+            // 새 variant → 추가 (shipped_qty = 0)
             await client.query(
               `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-               VALUES ($1, $2, $3, $3, 0)`,
+               VALUES ($1, $2, $3, 0, 0)`,
               [requestId, item.variant_id, item.request_qty],
             );
           }
@@ -90,13 +90,13 @@ class ShipmentService extends BaseService<ShipmentRequest> {
           );
         }
       } else {
-        // 새 케이스 생성
+        // 새 케이스 생성 (PENDING 상태, shipped_qty = 0, 재고 변동 없음)
         const requestNo = await shipmentRepository.generateNo(client);
         const header = await client.query(
           `INSERT INTO shipment_requests
-           (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by, approved_by,
+           (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
             is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
-           VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $7, $8, $9, $10, $11, $12)
+           VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
            RETURNING *`,
           [requestNo, headerData.from_partner, toPartner,
            headerData.request_type, initialStatus, headerData.memo || null, headerData.requested_by,
@@ -105,29 +105,16 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         );
         requestId = header.rows[0].request_id;
 
-        const rcvQty = '0';
         for (const item of items) {
           await client.query(
             `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-             VALUES ($1, $2, $3, $3, ${rcvQty})`,
+             VALUES ($1, $2, $3, 0, 0)`,
             [requestId, item.variant_id, item.request_qty],
           );
         }
       }
 
-      // from_partner 재고 즉시 차감
-      if (headerData.from_partner) {
-        const txTypeMap: Record<string, string> = { '출고': 'SHIPMENT', '반품': 'RETURN', '수평이동': 'TRANSFER', '출고요청': 'SHIPMENT' };
-        const txType = txTypeMap[headerData.request_type] || 'SHIPMENT';
-        for (const item of items) {
-          if (item.request_qty > 0) {
-            await inventoryRepository.applyChange(
-              headerData.from_partner, item.variant_id, -item.request_qty,
-              txType, requestId, headerData.requested_by, client,
-            );
-          }
-        }
-      }
+      // 재고 차감은 출고확인(shipAndConfirm) 시 수행 — 여기서는 등록만
 
       if (!extClient) await client.query('COMMIT');
 
@@ -140,7 +127,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         );
       } else {
         const notifTitle = '출고등록';
-        const notifMsg = `${headerData.request_type} #${requestId}이(가) 출고 등록되었습니다.`;
+        const notifMsg = `${headerData.request_type} #${requestId}이(가) 등록되었습니다. (출고확인 필요)`;
         createNotification(
           'SHIPMENT', notifTitle, notifMsg,
           requestId, toPartner, headerData.requested_by,

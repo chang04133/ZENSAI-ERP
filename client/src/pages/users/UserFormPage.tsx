@@ -82,13 +82,15 @@ export default function UserFormPage() {
           <Form.Item name="user_name" label="이름" rules={[{ required: true, message: '이름을 입력해주세요' }]}>
             <Input />
           </Form.Item>
-          <Form.Item
-            name="password"
-            label={isEdit ? '비밀번호 (변경시에만 입력)' : '비밀번호'}
-            rules={isEdit ? [] : [{ required: true, message: '비밀번호를 입력해주세요' }]}
-          >
-            <Input.Password placeholder={isEdit ? '변경하려면 입력' : '비밀번호'} />
-          </Form.Item>
+          {(!isEdit || currentUser?.role === ROLES.ADMIN) && (
+            <Form.Item
+              name="password"
+              label={isEdit ? '비밀번호 (변경시에만 입력)' : '비밀번호'}
+              rules={isEdit ? [] : [{ required: true, message: '비밀번호를 입력해주세요' }]}
+            >
+              <Input.Password placeholder={isEdit ? '변경하려면 입력' : '비밀번호'} />
+            </Form.Item>
+          )}
           {/* 직급 선택: 서버에서 자기보다 낮은 직급만 내려줌 */}
           {roles.length <= 1 ? (
             <Form.Item name="role_group" hidden><Input /></Form.Item>

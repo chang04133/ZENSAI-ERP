@@ -8,6 +8,7 @@ import { datePresets } from '../../utils/date-presets';
 import {
   InboxOutlined, SearchOutlined,
   PlusOutlined, EditOutlined, HistoryOutlined,
+  ExclamationCircleOutlined,
 } from '@ant-design/icons';
 import { inventoryApi } from '../../modules/inventory/inventory.api';
 import { partnerApi } from '../../modules/partner/partner.api';
@@ -174,21 +175,40 @@ export function InventoryAdjust() {
 
   const handleAdjust = async (values: any) => {
     if (values.qty_change === 0) { message.warning('조정 수량은 0이 아니어야 합니다.'); return; }
-    try {
-      const result = await inventoryApi.adjust({
-        partner_code: adjustTarget.partner_code,
-        variant_id: adjustTarget.variant_id,
-        qty_change: values.qty_change,
-        memo: values.memo,
-      });
-      if (result.warning) { message.warning(result.warning); }
-      else { message.success(`재고가 조정되었습니다. (변경: ${values.qty_change > 0 ? '+' : ''}${values.qty_change} → 현재: ${result.qty}개)`); }
-      setModalOpen(false);
-      const key = `${adjustTarget.partner_code}_${adjustTarget.variant_id}`;
-      setTxCache(prev => { const next = { ...prev }; delete next[key]; return next; });
-      if (expandedKeys.includes(adjustTarget.inventory_id)) loadItemTx(adjustTarget);
-      load();
-    } catch (e: any) { message.error(e.message); }
+    const change = values.qty_change;
+    const newQty = Number(adjustTarget.qty) + change;
+    Modal.confirm({
+      title: '재고 조정 확인',
+      icon: <ExclamationCircleOutlined />,
+      content: (
+        <div>
+          <div><strong>{adjustTarget.product_name}</strong> ({adjustTarget.sku})</div>
+          <div style={{ marginTop: 8 }}>현재 수량: <strong>{Number(adjustTarget.qty).toLocaleString()}</strong>개</div>
+          <div>조정: <strong style={{ color: change > 0 ? '#52c41a' : '#ff4d4f' }}>{change > 0 ? '+' : ''}{change}</strong></div>
+          <div>조정 후: <strong style={{ color: '#1677ff' }}>{newQty.toLocaleString()}</strong>개</div>
+          {values.memo && <div style={{ marginTop: 4, color: '#888' }}>사유: {values.memo}</div>}
+        </div>
+      ),
+      okText: '조정 실행',
+      cancelText: '취소',
+      onOk: async () => {
+        try {
+          const result = await inventoryApi.adjust({
+            partner_code: adjustTarget.partner_code,
+            variant_id: adjustTarget.variant_id,
+            qty_change: values.qty_change,
+            memo: values.memo,
+          });
+          if (result.warning) { message.warning(result.warning); }
+          else { message.success(`재고가 조정되었습니다. (변경: ${change > 0 ? '+' : ''}${change} → 현재: ${result.qty}개)`); }
+          setModalOpen(false);
+          const key = `${adjustTarget.partner_code}_${adjustTarget.variant_id}`;
+          setTxCache(prev => { const next = { ...prev }; delete next[key]; return next; });
+          if (expandedKeys.includes(adjustTarget.inventory_id)) loadItemTx(adjustTarget);
+          load();
+        } catch (e: any) { message.error(e.message); }
+      },
+    });
   };
 
   const handleVariantSearch = async (value: string) => {

@@ -3,7 +3,7 @@ import { Card, Select, Space, Tag, Table, Row, Col, Progress, Spin, message, Dat
 import {
   SkinOutlined, ColumnHeightOutlined, TagOutlined, BgColorsOutlined,
   LeftOutlined, RightOutlined, CalendarOutlined,
-  DollarOutlined, ShoppingCartOutlined, SearchOutlined,
+  DollarOutlined, ShoppingCartOutlined, SearchOutlined, ShopOutlined,
 } from '@ant-design/icons';
 import { salesApi } from '../../modules/sales/sales.api';
 import { productApi } from '../../modules/product/product.api';
@@ -221,6 +221,7 @@ export function SalesAnalyticsPeriod() {
   const byColor = capArr(data?.byColor || [], MAX_CHART, 'color', ['total_qty', 'total_amount']);
   const topProducts = (data?.topProducts || []).slice(0, MAX_CHART);
   const bySeason = capArr(data?.bySeason || [], MAX_CHART, 'season_type', ['total_amount', 'total_qty']);
+  const byPartner = data?.byPartner || [];
 
   const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
   const maxCatAmt = Math.max(1, ...byCategory.map((c: any) => Number(c.total_amount)));
@@ -428,6 +429,52 @@ export function SalesAnalyticsPeriod() {
                   );
                 })}
               </Row>
+            </Card>
+          )}
+
+          {/* 거래처별 매출 */}
+          {byPartner.length > 0 && (
+            <Card size="small" title={<><ShopOutlined style={{ marginRight: 6 }} />거래처별 매출</>} style={{ marginBottom: 16 }}>
+              <Table
+                columns={[
+                  { title: '#', key: 'rank', width: 36,
+                    render: (_: any, __: any, i: number) => (
+                      <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600 }}>{i + 1}</span>
+                    ) },
+                  { title: '거래처', dataIndex: 'partner_name', key: 'name', width: 120,
+                    render: (v: string, r: any) => <span style={{ fontWeight: 600 }}>{v} <Tag style={{ fontSize: 10 }}>{r.partner_type}</Tag></span> },
+                  { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 80, align: 'right' as const,
+                    render: (v: number) => <strong>{fmt(v)}</strong>,
+                    sorter: (a: any, b: any) => Number(a.total_qty) - Number(b.total_qty) },
+                  { title: '매출액', dataIndex: 'total_amount', key: 'amt', width: 120, align: 'right' as const,
+                    render: (v: number) => <strong>{fmtW(Number(v))}</strong>,
+                    sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
+                    defaultSortOrder: 'descend' as const },
+                  { title: '상품', dataIndex: 'product_count', key: 'pc', width: 60, align: 'center' as const,
+                    render: (v: number) => `${v}종` },
+                  { title: '비율', key: 'ratio', width: 140,
+                    render: (_: any, r: any) => {
+                      const total = byPartner.reduce((s: number, p: any) => s + Number(p.total_amount), 0);
+                      const pct = total > 0 ? (Number(r.total_amount) / total) * 100 : 0;
+                      return <Progress percent={Math.round(pct)} size="small" strokeColor="#1677ff" />;
+                    } },
+                ]}
+                dataSource={byPartner}
+                rowKey="partner_code"
+                pagination={false} size="small" scroll={{ x: 600, y: 300 }}
+                summary={(rows) => {
+                  const totalQty = rows.reduce((s, r) => s + Number(r.total_qty), 0);
+                  const totalAmt = rows.reduce((s, r) => s + Number(r.total_amount), 0);
+                  return (
+                    <Table.Summary.Row>
+                      <Table.Summary.Cell index={0} colSpan={2} align="right"><strong>합계</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={2} align="right"><strong>{fmt(totalQty)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={3} align="right"><strong>{fmtW(totalAmt)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={4} colSpan={2} />
+                    </Table.Summary.Row>
+                  );
+                }}
+              />
             </Card>
           )}
 

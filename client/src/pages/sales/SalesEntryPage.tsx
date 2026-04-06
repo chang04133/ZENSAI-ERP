@@ -123,7 +123,7 @@ export default function SalesEntryPage() {
   const [customerSearch, setCustomerSearch] = useState<any[]>([]);
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerInfo, setCustomerInfo] = useState<any>(null);
-  const [customerSearching, setCustomerSearching] = useState(false);
+
   const [quickRegisterOpen, setQuickRegisterOpen] = useState(false);
   const [quickRegisterName, setQuickRegisterName] = useState('');
   const [quickRegisterGender, setQuickRegisterGender] = useState<string | undefined>();
@@ -601,7 +601,7 @@ export default function SalesEntryPage() {
             <Button size="small" icon={<EditOutlined />} onClick={() => openEditModal(record)} disabled={editExpired} />
             <Button size="small" icon={<SwapOutlined />} onClick={() => openExchangeModal(record)} style={{ color: returnExpired ? undefined : '#1677ff' }} disabled={returnExpired} title={returnExpired ? '30일 초과 (본사 승인 필요)' : '교환'} />
             <Button size="small" icon={<RollbackOutlined />} onClick={() => openReturnModal(record)} style={{ color: returnExpired ? undefined : '#722ed1' }} disabled={returnExpired} title={returnExpired ? '30일 초과 (본사 승인 필요)' : '반품'} />
-            {!isStoreManager && (
+            {(!isStoreManager || !editExpired) && (
               <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleDelete(record)} />
             )}
           </Space>

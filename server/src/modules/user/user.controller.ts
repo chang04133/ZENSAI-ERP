@@ -52,6 +52,23 @@ class UserController extends BaseController<User> {
     res.json({ success: true, data: filtered });
   });
 
+  getById = asyncHandler(async (req: Request, res: Response) => {
+    const id = req.params.id as string;
+    const pool = getPool();
+    const r = await pool.query(
+      `SELECT u.*, rg.group_name AS role_name
+       FROM users u LEFT JOIN role_groups rg ON u.role_group = rg.group_id
+       WHERE u.user_id = $1`, [id],
+    );
+    if (!r.rows[0]) { res.status(404).json({ success: false, error: '사용자를 찾을 수 없습니다.' }); return; }
+    // 매장매니저: 자기 매장 직원만 조회 가능
+    if (req.user?.role === 'STORE_MANAGER' && r.rows[0].partner_code !== req.user.partnerCode) {
+      res.status(403).json({ success: false, error: '자신의 매장 직원만 조회할 수 있습니다.' });
+      return;
+    }
+    res.json({ success: true, data: r.rows[0] });
+  });
+
   list = asyncHandler(async (req: Request, res: Response) => {
     const myLv = this.myLevel(req);
     // 자기 레벨 이상(같거나 낮은 직급)만 표시
@@ -138,7 +155,9 @@ class UserController extends BaseController<User> {
       return;
     }
     const currentLevel = ROLE_LEVEL[current.rows[0].group_name] || 99;
-    if (currentLevel <= myLv) {
+    const isAdmin = req.user?.role === 'ADMIN';
+    // ADMIN은 모든 계정 수정 가능, 나머지는 자기보다 낮은 직급만
+    if (!isAdmin && currentLevel <= myLv) {
       res.status(403).json({ success: false, error: '자신보다 낮은 직급의 사용자만 수정할 수 있습니다.' });
       return;
     }
@@ -167,6 +186,10 @@ class UserController extends BaseController<User> {
       }
     }
 
+    // ADMIN만 다른 계정 비밀번호 변경 가능
+    if (req.body.password && !isAdmin) {
+      delete req.body.password;
+    }
     // S-8: 비밀번호 변경 시 최소 길이 검증
     if (req.body.password && req.body.password.length < 4) {
       res.status(400).json({ success: false, error: '비밀번호는 4자 이상이어야 합니다.' });

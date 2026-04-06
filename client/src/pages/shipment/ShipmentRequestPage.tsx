@@ -223,16 +223,14 @@ export default function ShipmentRequestPage() {
       if (isStore && user?.partnerCode) body.to_partner = user.partnerCode;
       const result = await shipmentApi.create(body);
       const resData = result as any;
-      const resultStatus = resData?.status;
-      if (resultStatus === 'RECEIVED') {
-        message.success(`출고 #${resData?.request_no || ''} 확정 완료 (출고+수령 재고 반영됨)`);
-      } else if (resData?.request_no) {
-        message.success(`출고 #${resData.request_no}에 ${items.length}개 품목 등록 (재고 차감됨)`);
+      if (resData?.request_no) {
+        message.success(`출고 #${resData.request_no}에 ${items.length}개 품목 등록 (출고확인 후 재고 차감)`);
       } else {
-        message.success('출고가 등록되었습니다. (재고가 차감되었습니다)');
+        message.success('출고가 등록되었습니다. (출고확인 후 재고가 차감됩니다)');
       }
       setModalOpen(false); form.resetFields(); setItems([]);
-      if (view === 'RECEIVED') loadList('RECEIVED', 1);
+      if (view === 'PENDING') loadList('PENDING', 1);
+      else if (view === 'RECEIVED') loadList('RECEIVED', 1);
       else if (view === 'SHIPPED') loadList('SHIPPED', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
       loadCounts();

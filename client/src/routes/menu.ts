@@ -24,15 +24,13 @@ export const menuItems: MenuItem[] = [
       { key: '/products', label: '상품 목록', icon: 'UnorderedListOutlined', roles: ADMIN_HQ_STORE },
       { key: '/products/dead-stock', label: '악성재고', icon: 'WarningOutlined', roles: ADMIN_HQ },
       { key: '/products/event-price', label: '행사관리', icon: 'TagOutlined', roles: ADMIN_HQ },
-      { key: '/seasons', label: '시즌관리', icon: 'CalendarOutlined', roles: ADMIN_HQ },
-      { key: '/markdown', label: '마크다운 관리', icon: 'FallOutlined', roles: ADMIN_HQ },
     ],
   },
   {
     key: '/inventory', label: '재고관리', icon: 'InboxOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ },
+      { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
       { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ },
       { key: '/inventory/loss', label: '재고처리', icon: 'StopOutlined', roles: ADMIN_HQ },
@@ -88,9 +86,9 @@ export const menuItems: MenuItem[] = [
   },
   { key: '/users', label: '직원 관리', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
   {
-    key: 'sub-master', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ_STORE,
+    key: 'sub-master', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ,
     children: [
-      { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/partners', label: '거래처 관리', icon: 'ShopOutlined', roles: ADMIN_HQ },
       { key: '/codes', label: '코드 관리', icon: 'DatabaseOutlined', roles: ADMIN_SYS },
     ],
   },

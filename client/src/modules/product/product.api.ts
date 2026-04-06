@@ -118,6 +118,29 @@ export const productApi = {
     }>;
   },
 
+  // 거래처별 행사가
+  getEventPartnerPrices: async (productCode: string) => {
+    const res = await apiFetch(`/api/products/${encodeURIComponent(productCode)}/event-partners`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as Array<{
+      id: number; product_code: string; partner_code: string; partner_name: string;
+      event_price: number; event_start_date: string | null; event_end_date: string | null;
+    }>;
+  },
+
+  saveEventPartnerPrices: async (
+    productCode: string,
+    entries: Array<{ partner_code: string; event_price: number; event_start_date?: string | null; event_end_date?: string | null }>,
+  ) => {
+    const res = await apiFetch(`/api/products/${encodeURIComponent(productCode)}/event-partners`, {
+      method: 'PUT', body: JSON.stringify({ entries }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data;
+  },
+
   // 바코드 대시보드
   barcodeDashboard: async () => {
     const res = await apiFetch('/api/products/barcode-dashboard');

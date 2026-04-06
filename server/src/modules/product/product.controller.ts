@@ -74,10 +74,24 @@ class ProductController extends BaseController<Product> {
        LIMIT ${lim}`,
       params,
     );
-    // 행사 매장 제한: 매장 사용자이면 해당 매장이 event_store_codes에 포함되지 않은 경우 event_price 제거
+    // 거래처별 행사가 우선 조회 → 없으면 기존 event_store_codes 로직
     const partnerCode = isStoreRole(req) ? req.user?.partnerCode : undefined;
+    const productCodes = [...new Set(result.rows.map((r: any) => r.product_code))];
+    let pepMap: Record<string, number> = {};
+    if (partnerCode && productCodes.length > 0) {
+      const pepResult = await pool.query(
+        `SELECT product_code, event_price FROM product_event_prices
+         WHERE partner_code = $1 AND product_code = ANY($2)
+           AND (event_start_date IS NULL OR event_start_date <= CURRENT_DATE)
+           AND (event_end_date IS NULL OR event_end_date >= CURRENT_DATE)`,
+        [partnerCode, productCodes],
+      );
+      for (const r of pepResult.rows) pepMap[r.product_code] = Number(r.event_price);
+    }
     const rows = result.rows.map((row: any) => {
-      if (row.event_price && row.event_store_codes && row.event_store_codes.length > 0 && partnerCode) {
+      if (partnerCode && pepMap[row.product_code] !== undefined) {
+        row.event_price = pepMap[row.product_code];
+      } else if (row.event_price && row.event_store_codes && row.event_store_codes.length > 0 && partnerCode) {
         if (!row.event_store_codes.includes(partnerCode)) {
           row.event_price = null;
         }
@@ -225,6 +239,27 @@ class ProductController extends BaseController<Product> {
     if (isStoreRole(req)) {
       data.forEach((d: any) => { delete d.cost_price; });
     }
+    res.json({ success: true, data });
+  });
+
+  // ── 거래처별 행사가 ──
+
+  getEventPartnerPrices = asyncHandler(async (req: Request, res: Response) => {
+    const code = req.params.code as string;
+    const data = await productService.getEventPricesForProduct(code);
+    res.json({ success: true, data });
+  });
+
+  saveEventPartnerPrices = asyncHandler(async (req: Request, res: Response) => {
+    const code = req.params.code as string;
+    const { entries } = req.body;
+    if (!Array.isArray(entries)) {
+      res.status(400).json({ success: false, error: 'entries 배열이 필요합니다.' });
+      return;
+    }
+    const data = await productService.saveEventPartnerPrices(code, entries);
+    audit('products', code, 'UPDATE', req.user!.userId,
+      null, { action: 'event_partner_prices', entries });
     res.json({ success: true, data });
   });
 

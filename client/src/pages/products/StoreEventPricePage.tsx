@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import {
   Table, Button, Select, Space, DatePicker, InputNumber, message,
-  Modal, Tag, Switch, Input, Empty, AutoComplete,
+  Modal, Tag, Switch, Input, Empty, AutoComplete, Divider,
 } from 'antd';
 import {
-  SearchOutlined, ExclamationCircleOutlined, CalendarOutlined,
-  BulbOutlined,
+  SearchOutlined, CalendarOutlined,
+  BulbOutlined, PlusOutlined, DeleteOutlined,
 } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { productApi } from '../../modules/product/product.api';
@@ -16,10 +16,17 @@ import dayjs from 'dayjs';
 
 const { RangePicker } = DatePicker;
 
+interface PartnerPriceRow {
+  partner_code: string;
+  event_price: number;
+  event_start_date: string | null;
+  event_end_date: string | null;
+}
+
 export default function StoreEventPricePage() {
   const { formatCode } = useCodeLabels();
 
-  // ── 필터 (ProductListPage 동일) ──
+  // ── 필터 ──
   const [search, setSearch] = useState('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -30,6 +37,7 @@ export default function StoreEventPricePage() {
   const [seasonFilter, setSeasonFilter] = useState('');
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
+  const [partnerFilter, setPartnerFilter] = useState('');
   const [sortValue, setSortValue] = useState('created_at_DESC');
 
   // 필터 옵션
@@ -68,6 +76,11 @@ export default function StoreEventPricePage() {
   const [singleStores, setSingleStores] = useState<string[]>([]);
   const [singleAllStores, setSingleAllStores] = useState(true);
   const [singleSubmitting, setSingleSubmitting] = useState(false);
+
+  // 거래처별 행사가 상태
+  const [singlePriceMode, setSinglePriceMode] = useState<'uniform' | 'partner'>('uniform');
+  const [partnerPrices, setPartnerPrices] = useState<PartnerPriceRow[]>([]);
+  const [partnerPricesLoading, setPartnerPricesLoading] = useState(false);
 
   // 초기 로드
   useEffect(() => {
@@ -128,6 +141,7 @@ export default function StoreEventPricePage() {
       if (seasonFilter) params.season = seasonFilter;
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
+      if (partnerFilter) params.partner_code = partnerFilter;
       const lastUnderscore = sortValue.lastIndexOf('_');
       params.orderBy = sortValue.substring(0, lastUnderscore);
       params.orderDir = sortValue.substring(lastUnderscore + 1);
@@ -136,9 +150,9 @@ export default function StoreEventPricePage() {
       setTotal(result.total || 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, sortValue]);
+  }, [page, search, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, sortValue]);
 
-  useEffect(() => { loadAll(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, sortValue]);
+  useEffect(() => { loadAll(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, sortValue]);
 
   // 선택 캐시
   const handleRowSelect = (keys: string[]) => {
@@ -165,6 +179,8 @@ export default function StoreEventPricePage() {
         message.success(`${record.product_name} 행사 등록 (${Number(price).toLocaleString()}원)`);
       } else {
         await productApi.updateEventPrice(record.product_code, null, null, null, null);
+        // 거래처별 행사가도 함께 삭제
+        await productApi.saveEventPartnerPrices(record.product_code, []);
         message.success(`${record.product_name} 행사 해제`);
       }
       loadAll();
@@ -221,7 +237,7 @@ export default function StoreEventPricePage() {
   };
 
   // ── 단건 행사가 수정 모달 ──
-  const openSingleModal = (record: any) => {
+  const openSingleModal = async (record: any) => {
     setSingleRecord(record);
     setSinglePrice(record.event_price || record.discount_price || record.base_price || 0);
     setSingleDateRange([
@@ -232,21 +248,72 @@ export default function StoreEventPricePage() {
     setSingleStores(codes);
     setSingleAllStores(codes.length === 0);
     setSingleModalOpen(true);
+
+    // 거래처별 행사가 로드
+    setPartnerPricesLoading(true);
+    try {
+      const pp = await productApi.getEventPartnerPrices(record.product_code);
+      if (pp.length > 0) {
+        setSinglePriceMode('partner');
+        setPartnerPrices(pp.map((p: any) => ({
+          partner_code: p.partner_code,
+          event_price: Number(p.event_price),
+          event_start_date: p.event_start_date || null,
+          event_end_date: p.event_end_date || null,
+        })));
+      } else {
+        setSinglePriceMode('uniform');
+        setPartnerPrices([]);
+      }
+    } catch {
+      setSinglePriceMode('uniform');
+      setPartnerPrices([]);
+    } finally {
+      setPartnerPricesLoading(false);
+    }
   };
 
   const handleSingleSave = async () => {
     if (!singleRecord) return;
-    if (singlePrice <= 0) { message.error('행사가를 입력해주세요'); return; }
-    if (!singleAllStores && singleStores.length === 0) { message.error('대상 매장을 선택해주세요'); return; }
     setSingleSubmitting(true);
     try {
-      await productApi.updateEventPrice(
-        singleRecord.product_code, singlePrice,
-        singleDateRange[0]?.format('YYYY-MM-DD') || null,
-        singleDateRange[1]?.format('YYYY-MM-DD') || null,
-        singleAllStores ? null : singleStores,
-      );
-      message.success(`${singleRecord.product_name} 행사가가 설정되었습니다.`);
+      if (singlePriceMode === 'partner') {
+        // 거래처별 개별가 모드
+        const validEntries = partnerPrices.filter(p => p.partner_code && p.event_price > 0);
+        if (validEntries.length === 0) {
+          message.error('거래처별 행사가를 1개 이상 입력해주세요');
+          setSingleSubmitting(false);
+          return;
+        }
+        // 기본 행사가 설정 (products 테이블 - 첫 번째 거래처 가격으로 표시용)
+        const minPrice = Math.min(...validEntries.map(e => e.event_price));
+        const allStartDates = validEntries.map(e => e.event_start_date).filter(Boolean);
+        const allEndDates = validEntries.map(e => e.event_end_date).filter(Boolean);
+        const earliestStart = allStartDates.length > 0 ? allStartDates.sort()[0] : null;
+        const latestEnd = allEndDates.length > 0 ? allEndDates.sort().reverse()[0] : null;
+        const partnerCodes = validEntries.map(e => e.partner_code);
+
+        await productApi.updateEventPrice(
+          singleRecord.product_code, minPrice,
+          earliestStart, latestEnd, partnerCodes,
+        );
+        // 거래처별 행사가 저장
+        await productApi.saveEventPartnerPrices(singleRecord.product_code, validEntries);
+        message.success(`${singleRecord.product_name} 거래처별 행사가가 설정되었습니다.`);
+      } else {
+        // 전체 동일가 모드
+        if (singlePrice <= 0) { message.error('행사가를 입력해주세요'); setSingleSubmitting(false); return; }
+        if (!singleAllStores && singleStores.length === 0) { message.error('대상 매장을 선택해주세요'); setSingleSubmitting(false); return; }
+        await productApi.updateEventPrice(
+          singleRecord.product_code, singlePrice,
+          singleDateRange[0]?.format('YYYY-MM-DD') || null,
+          singleDateRange[1]?.format('YYYY-MM-DD') || null,
+          singleAllStores ? null : singleStores,
+        );
+        // 거래처별 행사가 초기화
+        await productApi.saveEventPartnerPrices(singleRecord.product_code, []);
+        message.success(`${singleRecord.product_name} 행사가가 설정되었습니다.`);
+      }
       setSingleModalOpen(false);
       loadAll();
     } catch (e: any) { message.error(e.message); }
@@ -258,12 +325,36 @@ export default function StoreEventPricePage() {
     setSingleSubmitting(true);
     try {
       await productApi.updateEventPrice(singleRecord.product_code, null, null, null, null);
+      await productApi.saveEventPartnerPrices(singleRecord.product_code, []);
       message.success(`${singleRecord.product_name} 행사가가 해제되었습니다.`);
       setSingleModalOpen(false);
       loadAll();
     } catch (e: any) { message.error(e.message); }
     finally { setSingleSubmitting(false); }
   };
+
+  // 거래처별 행사가 행 관리
+  const addPartnerRow = () => {
+    setPartnerPrices(prev => [...prev, {
+      partner_code: '', event_price: singleRecord?.discount_price || singleRecord?.base_price || 0,
+      event_start_date: singleDateRange[0]?.format('YYYY-MM-DD') || null,
+      event_end_date: singleDateRange[1]?.format('YYYY-MM-DD') || null,
+    }]);
+  };
+
+  const removePartnerRow = (idx: number) => {
+    setPartnerPrices(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const updatePartnerRow = (idx: number, field: keyof PartnerPriceRow, value: any) => {
+    setPartnerPrices(prev => prev.map((row, i) => i === idx ? { ...row, [field]: value } : row));
+  };
+
+  // 선택 가능한 거래처 (이미 선택된 것 제외)
+  const availablePartners = useCallback((currentIdx: number) => {
+    const usedCodes = partnerPrices.filter((_, i) => i !== currentIdx).map(p => p.partner_code);
+    return storeOptions.filter(o => !usedCodes.includes(o.value));
+  }, [partnerPrices, storeOptions]);
 
   // ── 테이블 컬럼 ──
   const columns = [
@@ -278,7 +369,7 @@ export default function StoreEventPricePage() {
       ),
     },
     { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 120 },
-    { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
+    { title: '상품명', dataIndex: 'product_name', key: 'product_name', width: 160, ellipsis: true },
     { title: '카테고리', dataIndex: 'category', key: 'category', width: 80 },
     { title: '연도', dataIndex: 'year', key: 'year', width: 60, render: (v: string) => v ? formatCode('YEAR', v) : '-' },
     { title: '시즌', dataIndex: 'season', key: 'season', width: 90, render: (v: string) => v ? formatCode('SEASON', v) : '-' },
@@ -291,10 +382,16 @@ export default function StoreEventPricePage() {
       render: (v: number) => v ? <span style={{ color: '#cf1322' }}>{Number(v).toLocaleString()}</span> : '-',
     },
     {
-      title: '행사가', dataIndex: 'event_price', key: 'event_price', width: 100,
-      render: (v: number, record: any) => v
-        ? <Button type="link" size="small" style={{ fontWeight: 600, color: '#fa8c16', padding: 0 }} onClick={() => openSingleModal(record)}>{Number(v).toLocaleString()}</Button>
+      title: '행사가', dataIndex: 'event_price', key: 'event_price', width: 90,
+      render: (v: number) => v
+        ? <span style={{ fontWeight: 600, color: '#fa8c16' }}>{Number(v).toLocaleString()}</span>
         : <span style={{ color: '#ccc' }}>-</span>,
+    },
+    {
+      title: '', key: 'edit_action', width: 60,
+      render: (_: any, record: any) => record.event_price
+        ? <Button size="small" onClick={() => openSingleModal(record)}>수정</Button>
+        : null,
     },
     {
       title: '적용매장', key: 'event_stores', width: 130, ellipsis: true,
@@ -340,7 +437,7 @@ export default function StoreEventPricePage() {
         </Space>
       } />
 
-      {/* 필터 (상품관리 동일 UI) */}
+      {/* 필터 */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete
@@ -358,6 +455,10 @@ export default function StoreEventPricePage() {
           >
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); loadAll(1); }} />
           </AutoComplete></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
+          <Select showSearch optionFilterProp="label" value={partnerFilter}
+            onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 130 }}
+            options={[{ label: '전체 거래처', value: '' }, ...storeOptions]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={(v) => { setCategoryFilter(v); setPage(1); }} style={{ width: 120 }}
             options={[{ label: '전체 보기', value: '' }, ...categoryOptions]} /></div>
@@ -469,13 +570,13 @@ export default function StoreEventPricePage() {
         title="행사가 수정"
         open={singleModalOpen}
         onCancel={() => setSingleModalOpen(false)}
-        width={480}
+        width={600}
         footer={[
           singleRecord?.event_price && (
             <Button key="clear" danger onClick={handleSingleClear} loading={singleSubmitting}>행사 해제</Button>
           ),
           <Button key="cancel" onClick={() => setSingleModalOpen(false)}>취소</Button>,
-          <Button key="ok" type="primary" onClick={handleSingleSave} loading={singleSubmitting}>저장</Button>,
+          <Button key="ok" type="primary" onClick={handleSingleSave} loading={singleSubmitting || partnerPricesLoading}>저장</Button>,
         ].filter(Boolean)}
       >
         {singleRecord && (
@@ -490,48 +591,127 @@ export default function StoreEventPricePage() {
                 {singleRecord.discount_price && ` | 할인가: ${Number(singleRecord.discount_price).toLocaleString()}원`}
               </div>
             </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>행사가격 *</div>
-              <InputNumber
-                min={0} value={singlePrice} style={{ width: '100%' }}
-                formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                onChange={(v) => setSinglePrice(v || 0)}
-                addonAfter="원"
-              />
+
+            {/* 모드 선택 */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <Button
+                type={singlePriceMode === 'uniform' ? 'primary' : 'default'}
+                size="small"
+                onClick={() => setSinglePriceMode('uniform')}
+              >
+                전체 동일가
+              </Button>
+              <Button
+                type={singlePriceMode === 'partner' ? 'primary' : 'default'}
+                size="small"
+                onClick={() => {
+                  setSinglePriceMode('partner');
+                  if (partnerPrices.length === 0) addPartnerRow();
+                }}
+              >
+                거래처별 개별가
+              </Button>
             </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
-                <CalendarOutlined style={{ marginRight: 4 }} />행사기간
-              </div>
-              <RangePicker
-                value={singleDateRange as any}
-                onChange={(v) => setSingleDateRange(v ? [v[0], v[1]] : [null, null])}
-                style={{ width: '100%' }}
-                placeholder={['시작일', '종료일']}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
-                대상 매장
-                <Switch
-                  size="small" style={{ marginLeft: 12 }}
-                  checked={singleAllStores}
-                  onChange={(v) => { setSingleAllStores(v); if (v) setSingleStores([]); }}
-                  checkedChildren="전체" unCheckedChildren="선택"
-                />
-              </div>
-              {!singleAllStores && (
-                <Select
-                  mode="multiple"
-                  placeholder="행사 적용 매장 선택"
-                  options={storeOptions}
-                  value={singleStores}
-                  onChange={setSingleStores}
+
+            {singlePriceMode === 'uniform' ? (
+              <>
+                <div>
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>행사가격 *</div>
+                  <InputNumber
+                    min={0} value={singlePrice} style={{ width: '100%' }}
+                    formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                    onChange={(v) => setSinglePrice(v || 0)}
+                    addonAfter="원"
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>
+                    <CalendarOutlined style={{ marginRight: 4 }} />행사기간
+                  </div>
+                  <RangePicker
+                    value={singleDateRange as any}
+                    onChange={(v) => setSingleDateRange(v ? [v[0], v[1]] : [null, null])}
+                    style={{ width: '100%' }}
+                    placeholder={['시작일', '종료일']}
+                  />
+                </div>
+                <div>
+                  <div style={{ fontSize: 12, color: '#666', marginBottom: 8 }}>
+                    대상 매장
+                    <Switch
+                      size="small" style={{ marginLeft: 12 }}
+                      checked={singleAllStores}
+                      onChange={(v) => { setSingleAllStores(v); if (v) setSingleStores([]); }}
+                      checkedChildren="전체" unCheckedChildren="선택"
+                    />
+                  </div>
+                  {!singleAllStores && (
+                    <Select
+                      mode="multiple"
+                      placeholder="행사 적용 매장 선택"
+                      options={storeOptions}
+                      value={singleStores}
+                      onChange={setSingleStores}
+                      style={{ width: '100%' }}
+                      optionFilterProp="label"
+                    />
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <Divider style={{ margin: '4px 0' }} />
+                <div style={{ fontSize: 12, color: '#666', marginBottom: 4 }}>거래처별 행사가 설정</div>
+                <div style={{ maxHeight: 280, overflow: 'auto' }}>
+                  {partnerPrices.map((row, idx) => (
+                    <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+                      <Select
+                        showSearch optionFilterProp="label"
+                        placeholder="거래처"
+                        options={availablePartners(idx)}
+                        value={row.partner_code || undefined}
+                        onChange={(v) => updatePartnerRow(idx, 'partner_code', v)}
+                        style={{ width: 130 }}
+                        size="small"
+                      />
+                      <InputNumber
+                        min={0} value={row.event_price} size="small"
+                        style={{ width: 110 }}
+                        formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
+                        onChange={(v) => updatePartnerRow(idx, 'event_price', v || 0)}
+                        addonAfter="원"
+                      />
+                      <RangePicker
+                        size="small"
+                        value={[
+                          row.event_start_date ? dayjs(row.event_start_date) : null,
+                          row.event_end_date ? dayjs(row.event_end_date) : null,
+                        ] as any}
+                        onChange={(v) => {
+                          updatePartnerRow(idx, 'event_start_date', v?.[0]?.format('YYYY-MM-DD') || null);
+                          updatePartnerRow(idx, 'event_end_date', v?.[1]?.format('YYYY-MM-DD') || null);
+                        }}
+                        placeholder={['시작', '종료']}
+                        style={{ flex: 1 }}
+                      />
+                      <Button
+                        size="small" type="text" danger
+                        icon={<DeleteOutlined />}
+                        onClick={() => removePartnerRow(idx)}
+                      />
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  type="dashed" size="small" icon={<PlusOutlined />}
+                  onClick={addPartnerRow}
+                  disabled={partnerPrices.length >= storeOptions.length}
                   style={{ width: '100%' }}
-                  optionFilterProp="label"
-                />
-              )}
-            </div>
+                >
+                  거래처 추가
+                </Button>
+              </>
+            )}
           </div>
         )}
       </Modal>

@@ -25,7 +25,8 @@ export function InventoryDashboard() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const effectiveStore = isStore;
+  // STORE_MANAGER는 타매장 재고도 조회 가능 — STORE_STAFF만 제한
+  const effectiveStore = user?.role === ROLES.STORE_STAFF;
 
   const [stats, setStats] = useState<any>(null);
   const [statsLoading, setStatsLoading] = useState(true);
@@ -53,6 +54,8 @@ export function InventoryDashboard() {
   const [invData, setInvData] = useState<any[]>([]);
   const [invTotal, setInvTotal] = useState(0);
   const [invLoading, setInvLoading] = useState(false);
+  const [sortField, setSortField] = useState<string>('');
+  const [sortDir, setSortDir] = useState<string>('');
 
 
 
@@ -143,6 +146,8 @@ export function InventoryDashboard() {
         params.date_from = dateRange[0].format('YYYY-MM-DD');
         params.date_to = dateRange[1].format('YYYY-MM-DD');
       }
+      if (sortField) params.sort_field = sortField;
+      if (sortDir) params.sort_dir = sortDir;
       const result = await inventoryApi.list(params);
       setInvData(result.data);
       setInvTotal(result.total);
@@ -150,7 +155,7 @@ export function InventoryDashboard() {
     finally { setInvLoading(false); }
   };
 
-  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, dateRange]);
+  useEffect(() => { load(); }, [page, partnerFilter, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, dateRange, sortField, sortDir]);
 
   const handleCategoryFilterChange = (value: string[]) => {
     setCategoryFilter(value);
@@ -372,15 +377,14 @@ export function InventoryDashboard() {
           { title: '거래처', dataIndex: 'partner_name', key: 'partner_name', width: 110 },
           { title: '상품코드', dataIndex: 'product_code', key: 'product_code', width: 130, ellipsis: true,
             render: (v: string) => <a onClick={() => navigate(`/products/${v}`)}>{v}</a> },
-          { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
-          { title: '카테고리', dataIndex: 'category', key: 'category', width: 85,
+          { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true, sorter: true },
+          { title: '카테고리', dataIndex: 'category', key: 'category', width: 85, sorter: true,
             render: (v: string) => v ? <Tag color={CAT_TAG_COLORS[v] || 'default'}>{v}</Tag> : '-' },
-          { title: '시즌', dataIndex: 'season', key: 'season', width: 80, render: (v: string) => v || '-' },
-          { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true },
+          { title: '시즌', dataIndex: 'season', key: 'season', width: 80, sorter: true, render: (v: string) => v || '-' },
+          { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150, ellipsis: true, sorter: true },
           { title: '색상', dataIndex: 'color', key: 'color', width: 65, render: (v: string) => v || '-' },
           { title: '사이즈', dataIndex: 'size', key: 'size', width: 65, render: (v: string) => v ? <Tag>{v}</Tag> : '-' },
-          { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, align: 'right' as const,
-            sorter: (a: any, b: any) => Number(a.qty) - Number(b.qty),
+          { title: '재고', dataIndex: 'qty', key: 'qty', width: 90, align: 'right' as const, sorter: true,
             render: (v: number) => renderQty(Number(v)) },
         ]}
         dataSource={invData}
@@ -389,6 +393,17 @@ export function InventoryDashboard() {
         size="small"
         scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
         pagination={{ current: page, total: invTotal, pageSize: 50, onChange: setPage, showTotal: (t) => `총 ${t}건` }}
+        onChange={(_pagination, _filters, sorter: any) => {
+          if (sorter?.field && sorter?.order) {
+            const fieldMap: Record<string, string> = { qty: 'qty', product_name: 'product_name', category: 'category', season: 'season', sku: 'sku' };
+            setSortField(fieldMap[sorter.field] || '');
+            setSortDir(sorter.order === 'ascend' ? 'ASC' : 'DESC');
+          } else {
+            setSortField('');
+            setSortDir('');
+          }
+          setPage(1);
+        }}
       />
 
       {/* 카테고리/시즌 (본사) */}

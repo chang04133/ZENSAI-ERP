@@ -240,6 +240,10 @@ router.put('/:code/materials', ...write, asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 }));
 
+// 거래처별 행사가
+router.get('/:code/event-partners', authMiddleware, productController.getEventPartnerPrices);
+router.put('/:code/event-partners', ...eventWrite, productController.saveEventPartnerPrices);
+
 router.get('/:code', authMiddleware, productController.getById);
 router.post('/',     ...write, validateRequired(['product_code', 'product_name']), productController.create);
 router.put('/:code/event-price', ...eventWrite, productController.updateEventPrice);

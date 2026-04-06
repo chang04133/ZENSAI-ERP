@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { Table, Button, Input, Space, Select, Tag, Popconfirm, message } from 'antd';
+import { Table, Button, Input, Space, Select, Tag, Popconfirm, message, Segmented } from 'antd';
 import { PlusOutlined, SearchOutlined, StarFilled } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
@@ -65,7 +65,7 @@ export default function PartnerListPage() {
     setDeleting(true);
     try {
       await partnerApi.remove(code);
-      message.success('거래처가 비활성화되었습니다.');
+      message.success('폐점 처리되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -79,7 +79,7 @@ export default function PartnerListPage() {
     setDeleting(true);
     try {
       await partnerApi.update(code, { is_active: true });
-      message.success('거래처가 재활성화되었습니다.');
+      message.success('정상매장으로 복구되었습니다.');
       load();
     } catch (e: any) {
       message.error(e.message);
@@ -155,8 +155,8 @@ export default function PartnerListPage() {
     { title: '연락처', dataIndex: 'contact', key: 'contact', width: 120, render: (v: string) => v || '-' },
     { title: '상태', dataIndex: 'is_active', key: 'is_active', width: 70,
       render: (v: boolean) => v === false
-        ? <Tag color="red">비활성</Tag>
-        : <Tag color="green">활성</Tag>,
+        ? <Tag color="red">폐점</Tag>
+        : <Tag color="green">정상</Tag>,
     },
     ...(canWrite ? [{
       title: '관리', key: 'actions', width: 160,
@@ -164,13 +164,13 @@ export default function PartnerListPage() {
         <Space>
           <Button size="small" onClick={() => navigate(`/partners/${record.partner_code}/edit`)}>수정</Button>
           {canDelete && record.is_active !== false && (
-            <Popconfirm title="비활성화하시겠습니까?" onConfirm={() => handleDelete(record.partner_code)}>
-              <Button size="small" danger loading={deleting}>비활성화</Button>
+            <Popconfirm title="폐점 처리하시겠습니까?" onConfirm={() => handleDelete(record.partner_code)}>
+              <Button size="small" danger loading={deleting}>폐점</Button>
             </Popconfirm>
           )}
           {canDelete && record.is_active === false && (
-            <Popconfirm title="재활성화하시겠습니까?" onConfirm={() => handleReactivate(record.partner_code)}>
-              <Button size="small" type="primary" ghost loading={deleting}>재활성화</Button>
+            <Popconfirm title="정상매장으로 복구하시겠습니까?" onConfirm={() => handleReactivate(record.partner_code)}>
+              <Button size="small" type="primary" ghost loading={deleting}>복구</Button>
             </Popconfirm>
           )}
         </Space>
@@ -216,15 +216,14 @@ export default function PartnerListPage() {
               { label: '가맹', value: '가맹' },
             ]}
           /></div>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
-          <Select
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장 상태</div>
+          <Segmented
             value={isActive}
-            onChange={(v) => { setIsActive(v); setPage(1); }}
-            style={{ width: 110 }}
+            onChange={(v) => { setIsActive(v as string); setPage(1); }}
             options={[
+              { label: '정상매장', value: 'true' },
+              { label: '폐점매장', value: 'false' },
               { label: '전체', value: '' },
-              { label: '활성', value: 'true' },
-              { label: '비활성', value: 'false' },
             ]}
           /></div>
         <Button onClick={handleSearchEnter}>조회</Button>

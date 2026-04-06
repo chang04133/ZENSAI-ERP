@@ -47,6 +47,23 @@ class ProductService extends BaseService<Product> {
     return productRepository.eventRecommendations(options);
   }
 
+  // ── 거래처별 행사가 ──
+
+  async getEventPricesForProduct(productCode: string) {
+    return productRepository.getEventPricesForProduct(productCode);
+  }
+
+  async saveEventPartnerPrices(
+    productCode: string,
+    entries: Array<{ partner_code: string; event_price: number; event_start_date?: string | null; event_end_date?: string | null }>,
+  ) {
+    return productRepository.saveEventPartnerPrices(productCode, entries);
+  }
+
+  async getEventPriceForPartner(productCode: string, partnerCode: string) {
+    return productRepository.getEventPriceForPartner(productCode, partnerCode);
+  }
+
 }
 
 export const productService = new ProductService();

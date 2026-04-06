@@ -4,28 +4,35 @@ import { Inventory } from '../../../../shared/types/inventory';
 import { inventoryService } from './inventory.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
-import { getStorePartnerCode } from '../../core/store-filter';
 
 class InventoryController extends BaseController<Inventory> {
   constructor() {
     super(inventoryService);
   }
 
+  /** 재고 조회용 매장 필터 — STORE_MANAGER는 타매장 재고도 조회 가능 */
+  private getInventoryPartnerCode(req: Request): string | undefined {
+    const role = req.user?.role;
+    // STORE_STAFF만 자기 매장으로 강제, STORE_MANAGER는 전체 조회 가능
+    if (role === 'STORE_STAFF' && req.user?.partnerCode) return req.user.partnerCode;
+    return undefined;
+  }
+
   list = asyncHandler(async (req: Request, res: Response) => {
     const query: any = { ...req.query };
-    // 매장 사용자는 무조건 자기 매장으로 제한 (partner_code 파라미터 무시)
-    const pc = getStorePartnerCode(req);
+    // STORE_STAFF는 자기 매장만, STORE_MANAGER 이상은 전체 조회 가능
+    const pc = this.getInventoryPartnerCode(req);
     if (pc) query.partner_code = pc;
     const result = await inventoryService.listWithDetails(query);
     res.json({ success: true, data: result });
   });
 
-  /** 매장별 재고 요약: 거래처별 총 수량/SKU수/상품수 */
+  /** 매장별 재고 요약: 거래처별 총 수량/SKU수/상품수 — STORE_MANAGER도 조회 가능 */
   byPartner = asyncHandler(async (req: Request, res: Response) => {
     const pool = getPool();
     const role = req.user?.role;
-    const isHq = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
-    if (!isHq) {
+    const canView = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'].includes(role || '');
+    if (!canView) {
       res.status(403).json({ success: false, error: '접근 권한이 없습니다.' });
       return;
     }
@@ -91,10 +98,10 @@ class InventoryController extends BaseController<Inventory> {
     res.json({ success: true, data: result });
   });
 
-  /** 상품코드 기준 매장별 재고 조회 */
+  /** 상품코드 기준 매장별 재고 조회 — STORE_MANAGER도 전체 매장 조회 가능 */
   byProduct = asyncHandler(async (req: Request, res: Response) => {
     const productCode = req.params.code;
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
     const pool = getPool();
     const params: any[] = [productCode];
     let pcFilter = '';
@@ -121,14 +128,13 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    // S-1: scope=all은 ADMIN/HQ_MANAGER만 허용
-    const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
-    // HQ 이상: partner_code 쿼리 파라미터로 특정 매장 조회 가능
+    // STORE_MANAGER 이상은 전체 통계 조회 가능
+    const canSeeAll = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'].includes(role || '');
+    // partner_code 쿼리 파라미터로 특정 매장 조회 가능
     const explicitPartner = req.query.partner_code as string | undefined;
-    const isHqOrAbove = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
-    const partnerCode = (isHqOrAbove && explicitPartner) ? explicitPartner
+    const partnerCode = (canSeeAll && explicitPartner) ? explicitPartner
       : canSeeAll ? undefined
-      : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+      : role === 'STORE_STAFF' && pc ? pc : undefined;
     const [overall, byCategory, bySeason, byFit, byLength, byYear] = await Promise.all([
       inventoryRepository.overallStats(partnerCode),
       inventoryRepository.summaryByCategory(partnerCode),
@@ -146,10 +152,10 @@ class InventoryController extends BaseController<Inventory> {
     const role = req.user?.role;
     const pc = req.user?.partnerCode;
     const scope = req.query.scope as string;
-    // S-1: scope=all은 ADMIN/HQ_MANAGER만 허용
-    const canSeeAll = scope === 'all' && ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role || '');
+    // STORE_MANAGER 이상은 전체 조회 가능
+    const canSeeAll = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'].includes(role || '');
     const partnerCode = canSeeAll ? undefined
-      : (role === 'STORE_MANAGER' || role === 'STORE_STAFF') && pc ? pc : undefined;
+      : role === 'STORE_STAFF' && pc ? pc : undefined;
 
     const defaultUrgent = partnerCode ? 1 : 5;
     const defaultRecommend = partnerCode ? 3 : 10;
@@ -251,7 +257,7 @@ class InventoryController extends BaseController<Inventory> {
       return;
     }
     const pool = getPool();
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
 
     // 1) 상품 1건 찾기 (product_code 정확/부분 매치 or product_name/SKU ILIKE)
     const productSql = `
@@ -322,7 +328,7 @@ class InventoryController extends BaseController<Inventory> {
   /** 시즌별 요약 */
   summaryBySeason = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
     const data = await inventoryRepository.summaryBySeason(pc);
     res.json({ success: true, data });
   });
@@ -330,7 +336,7 @@ class InventoryController extends BaseController<Inventory> {
   /** 시즌별 아이템 목록 */
   listBySeason = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
     const query: any = { ...req.query };
     if (pc) query.partner_code = pc;
     const data = await inventoryRepository.listBySeason(req.params.season as string, query);
@@ -386,7 +392,7 @@ class InventoryController extends BaseController<Inventory> {
   /** 재고처리 조회 (LOSS 트랜잭션 - 유실/폐기/증정/직원할인) */
   lossHistory = asyncHandler(async (req: Request, res: Response) => {
     const pool = getPool();
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
     const { date_from, date_to, search, loss_type } = req.query;
     const page = parseInt(req.query.page as string, 10) || 1;
     const limit = parseInt(req.query.limit as string, 10) || 50;
@@ -521,7 +527,7 @@ class InventoryController extends BaseController<Inventory> {
   transactions = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
     const query: any = { ...req.query };
-    const pc = getStorePartnerCode(req);
+    const pc = this.getInventoryPartnerCode(req);
     if (pc) query.partner_code = pc;
     const result = await inventoryRepository.listTransactions(query);
     res.json({ success: true, data: result });
@@ -530,7 +536,7 @@ class InventoryController extends BaseController<Inventory> {
   deadStock = asyncHandler(async (req: Request, res: Response) => {
     const { inventoryRepository } = await import('./inventory.repository');
     const { min_age_years, category } = req.query;
-    const partnerCode = getStorePartnerCode(req) || undefined;
+    const partnerCode = this.getInventoryPartnerCode(req) || undefined;
     // S-5: isNaN 체크
     const parsedAge = min_age_years ? parseInt(min_age_years as string, 10) : undefined;
     const data = await inventoryRepository.deadStockAnalysis({

@@ -24,6 +24,21 @@ body {
   overflow: hidden;
 }
 
+/* 메인 탭 스타일 — 탭 크기 키우기 + X 버튼 크게 */
+.main-tabs .ant-tabs-tab {
+  padding: 8px 16px !important;
+  font-size: 14px !important;
+}
+.main-tabs .ant-tabs-tab .ant-tabs-tab-remove {
+  font-size: 14px !important;
+  width: 20px !important;
+  height: 20px !important;
+  margin-left: 8px !important;
+}
+.main-tabs .ant-tabs-tab .ant-tabs-tab-remove:hover {
+  color: #ff4d4f !important;
+}
+
 /* 빈 모달 마스크가 화면 가리는 것 방지 */
 .ant-modal-mask:empty {
   display: none !important;

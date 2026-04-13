@@ -11,7 +11,9 @@ import { getPool } from '../../db/connection';
 
 const router = Router();
 
+const adminOnly = [authMiddleware, requireRole('ADMIN')];
 const write = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN')];
+const edit = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
 const eventWrite = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER')];
 
 // 이미지 업로드용 multer 설정
@@ -36,8 +38,8 @@ const imageUpload = multer({
   },
 });
 
-// 바코드 대시보드 (매장용)
-router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) => {
+// 바코드 대시보드 (STORE_STAFF 제외)
+router.get('/barcode-dashboard', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const role = req.user?.role;
   const pc = req.user?.partnerCode;
@@ -75,7 +77,7 @@ router.get('/barcode-dashboard', authMiddleware, asyncHandler(async (req, res) =
     JOIN products p ON pv.product_code = p.product_code
     ${inventoryJoin}
     WHERE pv.is_active = TRUE AND p.is_active = TRUE ${inventoryFilter}
-    ORDER BY p.product_code, pv.color, pv.size
+    ORDER BY p.product_code, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END
     LIMIT 500`;
   const variants = (await pool.query(variantSql, variantParams)).rows;
 
@@ -119,7 +121,7 @@ router.put('/variants/:id/barcode', authMiddleware, requireRole('ADMIN', 'SYS_AD
 }));
 
 // 이미지 업로드
-router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(async (req, res) => {
+router.post('/:code/image', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), imageUpload.single('image'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const { code } = req.params;
   const file = req.file;
@@ -146,8 +148,8 @@ router.post('/:code/image', ...write, imageUpload.single('image'), asyncHandler(
 }));
 
 // 행사 상품
-router.get('/events', authMiddleware, productController.listEventProducts);
-router.get('/events/recommendations', authMiddleware, productController.eventRecommendations);
+router.get('/events', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), productController.listEventProducts);
+router.get('/events/recommendations', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), productController.eventRecommendations);
 router.put('/events/bulk', ...eventWrite, productController.bulkUpdateEventPrices);
 router.put('/events/bulk-dates', ...eventWrite, productController.bulkUpdateEventDates);
 
@@ -180,7 +182,7 @@ router.post('/variants/bulk', authMiddleware, asyncHandler(async (req, res) => {
       GROUP BY variant_id
     ) inv ON pv.variant_id = inv.variant_id
     WHERE pv.variant_id IN (${placeholders})
-    ORDER BY p.category, p.product_code, pv.color, pv.size`;
+    ORDER BY p.category, p.product_code, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END`;
   const result = await pool.query(sql, ids);
   const role = req.user?.role;
   const isStore = role === 'STORE_MANAGER' || role === 'STORE_STAFF';
@@ -218,18 +220,18 @@ router.get('/variants/options', authMiddleware, asyncHandler(async (_req, res) =
   const sizes = await pool.query("SELECT size FROM (SELECT DISTINCT size FROM product_variants WHERE is_active = TRUE AND size IS NOT NULL) sub ORDER BY CASE size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END");
   res.json({ success: true, data: { colors: colors.rows.map((r: any) => r.color), sizes: sizes.rows.map((r: any) => r.size) } });
 }));
-router.get('/export/variants', ...write, productController.exportVariants);
+router.get('/export/variants', ...edit, productController.exportVariants);
 router.get('/',      authMiddleware, productController.list);
 router.get('/variants/search', authMiddleware, productController.searchVariants);
 
 // 상품-부자재 연결 API
-router.get('/:code/materials', ...write, asyncHandler(async (req, res) => {
+router.get('/:code/materials', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), asyncHandler(async (req, res) => {
   const { productRepository } = await import('./product.repository');
   const materials = await productRepository.getProductMaterials(req.params.code as string);
   res.json({ success: true, data: materials });
 }));
 
-router.put('/:code/materials', ...write, asyncHandler(async (req, res) => {
+router.put('/:code/materials', ...edit, asyncHandler(async (req, res) => {
   const { materials } = req.body;
   if (!Array.isArray(materials) || materials.length === 0) {
     res.status(400).json({ success: false, error: '부자재를 1개 이상 등록해야 합니다.' });
@@ -247,11 +249,15 @@ router.put('/:code/event-partners', ...eventWrite, productController.saveEventPa
 router.get('/:code', authMiddleware, productController.getById);
 router.post('/',     ...write, validateRequired(['product_code', 'product_name']), productController.create);
 router.put('/:code/event-price', ...eventWrite, productController.updateEventPrice);
-router.put('/:code', ...write, productController.update);
-router.delete('/:code', ...write, productController.remove);
+router.delete('/:code', ...write, productController.delete);
+router.put('/:code', ...edit, (req, _res, next) => {
+  // ADMIN 외에는 원가 수정 불가
+  if (req.user?.role !== 'ADMIN') delete req.body.cost_price;
+  next();
+}, productController.update);
 
-// SKU별 부족알림 토글
-router.put('/variants/:id/alert', authMiddleware, asyncHandler(async (req, res) => {
+// SKU별 부족알림 토글 (매니저 이상)
+router.put('/variants/:id/alert', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const variantId = parseInt(req.params.id as string, 10);
   const { low_stock_alert } = req.body;
@@ -267,8 +273,7 @@ router.put('/variants/:id/alert', authMiddleware, asyncHandler(async (req, res) 
 }));
 
 // Variant sub-routes
-router.post('/:code/variants',       ...write, validateRequired(['color', 'size']), productController.addVariant);
-router.put('/:code/variants/:id',    ...write, productController.updateVariant);
-router.delete('/:code/variants/:id', ...write, productController.removeVariant);
+router.post('/:code/variants',       ...edit, validateRequired(['color', 'size']), productController.addVariant);
+router.put('/:code/variants/:id',    ...edit, productController.updateVariant);
 
 export default router;

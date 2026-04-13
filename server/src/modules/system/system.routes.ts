@@ -3,9 +3,107 @@ import { authMiddleware } from '../../auth/middleware';
 import { requireRole } from '../../middleware/role-guard';
 import { getPool } from '../../db/connection';
 import { asyncHandler } from '../../core/async-handler';
+import { inventoryRepository } from '../inventory/inventory.repository';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 const admin = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN')];
+const adminHqStore = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER')];
+
+// docs 폴더 경로 해석
+function resolveDocsDir(): string | null {
+  const candidates = [
+    path.resolve(process.cwd(), '../docs'),
+    path.resolve(process.cwd(), 'docs'),
+    path.resolve(__dirname, '../../../../docs'),
+  ];
+  return candidates.find(p => fs.existsSync(p)) || null;
+}
+
+// GET /api/system/docs - 문서 목록 조회
+router.get('/docs', ...admin, asyncHandler(async (_req, res) => {
+  const docsDir = resolveDocsDir();
+  if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
+  const files = fs.readdirSync(docsDir).filter(f => f.endsWith('.md'));
+  const docs = files.map(f => {
+    const stat = fs.statSync(path.join(docsDir, f));
+    return { filename: f, updatedAt: stat.mtime.toISOString() };
+  });
+  res.json({ success: true, data: docs });
+}));
+
+// GET /api/system/docs/:filename - 개별 문서 조회
+router.get('/docs/:filename', ...admin, asyncHandler(async (req, res) => {
+  const filename = req.params.filename as string;
+  if (!/^[\w\-]+\.md$/.test(filename)) {
+    res.status(400).json({ success: false, error: '유효하지 않은 파일명입니다.' });
+    return;
+  }
+  const docsDir = resolveDocsDir();
+  if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
+  const filePath = path.join(docsDir, filename);
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ success: false, error: '문서 파일을 찾을 수 없습니다.' });
+    return;
+  }
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const stat = fs.statSync(filePath);
+  res.json({ success: true, data: { content, updatedAt: stat.mtime.toISOString() } });
+}));
+
+// GET /api/system/test-results - 테스트 결과 JSON 조회
+router.get('/test-results', ...admin, asyncHandler(async (_req, res) => {
+  const docsDir = resolveDocsDir();
+  if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
+  const filePath = path.join(docsDir, 'test-results.json');
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ success: false, error: '테스트 결과 파일이 없습니다. 서버에서 npm run test:report를 실행하세요.' });
+    return;
+  }
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const stat = fs.statSync(filePath);
+  const results = JSON.parse(raw);
+  res.json({ success: true, data: { results, updatedAt: stat.mtime.toISOString() } });
+}));
+
+// GET /api/system/e2e-results - E2E 테스트 결과 JSON 조회
+router.get('/e2e-results', asyncHandler(async (_req, res) => {
+  const docsDir = resolveDocsDir();
+  if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
+  const filePath = path.join(docsDir, 'e2e-results.json');
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ success: false, error: 'E2E 테스트 결과 파일이 없습니다. npx playwright test를 실행하세요.' });
+    return;
+  }
+  const raw = fs.readFileSync(filePath, 'utf-8');
+  const stat = fs.statSync(filePath);
+  const results = JSON.parse(raw);
+  res.json({ success: true, data: { results, updatedAt: stat.mtime.toISOString() } });
+}));
+
+// GET /api/system/e2e-screenshots — E2E 스크린샷 이미지 서빙 (?path=relative/path.png)
+router.get('/e2e-screenshots', asyncHandler(async (req, res) => {
+  const relPath = req.query.path as string;
+  if (!relPath || !relPath.endsWith('.png') || relPath.includes('..')) {
+    res.status(400).json({ success: false, error: '유효하지 않은 경로입니다.' });
+    return;
+  }
+  const testResultsDir = path.resolve(process.cwd(), '../test-results');
+  const filePath = path.resolve(testResultsDir, relPath);
+  // 보안: test-results 디렉토리 내부인지 확인
+  if (!filePath.startsWith(testResultsDir)) {
+    res.status(403).json({ success: false, error: '접근이 거부되었습니다.' });
+    return;
+  }
+  if (!fs.existsSync(filePath)) {
+    res.status(404).json({ success: false, error: '스크린샷을 찾을 수 없습니다.' });
+    return;
+  }
+  res.setHeader('Content-Type', 'image/png');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  fs.createReadStream(filePath).pipe(res);
+}));
 
 // GET /api/system/audit-logs - 변경이력 조회
 router.get('/audit-logs', ...admin, asyncHandler(async (req, res) => {
@@ -123,6 +221,44 @@ router.get('/activity-logs/users', ...admin, asyncHandler(async (_req, res) => {
   res.json({ success: true, data: result.rows });
 }));
 
+// GET /api/system/store-activity-logs - 매장 활동 로그 조회 (매장매니저 이상)
+router.get('/store-activity-logs', ...adminHqStore, asyncHandler(async (req, res) => {
+  const pool = getPool();
+  const { page = '1', limit = '50', method, summary, start_date, end_date } = req.query;
+  const p = parseInt(page as string, 10);
+  const l = Math.min(parseInt(limit as string, 10) || 50, 200);
+  const offset = (p - 1) * l;
+
+  let where = '';
+  const params: any[] = [];
+  let idx = 1;
+
+  // STORE_MANAGER는 자기 매장만 조회 가능
+  const role = req.user?.role;
+  if (role === 'STORE_MANAGER') {
+    const partnerCode = req.user?.partnerCode;
+    if (partnerCode) {
+      where += ` AND partner_code = $${idx}`;
+      params.push(partnerCode);
+      idx++;
+    }
+  }
+
+  if (method) { where += ` AND method = $${idx}`; params.push(method); idx++; }
+  if (summary) { where += ` AND summary ILIKE $${idx}`; params.push(`%${summary}%`); idx++; }
+  if (start_date) { where += ` AND created_at >= $${idx}`; params.push(start_date); idx++; }
+  if (end_date) { where += ` AND created_at < ($${idx}::date + 1)`; params.push(end_date); idx++; }
+
+  const total = parseInt(
+    (await pool.query(`SELECT COUNT(*) FROM activity_logs WHERE 1=1 ${where}`, params)).rows[0].count, 10,
+  );
+  const data = await pool.query(
+    `SELECT * FROM activity_logs WHERE 1=1 ${where} ORDER BY created_at DESC LIMIT $${idx} OFFSET $${idx + 1}`,
+    [...params, l, offset],
+  );
+  res.json({ success: true, data: { data: data.rows, total, page: p, limit: l, totalPages: Math.ceil(total / l) } });
+}));
+
 // GET /api/system/settings - 시스템 설정 조회
 router.get('/settings', ...admin, asyncHandler(async (_req, res) => {
   const pool = getPool();
@@ -181,6 +317,8 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   } finally {
     client.release();
   }
+  // 임계값 캐시 즉시 무효화
+  inventoryRepository.invalidateThresholdCache();
   res.json({ success: true });
 }));
 

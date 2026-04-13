@@ -128,7 +128,7 @@ export default function StoreInventoryPage() {
   const totalZero = data.reduce((s, r) => s + r.zero_stock_count, 0);
 
   const typeColor: Record<string, string> = {
-    '본사': '#fa541c', '직영': '#1677ff', '가맹': '#52c41a', '온라인': '#722ed1',
+    '본사': '#fa541c', '온라인': '#722ed1',
     '대리점': '#fa8c16', '백화점': '#13c2c2', '아울렛': '#eb2f96',
   };
 

@@ -13,5 +13,5 @@
   },
   "files": ["src/types/express.d.ts", "src/types/vendor.d.ts"],
   "include": ["src/**/*.ts", "../shared/**/*.ts"],
-  "exclude": ["node_modules", "dist", "src/**/*-GLOBALCHAIRMAN*"]
+  "exclude": ["node_modules", "dist", "src/**/*-GLOBALCHAIRMAN*", "src/__tests__/**"]
 }

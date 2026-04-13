@@ -86,11 +86,11 @@ export default function ShipmentRequestPage() {
     if (!partnerCode) { setStockMap({}); setStockPartner(''); return; }
     if (partnerCode === stockPartner) return;
     try {
-      const res = await apiFetch(`/api/inventory?partner_code=${partnerCode}&limit=5000&page=1`);
+      const res = await apiFetch(`/api/inventory/stock-map?partner_code=${partnerCode}`);
       const json = await res.json();
-      if (json.success && json.data?.data) {
+      if (json.success && json.data) {
         const map: Record<number, number> = {};
-        for (const row of json.data.data) map[row.variant_id] = row.qty;
+        for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
         setStockMap(map);
         setStockPartner(partnerCode);
         // 이미 추가된 아이템에 재고 반영
@@ -206,6 +206,7 @@ export default function ShipmentRequestPage() {
   };
 
   const [creating, setCreating] = useState(false);
+  const [createAndShipFlag, setCreateAndShipFlag] = useState(false);
   const handleCreate = async (values: any) => {
     if (creating) return;
     if (items.length === 0) { message.error('최소 1개 이상의 품목을 추가해주세요'); return; }
@@ -217,25 +218,39 @@ export default function ShipmentRequestPage() {
         return;
       }
     }
+    const shouldShipNow = createAndShipFlag;
     setCreating(true);
     try {
       const body: any = { ...values, request_type: '출고', items: items.map(({ variant_id, request_qty }) => ({ variant_id, request_qty })) };
       if (isStore && user?.partnerCode) body.to_partner = user.partnerCode;
       const result = await shipmentApi.create(body);
       const resData = result as any;
-      if (resData?.request_no) {
-        message.success(`출고 #${resData.request_no}에 ${items.length}개 품목 등록 (출고확인 후 재고 차감)`);
+      const requestId = resData?.request_id;
+
+      // 즉시 출고확인
+      if (shouldShipNow && isAdmin && requestId) {
+        try {
+          const shipItems = items.map(({ variant_id, request_qty }) => ({ variant_id, shipped_qty: request_qty }));
+          await shipmentApi.shipConfirm(requestId, shipItems);
+          message.success(`출고 #${resData.request_no} 등록 + 출고확인 완료 (재고 차감됨)`);
+        } catch (shipErr: any) {
+          message.warning(`출고 등록은 완료, 출고확인 실패: ${shipErr.message}`);
+        }
       } else {
-        message.success('출고가 등록되었습니다. (출고확인 후 재고가 차감됩니다)');
+        if (resData?.request_no) {
+          message.success(`출고 #${resData.request_no}에 ${items.length}개 품목 등록 (출고확인 후 재고 차감)`);
+        } else {
+          message.success('출고가 등록되었습니다. (출고확인 후 재고가 차감됩니다)');
+        }
       }
-      setModalOpen(false); form.resetFields(); setItems([]);
+      setModalOpen(false); form.resetFields(); setItems([]); setCreateAndShipFlag(false);
       if (view === 'PENDING') loadList('PENDING', 1);
       else if (view === 'RECEIVED') loadList('RECEIVED', 1);
       else if (view === 'SHIPPED') loadList('SHIPPED', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
       loadCounts();
       if (view === 'dashboard') { setAllPage(1); loadAll(1, statusFilter); }
-    } catch (e: any) { message.error(e.message); } finally { setCreating(false); }
+    } catch (e: any) { message.error(e.message); } finally { setCreating(false); setCreateAndShipFlag(false); }
   };
 
   const [submitting, setSubmitting] = useState(false);
@@ -328,11 +343,11 @@ export default function ShipmentRequestPage() {
       const fromPartner = (d as any).from_partner;
       if (fromPartner) {
         try {
-          const res = await apiFetch(`/api/inventory?partner_code=${fromPartner}&limit=5000&page=1`);
+          const res = await apiFetch(`/api/inventory/stock-map?partner_code=${fromPartner}`);
           const json = await res.json();
-          if (json.success && json.data?.data) {
+          if (json.success && json.data) {
             const map: Record<number, number> = {};
-            for (const row of json.data.data) map[row.variant_id] = row.qty;
+            for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
             setShippedStockMap(map);
           } else { setShippedStockMap({}); }
         } catch { setShippedStockMap({}); }
@@ -458,7 +473,7 @@ export default function ShipmentRequestPage() {
           <Space>
             <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
             {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
-            {canCancelRecord(record) && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+            {isAdmin && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
           </Space>
         );
       }
@@ -474,7 +489,7 @@ export default function ShipmentRequestPage() {
             }} okText="완료처리" cancelText="닫기">
               <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} icon={<CheckCircleOutlined />}>완료처리</Button>
             </Popconfirm>}
-            {canCancelRecord(record) && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+            {isAdmin && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
           </Space>
         );
       }
@@ -513,7 +528,7 @@ export default function ShipmentRequestPage() {
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#13c2c2', borderColor: '#13c2c2' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }}],
@@ -529,7 +544,7 @@ export default function ShipmentRequestPage() {
           }} okText="완료처리" cancelText="닫기">
             <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} icon={<CheckCircleOutlined />}>완료처리</Button>
           </Popconfirm>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }}],
@@ -637,7 +652,11 @@ export default function ShipmentRequestPage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields();
               if (isStore && user?.partnerCode) form.setFieldsValue({ to_partner: user.partnerCode });
-              setItems([]); setStockMap({}); setStockPartner(''); setModalOpen(true);
+              if (isAdmin) {
+                const hq = partners.find((p: any) => p.partner_type === '본사' || p.partner_type === 'HQ');
+                if (hq) { form.setFieldsValue({ from_partner: hq.partner_code }); loadStockForPartner(hq.partner_code); }
+              }
+              setItems([]); setModalOpen(true);
             }}>출고 등록</Button>
           )}
         </div>
@@ -670,7 +689,11 @@ export default function ShipmentRequestPage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           form.resetFields();
           if (isStore && user?.partnerCode) form.setFieldsValue({ to_partner: user.partnerCode });
-          setItems([]); setStockMap({}); setStockPartner(''); setModalOpen(true);
+          if (isAdmin) {
+            const hq = partners.find((p: any) => p.partner_type === '본사' || p.partner_type === 'HQ');
+            if (hq) { form.setFieldsValue({ from_partner: hq.partner_code }); loadStockForPartner(hq.partner_code); }
+          }
+          setItems([]); setModalOpen(true);
         }}>출고 등록</Button>
       ) : undefined} />
 
@@ -688,11 +711,20 @@ export default function ShipmentRequestPage() {
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}
 
       {/* ══ 모달 ══ */}
-      <Modal title="출고 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={creating} okText="등록" cancelText="취소" width={700}>
+      <Modal title="출고 등록" open={modalOpen} onCancel={() => { setModalOpen(false); setCreateAndShipFlag(false); }}
+        footer={[
+          <Button key="cancel" onClick={() => { setModalOpen(false); setCreateAndShipFlag(false); }}>취소</Button>,
+          ...(isAdmin ? [<Button key="create" loading={creating && !createAndShipFlag} onClick={() => { setCreateAndShipFlag(false); form.submit(); }}>등록만 (대기)</Button>] : []),
+          <Button key="createAndShip" type="primary" loading={creating} icon={<SendOutlined />}
+            onClick={() => { if (isAdmin) setCreateAndShipFlag(true); form.submit(); }}>
+            {isAdmin ? '출고등록' : '출고요청'}
+          </Button>,
+        ]}
+        width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="from_partner" label="출고처 (출발)" rules={[{ required: true, message: '출고처를 선택해주세요' }]}>
             <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions}
-              onChange={(v) => loadStockForPartner(v)} />
+              disabled={isAdmin} onChange={(v) => loadStockForPartner(v)} />
           </Form.Item>
           {!isStore && (
             <Form.Item name="to_partner" label="입고처 (도착)">
@@ -701,11 +733,17 @@ export default function ShipmentRequestPage() {
           )}
           <Form.Item label="품목 추가">
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
-              onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
+              onSearch={handleVariantSearch} onChange={handleAddItem}
               notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
-              {variantOptions.map((v) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size})</Select.Option>
-              ))}
+              {variantOptions.map((v) => {
+                const stk = stockPartner ? (stockMap[v.variant_id] ?? 0) : null;
+                return (
+                  <Select.Option key={v.variant_id} value={v.variant_id}>
+                    {v.sku} - {v.product_name} ({v.color}/{v.size})
+                    {stk != null && <span style={{ marginLeft: 6, fontWeight: 600, color: stk > 0 ? '#52c41a' : '#ff4d4f' }}>[재고: {stk}]</span>}
+                  </Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
           {items.length > 0 && (
@@ -739,11 +777,12 @@ export default function ShipmentRequestPage() {
       <ShipmentDetailModal open={detailOpen} detail={detail} onClose={() => setDetailOpen(false)} />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
-        onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting} />
+        onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting}
+        alertMessage="수령한 실제 수량을 입력하세요. 출고수량과 다르면 '수량불일치'로 신고됩니다." />
       <ShippedQtyModal open={shippedModalOpen} detail={shippedTarget} qtys={shippedQtys}
         onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
         onConfirm={handleConfirmShipped} onCancel={() => setShippedModalOpen(false)} confirmLoading={submitting}
-        stockMap={shippedStockMap} />
+        stockMap={shippedStockMap} readOnly={!isAdmin} />
     </div>
   );
 }

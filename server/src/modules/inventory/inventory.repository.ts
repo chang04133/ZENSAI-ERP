@@ -85,7 +85,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       const conds: string[] = [];
       const cArgs: any[] = [];
       for (const lv of levels) {
-        if (lv === 'zero') conds.push('i.qty = 0');
+        if (lv === 'negative') conds.push('i.qty < 0');
+        else if (lv === 'zero') conds.push('i.qty = 0');
         else if (lv === 'low') { conds.push('(i.qty > 0 AND i.qty <= ?)'); cArgs.push(lowThreshold); }
         else if (lv === 'medium') { conds.push('(i.qty > ? AND i.qty <= ?)'); cArgs.push(lowThreshold, medThreshold); }
         else if (lv === 'good') { conds.push('(i.qty > ?)'); cArgs.push(medThreshold); }
@@ -93,7 +94,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       if (conds.length > 0) qb.raw(`(${conds.join(' OR ')})`, ...cArgs);
       else qb.raw('i.qty > 0');
     } else {
-      qb.raw('i.qty > 0');
+      qb.raw('i.qty != 0');
     }
     const { whereClause, params, nextIdx } = qb.build();
 
@@ -134,13 +135,14 @@ export class InventoryRepository extends BaseRepository<Inventory> {
   async applyChange(
     partnerCode: string, variantId: number, qtyChange: number,
     txType: string, refId: number, userId: string, client: any,
+    options?: { allowNegative?: boolean; memo?: string },
   ): Promise<void> {
     // Advisory lock으로 동시성 보호 (partner_code + variant_id 기반 해시)
     const lockKey = Buffer.from(`${partnerCode}:${variantId}`).reduce((h, b) => (h * 31 + b) | 0, 0);
     await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
 
-    // 재고 차감 시 음수 방지: 현재 재고 확인 후 부족하면 에러
-    if (qtyChange < 0) {
+    // 재고 차감 시 음수 방지 (allowNegative=true이면 음수 허용 — 매출 등록용)
+    if (qtyChange < 0 && !options?.allowNegative) {
       const cur = await client.query(
         'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
         [partnerCode, variantId],
@@ -177,7 +179,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     await client.query(
       `INSERT INTO inventory_transactions (tx_type, ref_id, partner_code, variant_id, qty_change, qty_after, created_by, memo)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId, null],
+      [txType, refId, partnerCode, variantId, qtyChange, qtyAfter, userId, options?.memo || null],
     );
   }
 
@@ -340,7 +342,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         COALESCE(SUM(i.qty), 0)::int AS total_qty,
         COUNT(DISTINCT i.variant_id)::int AS total_items,
         COUNT(DISTINCT i.partner_code)::int AS total_partners,
-        COUNT(*) FILTER (WHERE i.qty = 0)::int AS zero_stock_count
+        COUNT(*) FILTER (WHERE i.qty = 0)::int AS zero_stock_count,
+        COUNT(*) FILTER (WHERE i.qty < 0)::int AS negative_stock_count
       FROM inventory i
       JOIN product_variants pv ON i.variant_id = pv.variant_id
       JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
@@ -502,7 +505,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
              i.partner_code, pt.partner_name,
              pv.warehouse_location, pv.barcode
       ${baseSql}
-      ORDER BY p.product_code, pv.color, pv.size, pt.partner_name
+      ORDER BY p.product_code, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END, pt.partner_name
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const data = await this.pool.query(dataSql, [...params, Number(limit), offset]);
     return { data: data.rows, total, page: Number(page), limit: Number(limit), totalPages: Math.ceil(total / Number(limit)) };
@@ -580,8 +583,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
       }
     }
     if (search) qb.raw('(p.product_name ILIKE ? OR pv.sku ILIKE ? OR p.product_code ILIKE ?)', `%${search}%`, `%${search}%`, `%${search}%`);
-    if (date_from) qb.raw('t.created_at >= ?', `${date_from}T00:00:00`);
-    if (date_to) qb.raw('t.created_at <= ?', `${date_to}T23:59:59`);
+    if (date_from) qb.raw('t.created_at >= ?::date', date_from);
+    if (date_to) qb.raw('t.created_at < ?::date + INTERVAL \'1 day\'', date_to);
     const { whereClause, params, nextIdx } = qb.build();
 
     const baseSql = `

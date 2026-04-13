@@ -55,9 +55,20 @@ class RestockController extends BaseController<RestockRequest> {
     res.json({ success: true, data: no });
   });
 
-  getRestockSuggestions = asyncHandler(async (_req: Request, res: Response) => {
-    const result = await restockService.getRestockSuggestions();
+  getRestockSuggestions = asyncHandler(async (req: Request, res: Response) => {
+    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
+    const result = await restockService.getRestockSuggestions(pc);
     res.json({ success: true, data: result });
+  });
+
+  getStoreBrokenSizes = asyncHandler(async (req: Request, res: Response) => {
+    const pc = getStorePartnerCode(req) || (req.query.partner_code as string | undefined);
+    if (!pc) {
+      res.status(400).json({ success: false, error: '매장(partner_code)을 선택해주세요.' });
+      return;
+    }
+    const data = await restockService.getStoreBrokenSizes(pc);
+    res.json({ success: true, data });
   });
 
   getProgressStats = asyncHandler(async (req: Request, res: Response) => {

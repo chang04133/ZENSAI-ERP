@@ -5,7 +5,7 @@ export interface Partner {
   representative: string | null;
   address: string | null;
   contact: string | null;
-  partner_type: '본사' | '대리점' | '직영점' | '백화점' | '아울렛' | '온라인' | '직영' | '가맹';
+  partner_type: '본사' | '대리점' | '직영점' | '백화점' | '아울렛' | '온라인';
   low_stock_threshold: number | null;
   medium_stock_threshold: number | null;
   is_active: boolean;

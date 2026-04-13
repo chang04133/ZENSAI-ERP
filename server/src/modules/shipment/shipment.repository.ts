@@ -58,7 +58,7 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
     } else if (partner && direction === 'to') {
       qb.eq('to_partner', partner);
     } else if (partner) {
-      qb.raw('(sr.from_partner = ? OR sr.to_partner = ?)', partner, partner);
+      qb.raw('(sr.from_partner = ? OR sr.to_partner = ? OR (sr.target_partners IS NOT NULL AND sr.from_partner IS NULL AND ? = ANY(string_to_array(sr.target_partners, \',\'))))', partner, partner, partner);
     }
     if (date_from || date_to) qb.dateRange('request_date', date_from, date_to);
     const { whereClause, params, nextIdx } = qb.build();
@@ -128,9 +128,9 @@ export class ShipmentRepository extends BaseRepository<ShipmentRequest> {
         COUNT(*) FILTER (WHERE sr.to_partner = $${idx})::int as as_to_count`
       : '';
     if (partner) {
-      conditions.push(`(sr.from_partner = $${idx} OR sr.to_partner = $${idx + 1})`);
-      params.push(partner, partner);
-      idx += 2;
+      conditions.push(`(sr.from_partner = $${idx} OR sr.to_partner = $${idx + 1} OR (sr.target_partners IS NOT NULL AND sr.from_partner IS NULL AND $${idx + 2} = ANY(string_to_array(sr.target_partners, ','))))`);
+      params.push(partner, partner, partner);
+      idx += 3;
     }
     const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
     const sql = `

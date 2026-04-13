@@ -295,8 +295,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
     const sql = `
       WITH current_season AS (
         SELECT CASE
-          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5) THEN 'SS'
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (9,10,11) THEN 'FW'
           ELSE 'WN'
         END AS season_code
       ),
@@ -308,12 +309,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         SELECT
           p.product_code, p.product_name, p.category, p.season,
           CASE
-            WHEN p.season LIKE '%SS' THEN 'SA'
-            WHEN p.season LIKE '%FW' THEN 'WN'
-            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SS' THEN 'SS'
             WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%FW' THEN 'FW'
             WHEN p.season LIKE '%WN' THEN 'WN'
-            ELSE 'SA'
+            ELSE 'SS'
           END AS product_season,
           COALESCE(SUM(s.qty), 0)::int AS total_sold,
           ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric, 2) AS avg_daily_sales,
@@ -412,8 +412,9 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
       ),
       current_season AS (
         SELECT CASE
-          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5) THEN 'SS'
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (9,10,11) THEN 'FW'
           ELSE 'WN'
         END AS season_code
       ),
@@ -428,12 +429,11 @@ class ProductionRepository extends BaseRepository<ProductionPlan> {
         CROSS JOIN current_season cs2
         LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' ||
           CASE
-            WHEN p.season LIKE '%SS' THEN 'SA'
-            WHEN p.season LIKE '%FW' THEN 'WN'
-            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SS' THEN 'SS'
             WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%FW' THEN 'FW'
             WHEN p.season LIKE '%WN' THEN 'WN'
-            ELSE 'SA'
+            ELSE 'SS'
           END || '_' || cs2.season_code
         WHERE p.is_active = TRUE
       ),

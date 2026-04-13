@@ -83,8 +83,8 @@ export function CrmDashboard() {
   return (
     <>
       {isStore && user?.partnerName && (
-        <div style={{ marginBottom: 12 }}>
-          <Tag color="blue" style={{ fontSize: 13, padding: '2px 10px' }}>현재 매장: {user.partnerName}</Tag>
+        <div style={{ marginBottom: 16 }}>
+          <span style={{ fontSize: 18, fontWeight: 700 }}>{user.partnerName} 고객리스트</span>
         </div>
       )}
 

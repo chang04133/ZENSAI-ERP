@@ -5,9 +5,18 @@ import { inventoryRepository } from '../inventory/inventory.repository';
 import { shipmentService } from '../shipment/shipment.service';
 import { asyncHandler } from '../../core/async-handler';
 import { getPool } from '../../db/connection';
+import { audit } from '../../core/audit';
 
 const router = Router();
 const managerRoles = [authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER')];
+
+/** sale_number 생성: INSERT → sale_id로 번호 부여 후 UPDATE */
+async function assignSaleNumber(client: any, saleId: number, saleDate: string): Promise<string> {
+  const dateStr = saleDate.replace(/-/g, '').slice(0, 8);
+  const saleNumber = `S${dateStr}-${String(saleId).padStart(4, '0')}`;
+  await client.query('UPDATE sales SET sale_number = $1 WHERE sale_id = $2', [saleNumber, saleId]);
+  return saleNumber;
+}
 
 // 매출반품 목록 (반품관리 페이지용)
 router.get('/returns', authMiddleware, asyncHandler(async (req: Request, res: Response) => {
@@ -89,10 +98,12 @@ router.post('/direct-return',
         [pc, variant_id, qty, unit_price, -total_price, return_reason, reason || '매장 고객 반품'],
       );
       const saleId = returnSale.rows[0].sale_id;
+      await assignSaleNumber(client, saleId, new Date().toISOString().slice(0, 10));
 
       // 재고 복원 (+qty)
       await inventoryRepository.applyChange(
         pc, variant_id, qty, 'RETURN', saleId, req.user!.userId, client,
+        { memo: '직접 반품 → 재고 복원' },
       );
 
       // 물류반품 자동 생성 (매장→본사창고) — 같은 트랜잭션 내
@@ -222,10 +233,12 @@ router.post('/:id/return',
          VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
         [old.partner_code, old.variant_id, returnQty, old.unit_price, -total_price, return_reason, reason ? `반품(원본#${saleId}) ${reason}` : `반품(원본#${saleId})`],
       );
+      await assignSaleNumber(client, returnSale.rows[0].sale_id, new Date().toISOString().slice(0, 10));
 
       // 재고 복원 (+qty)
       await inventoryRepository.applyChange(
         old.partner_code, old.variant_id, returnQty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
+        { memo: `반품(원본#${saleId}) → 재고 복원` },
       );
 
       await client.query('COMMIT');
@@ -310,8 +323,10 @@ router.post('/:id/exchange',
          VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '반품', $6, $7) RETURNING *`,
         [old.partner_code, old.variant_id, returnQty, old.unit_price, -returnTotal, return_reason, `교환반품(원본#${originalSaleId})`],
       );
+      await assignSaleNumber(client, returnSale.rows[0].sale_id, new Date().toISOString().slice(0, 10));
       await inventoryRepository.applyChange(
         old.partner_code, old.variant_id, returnQty, 'RETURN', returnSale.rows[0].sale_id, req.user!.userId, client,
+        { memo: `교환 반품(원본#${originalSaleId}) → 재고 복원` },
       );
 
       // 새 상품 재고 사전 검증
@@ -333,8 +348,10 @@ router.post('/:id/exchange',
          VALUES (CURRENT_DATE, $1, $2, $3, $4, $5, '정상', $6) RETURNING *`,
         [old.partner_code, new_variant_id, new_qty, new_unit_price, newTotal, `교환판매(원본#${originalSaleId})`],
       );
+      await assignSaleNumber(client, newSale.rows[0].sale_id, new Date().toISOString().slice(0, 10));
       await inventoryRepository.applyChange(
         old.partner_code, new_variant_id, -new_qty, 'SALE', newSale.rows[0].sale_id, req.user!.userId, client,
+        { memo: `교환 판매(원본#${originalSaleId}) → 재고 차감` },
       );
 
       // 교환 레코드 생성
@@ -358,6 +375,62 @@ router.post('/:id/exchange',
     } finally {
       client.release();
     }
+  }),
+);
+
+// 반품 수정
+router.put('/returns/:id',
+  ...managerRoles,
+  asyncHandler(async (req: Request, res: Response) => {
+    const saleId = Number(req.params.id);
+    const { qty, unit_price, return_reason, memo } = req.body;
+
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      const orig = await client.query('SELECT * FROM sales WHERE sale_id = $1 FOR UPDATE', [saleId]);
+      if (!orig.rows[0]) { await client.query('ROLLBACK'); res.status(404).json({ success: false, error: '반품 데이터를 찾을 수 없습니다.' }); return; }
+      const old = orig.rows[0];
+      if (old.sale_type !== '반품') { await client.query('ROLLBACK'); res.status(400).json({ success: false, error: '반품 데이터만 수정할 수 있습니다.' }); return; }
+
+      // 매장 매니저: 자기 매장만
+      if (req.user?.role === 'STORE_MANAGER' && old.partner_code !== req.user.partnerCode) {
+        await client.query('ROLLBACK'); res.status(403).json({ success: false, error: '자신의 매장 반품만 수정할 수 있습니다.' }); return;
+      }
+
+      const newQty = qty !== undefined ? Number(qty) : old.qty;
+      const newUnitPrice = unit_price !== undefined ? Number(unit_price) : Number(old.unit_price);
+      if (newQty <= 0) { await client.query('ROLLBACK'); res.status(400).json({ success: false, error: '수량은 1 이상이어야 합니다.' }); return; }
+      if (newUnitPrice <= 0) { await client.query('ROLLBACK'); res.status(400).json({ success: false, error: '단가는 양수여야 합니다.' }); return; }
+
+      // 수량 변경 시 재고 보정: 기존 qty만큼 차감(-) 후 새 qty만큼 복원(+)
+      const qtyDiff = newQty - old.qty;
+      if (qtyDiff !== 0) {
+        await inventoryRepository.applyChange(
+          old.partner_code, old.variant_id, qtyDiff, 'SALE_EDIT', saleId, req.user!.userId, client,
+          { memo: `반품 수정 (${old.qty}→${newQty}개)` },
+        );
+      }
+
+      const newTotalPrice = -Math.round(newQty * newUnitPrice);
+      await client.query(
+        `UPDATE sales SET qty = $1, unit_price = $2, total_price = $3, return_reason = COALESCE($4, return_reason), memo = COALESCE($5, memo), updated_at = NOW() WHERE sale_id = $6`,
+        [newQty, newUnitPrice, newTotalPrice, return_reason || null, memo || null, saleId],
+      );
+
+      await client.query('COMMIT');
+      const updated = await pool.query(
+        `SELECT s.*, pt.partner_name, pv.sku, pv.color, pv.size, p.product_name
+         FROM sales s JOIN product_variants pv ON s.variant_id = pv.variant_id
+         JOIN products p ON pv.product_code = p.product_code
+         JOIN partners pt ON s.partner_code = pt.partner_code
+         WHERE s.sale_id = $1`, [saleId],
+      );
+      await audit('sales', String(saleId), 'UPDATE', req.user!.userId, old, updated.rows[0]);
+      res.json({ success: true, data: updated.rows[0] });
+    } catch (e) { await client.query('ROLLBACK'); throw e; }
+    finally { client.release(); }
   }),
 );
 

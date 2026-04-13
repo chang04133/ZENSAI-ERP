@@ -18,6 +18,20 @@ class InventoryController extends BaseController<Inventory> {
     return undefined;
   }
 
+  /** 특정 거래처의 variant_id → qty 매핑 (출고 등록 시 재고 조회용, limit 없음) */
+  stockMap = asyncHandler(async (req: Request, res: Response) => {
+    const partnerCode = req.query.partner_code as string;
+    if (!partnerCode) { res.status(400).json({ success: false, error: 'partner_code required' }); return; }
+    const pool = getPool();
+    const result = await pool.query(
+      'SELECT variant_id, qty FROM inventory WHERE partner_code = $1 AND qty > 0',
+      [partnerCode],
+    );
+    const map: Record<number, number> = {};
+    for (const row of result.rows) map[row.variant_id] = Number(row.qty);
+    res.json({ success: true, data: map });
+  });
+
   list = asyncHandler(async (req: Request, res: Response) => {
     const query: any = { ...req.query };
     // STORE_STAFF는 자기 매장만, STORE_MANAGER 이상은 전체 조회 가능
@@ -111,12 +125,12 @@ class InventoryController extends BaseController<Inventory> {
     }
     const result = await pool.query(
       `SELECT i.inventory_id, i.partner_code, i.variant_id, i.qty,
-              pt.partner_name, pv.sku, pv.color, pv.size
+              pt.partner_name, pt.partner_type, pv.sku, pv.color, pv.size
        FROM inventory i
        JOIN product_variants pv ON i.variant_id = pv.variant_id
-       JOIN partners pt ON i.partner_code = pt.partner_code
+       JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
        WHERE pv.product_code = $1 ${pcFilter}
-       ORDER BY pt.partner_name, pv.color, pv.size`,
+       ORDER BY pt.partner_name, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END`,
       params,
     );
     res.json({ success: true, data: result.rows });
@@ -294,10 +308,10 @@ class InventoryController extends BaseController<Inventory> {
              ${pc ? `, COALESCE((SELECT qty FROM inventory WHERE variant_id = pv.variant_id AND partner_code = $2), 0)::int AS my_store_qty` : ''}
       FROM product_variants pv
       LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.qty > 0
-      LEFT JOIN partners pt ON i.partner_code = pt.partner_code
+      LEFT JOIN partners pt ON i.partner_code = pt.partner_code AND pt.is_active = TRUE
       WHERE pv.product_code = $1 AND pv.is_active = TRUE
       GROUP BY pv.variant_id, pv.sku, pv.color, pv.size
-      ORDER BY pv.color, pv.size`;
+      ORDER BY pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END`;
     if (pc) variantParams.push(pc);
     const variants = await pool.query(variantsSql, variantParams);
     res.json({ success: true, data: { product, variants: variants.rows, partnerCode: pc || null } });

@@ -5,11 +5,12 @@ import {
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EyeOutlined, CloseOutlined,
-  DeleteOutlined, SendOutlined, CheckCircleOutlined,
+  DeleteOutlined, SendOutlined, CheckCircleOutlined, CheckOutlined,
   ClockCircleOutlined, StopOutlined, ArrowLeftOutlined,
   RollbackOutlined, UnorderedListOutlined, ExclamationCircleOutlined,
   ShoppingOutlined,
 } from '@ant-design/icons';
+import { useLocation } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import ShippedQtyModal from '../../components/shipment/ShippedQtyModal';
@@ -35,6 +36,8 @@ interface ItemRow {
 }
 
 const STEPS = [
+  { key: 'PENDING', label: '반품요청', desc: '본사 승인 대기 중', icon: <ClockCircleOutlined />, color: '#1677ff', bg: '#e6f4ff' },
+  { key: 'APPROVED', label: '승인완료', desc: '본사 승인 완료, 반품출고 가능', icon: <CheckOutlined />, color: '#722ed1', bg: '#f9f0ff' },
   { key: 'SHIPPED', label: '반품출고', desc: '반품 출고 완료, 수령 대기 중', icon: <RollbackOutlined />, color: '#fa8c16', bg: '#fff7e6' },
   { key: 'DISCREPANCY', label: '수량불일치', desc: '수령 수량이 출고 수량과 다른 건', icon: <ExclamationCircleOutlined />, color: '#fa541c', bg: '#fff2e8' },
   { key: 'RECEIVED', label: '반품수령', desc: '반품 수령까지 완료된 의뢰', icon: <CheckCircleOutlined />, color: '#52c41a', bg: '#f6ffed' },
@@ -51,7 +54,7 @@ export default function ReturnManagePage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   /* ── 대시보드 카운트 ── */
-  const [counts, setCounts] = useState<Record<string, number>>({ SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, CANCELLED: 0 });
+  const [counts, setCounts] = useState<Record<string, number>>({ PENDING: 0, APPROVED: 0, SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, CANCELLED: 0 });
   const [countsLoading, setCountsLoading] = useState(false);
 
   /* ── 상세 뷰 데이터 ── */
@@ -81,7 +84,8 @@ export default function ReturnManagePage() {
   const [stockPartner, setStockPartner] = useState('');
 
   /* ── 탭: 물류반품 / 매출반품 ── */
-  const [tab, setTab] = useState<'shipment' | 'sales'>('shipment');
+  const location = useLocation();
+  const [tab, setTab] = useState<'shipment' | 'sales'>(location.pathname.startsWith('/sales/') ? 'sales' : 'shipment');
 
   /* ── 매출반품 데이터 ── */
   const [salesReturnData, setSalesReturnData] = useState<any[]>([]);
@@ -113,11 +117,11 @@ export default function ReturnManagePage() {
     if (!partnerCode) { setStockMap({}); setStockPartner(''); return; }
     if (partnerCode === stockPartner) return;
     try {
-      const res = await apiFetch(`/api/inventory?partner_code=${partnerCode}&limit=5000&page=1`);
+      const res = await apiFetch(`/api/inventory/stock-map?partner_code=${partnerCode}`);
       const json = await res.json();
-      if (json.success && json.data?.data) {
+      if (json.success && json.data) {
         const map: Record<number, number> = {};
-        for (const row of json.data.data) map[row.variant_id] = row.qty;
+        for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
         setStockMap(map);
         setStockPartner(partnerCode);
         setItems((prev) => prev.map((i) => ({ ...i, stock_qty: map[i.variant_id] ?? 0 })));
@@ -295,11 +299,11 @@ export default function ReturnManagePage() {
       const fromPartner = (d as any).from_partner;
       if (fromPartner) {
         try {
-          const res = await apiFetch(`/api/inventory?partner_code=${fromPartner}&limit=5000&page=1`);
+          const res = await apiFetch(`/api/inventory/stock-map?partner_code=${fromPartner}`);
           const json = await res.json();
-          if (json.success && json.data?.data) {
+          if (json.success && json.data) {
             const map: Record<number, number> = {};
-            for (const row of json.data.data) map[row.variant_id] = row.qty;
+            for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
             setShippedStockMap(map);
           } else { setShippedStockMap({}); }
         } catch { setShippedStockMap({}); }
@@ -415,19 +419,47 @@ export default function ReturnManagePage() {
   ];
 
   const STATUS_TAG: Record<string, { color: string; label: string }> = {
-    PENDING: { color: 'default', label: '대기' },
+    PENDING: { color: 'blue', label: '반품요청' },
+    APPROVED: { color: 'purple', label: '승인완료' },
     SHIPPED: { color: 'orange', label: '반품출고' },
     DISCREPANCY: { color: 'volcano', label: '수량불일치' },
     RECEIVED: { color: 'green', label: '반품수령' },
     CANCELLED: { color: 'red', label: '취소' },
   };
 
-  const canCancelRecord = (record: any) => record.requested_by === user?.userId;
+  const canCancelRecord = (record: any) => {
+    if (record.requested_by !== user?.userId) return false;
+    if (isAdmin) return true;
+    // 매장매니저: 당일만 취소 가능
+    const today = new Date().toISOString().slice(0, 10);
+    const reqDate = (record.request_date || '').slice(0, 10);
+    return reqDate === today;
+  };
+
+  const handleApprove = async (id: number) => {
+    try {
+      await shipmentApi.update(id, { status: 'APPROVED' });
+      message.success('반품이 승인되었습니다. 매장에서 반품출고 가능합니다.');
+      if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
+      else { loadList(view, listPage); loadCounts(); }
+    } catch (e: any) { message.error(e.message); }
+  };
 
   const allActionColumn = {
     title: '', key: 'action', width: 280, render: (_: any, record: any) => {
       const st = record.status;
       if (st === 'PENDING') {
+        return (
+          <Space>
+            <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+            {isAdmin && <Popconfirm title="반품을 승인하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="승인" cancelText="닫기">
+              <Button size="small" type="primary" icon={<CheckOutlined />} style={{ background: '#722ed1', borderColor: '#722ed1' }}>승인</Button>
+            </Popconfirm>}
+            {canCancelRecord(record) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          </Space>
+        );
+      }
+      if (st === 'APPROVED') {
         const canShip = isAdmin || record.from_partner === user?.partnerCode;
         return (
           <Space>
@@ -474,7 +506,16 @@ export default function ReturnManagePage() {
 
   const columnsByStatus: Record<string, any[]> = {
     ALL: [...baseColumns.slice(0, 2), statusColumn, ...baseColumns.slice(2), allActionColumn],
-    PENDING: [...baseColumns, { title: '', key: 'action', width: 280, render: (_: any, record: any) => {
+    PENDING: [...baseColumns, { title: '', key: 'action', width: 280, render: (_: any, record: any) => (
+      <Space>
+        <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+        {isAdmin && <Popconfirm title="반품을 승인하시겠습니까?" onConfirm={() => handleApprove(record.request_id)} okText="승인" cancelText="닫기">
+          <Button size="small" type="primary" icon={<CheckOutlined />} style={{ background: '#722ed1', borderColor: '#722ed1' }}>승인</Button>
+        </Popconfirm>}
+        {canCancelRecord(record) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+      </Space>
+    )}],
+    APPROVED: [...baseColumns, { title: '', key: 'action', width: 280, render: (_: any, record: any) => {
       const canShip = isAdmin || record.from_partner === user?.partnerCode;
       return (
         <Space>
@@ -612,7 +653,12 @@ export default function ReturnManagePage() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields();
               setItems([]); setStockMap({}); setStockPartner(''); setIsClaim(false);
-              if (isStore && user?.partnerCode) { form.setFieldsValue({ from_partner: user.partnerCode }); loadStockForPartner(user.partnerCode); }
+              if (isStore && user?.partnerCode) {
+                form.setFieldsValue({ from_partner: user.partnerCode });
+                loadStockForPartner(user.partnerCode);
+                const hq = partners.find((p: any) => p.partner_type === '본사' || p.partner_type === 'HQ');
+                if (hq) form.setFieldsValue({ to_partner: hq.partner_code });
+              }
               setModalOpen(true);
             }}>반품의뢰 등록</Button>
           )}
@@ -641,8 +687,11 @@ export default function ReturnManagePage() {
 
   /* ══════════ 매출반품 뷰 ══════════ */
   const salesReturnColumns = [
-    { title: '반품일', dataIndex: 'sale_date', key: 'sale_date', width: 100,
-      render: (v: string) => v ? new Date(v).toLocaleDateString('ko-KR', { month: 'numeric', day: 'numeric' }) : '-' },
+    { title: '반품일시', dataIndex: 'created_at', key: 'created_at', width: 140,
+      render: (v: string, r: any) => {
+        const d = v || r.sale_date;
+        return d ? new Date(d).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-';
+      } },
     { title: '매장', dataIndex: 'partner_name', key: 'partner_name', width: 110, ellipsis: true },
     { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 150 },
     { title: '상품명', dataIndex: 'product_name', key: 'product_name', ellipsis: true },
@@ -679,7 +728,12 @@ export default function ReturnManagePage() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => {
           form.resetFields();
           setItems([]); setStockMap({}); setStockPartner(''); setIsClaim(false);
-          if (isStore && user?.partnerCode) { form.setFieldsValue({ from_partner: user.partnerCode }); loadStockForPartner(user.partnerCode); }
+          if (isStore && user?.partnerCode) {
+            form.setFieldsValue({ from_partner: user.partnerCode });
+            loadStockForPartner(user.partnerCode);
+            const hq = partners.find((p: any) => p.partner_type === '본사' || p.partner_type === 'HQ');
+            if (hq) form.setFieldsValue({ to_partner: hq.partner_code });
+          }
           setModalOpen(true);
         }}>반품의뢰 등록</Button>
       ) : undefined} />
@@ -690,7 +744,7 @@ export default function ReturnManagePage() {
           onChange={(v) => { setTab(v as any); if (v === 'sales') loadSalesReturns(1); }}
           options={[
             { label: '물류반품 (매장→본사)', value: 'shipment', icon: <SendOutlined /> },
-            { label: '매출반품 (고객반품/A/S)', value: 'sales', icon: <ShoppingOutlined /> },
+            { label: '고객반품 (매장→본사)', value: 'sales', icon: <ShoppingOutlined /> },
           ]}
           style={{ marginBottom: 16 }}
         />
@@ -717,7 +771,7 @@ export default function ReturnManagePage() {
             </Form.Item>
           )}
           <Form.Item name="to_partner" label={isStore ? '반품 보낼 곳' : '입고처 (도착)'}>
-            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" allowClear options={partnerOptions} />
+            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" allowClear options={partnerOptions} disabled={isStore} />
           </Form.Item>
 
           <div style={{ padding: '12px 16px', background: '#fafafa', borderRadius: 8, marginBottom: 16 }}>
@@ -753,7 +807,7 @@ export default function ReturnManagePage() {
 
           <Form.Item label="품목 추가">
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
-              onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
+              onSearch={handleVariantSearch} onChange={handleAddItem}
               notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
               {variantOptions.map((v) => (
                 <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
@@ -793,13 +847,14 @@ export default function ReturnManagePage() {
         onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
         onConfirm={handleConfirmShipped} onCancel={() => setShippedModalOpen(false)} confirmLoading={submitting}
         title="반품출고" okText="반품출고"
-        alertMessage="반품할 실제 수량을 입력하세요. 확인 시 반품처 재고가 차감됩니다."
-        stockMap={shippedStockMap} />
+        alertMessage={isAdmin ? "반품할 실제 수량을 입력하세요. 확인 시 반품처 재고가 차감됩니다." : "반품 출고를 확인하세요. 확인 시 반품처 재고가 차감됩니다."}
+        stockMap={shippedStockMap} readOnly={!isAdmin} />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
         onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting}
         title="반품수령" okText="반품수령"
-        alertMessage="수령한 실제 수량을 입력하세요. 확인 시 입고처 재고가 증가합니다." />
+        alertMessage={isAdmin ? "수령한 실제 수량을 입력하세요. 확인 시 입고처 재고가 증가합니다." : "반품 수령을 확인하세요. 확인 시 입고처 재고가 증가합니다."}
+        readOnly={!isAdmin} />
     </div>
   );
 }

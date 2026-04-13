@@ -1,0 +1,397 @@
+import { getPool } from '../../db/connection';
+
+class OutsourceRepository {
+  // ── 대시보드 ──
+  async dashboard() {
+    const pool = getPool();
+    const [workOrders, qc, payments] = await Promise.all([
+      pool.query(`
+        SELECT status, COUNT(*)::int AS cnt FROM os_work_orders GROUP BY status
+      `),
+      pool.query(`
+        SELECT result, COUNT(*)::int AS cnt FROM os_qc_inspections GROUP BY result
+      `),
+      pool.query(`
+        SELECT status, SUM(amount)::numeric AS total FROM os_payments GROUP BY status
+      `),
+    ]);
+    return {
+      workOrders: workOrders.rows,
+      qc: qc.rows,
+      payments: payments.rows,
+    };
+  }
+
+  // ── 작업지시서 ──
+  async listWorkOrders(options: any = {}) {
+    const pool = getPool();
+    const { status, brief_id, search } = options;
+    const page = Math.max(Number(options.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (status) { conditions.push(`w.status = $${idx++}`); params.push(status); }
+    if (brief_id) { conditions.push(`w.brief_id = $${idx++}`); params.push(brief_id); }
+    if (search) {
+      conditions.push(`(w.wo_no ILIKE $${idx} OR b.brief_title ILIKE $${idx})`);
+      params.push(`%${search}%`); idx++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const countSql = `SELECT COUNT(*) FROM os_work_orders w LEFT JOIN os_briefs b ON b.brief_id = w.brief_id ${where}`;
+    const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT w.*, b.brief_title, p.partner_name
+      FROM os_work_orders w
+      LEFT JOIN os_briefs b ON b.brief_id = w.brief_id
+      LEFT JOIN partners p ON p.partner_code = w.partner_code
+      ${where}
+      ORDER BY w.created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `;
+    params.push(limit, offset);
+    const data = (await pool.query(dataSql, params)).rows;
+    return { data, total, page, limit };
+  }
+
+  async getWorkOrderById(id: number) {
+    const pool = getPool();
+    const res = await pool.query(`
+      SELECT w.*, b.brief_title, p.partner_name
+      FROM os_work_orders w
+      LEFT JOIN os_briefs b ON b.brief_id = w.brief_id
+      LEFT JOIN partners p ON p.partner_code = w.partner_code
+      WHERE w.wo_id = $1
+    `, [id]);
+    if (!res.rows[0]) return null;
+    // 최신 버전 spec_data
+    const vRes = await pool.query(
+      'SELECT * FROM os_work_order_versions WHERE wo_id = $1 ORDER BY version_no DESC LIMIT 1', [id],
+    );
+    const wo = res.rows[0];
+    wo.latest_spec = vRes.rows[0] || null;
+    // 샘플 목록
+    const samples = await pool.query('SELECT * FROM os_samples WHERE wo_id = $1 ORDER BY created_at DESC', [id]);
+    wo.samples = samples.rows;
+    return wo;
+  }
+
+  async updateWorkOrder(id: number, data: Record<string, any>) {
+    const pool = getPool();
+    const fields: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    const allowed = ['status', 'partner_code', 'target_qty', 'unit_cost', 'total_amount', 'memo', 'completed_at'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        fields.push(`${key} = $${idx++}`);
+        params.push(data[key]);
+      }
+    }
+    if (fields.length === 0) return null;
+    fields.push(`updated_at = NOW()`);
+    params.push(id);
+    const res = await pool.query(
+      `UPDATE os_work_orders SET ${fields.join(', ')} WHERE wo_id = $${idx} RETURNING *`,
+      params,
+    );
+    return res.rows[0] || null;
+  }
+
+  async createWorkOrderVersion(woId: number, versionNo: number, specData: Record<string, any>, changeSummary: string, userId: string) {
+    const pool = getPool();
+    await pool.query(`
+      INSERT INTO os_work_order_versions (wo_id, version_no, spec_data, change_summary, created_by)
+      VALUES ($1,$2,$3,$4,$5)
+    `, [woId, versionNo, JSON.stringify(specData), changeSummary, userId]);
+  }
+
+  async getWorkOrderVersion(woId: number, versionNo: number) {
+    const pool = getPool();
+    const res = await pool.query(
+      'SELECT * FROM os_work_order_versions WHERE wo_id = $1 AND version_no = $2', [woId, versionNo],
+    );
+    return res.rows[0] || null;
+  }
+
+  async listWorkOrderVersions(woId: number) {
+    const pool = getPool();
+    const res = await pool.query(
+      'SELECT version_id, wo_id, version_no, change_summary, created_by, created_at FROM os_work_order_versions WHERE wo_id = $1 ORDER BY version_no DESC', [woId],
+    );
+    return res.rows;
+  }
+
+  // ── 샘플 ──
+  async createSample(data: Record<string, any>) {
+    const pool = getPool();
+    const res = await pool.query(`
+      INSERT INTO os_samples (wo_id, sample_type, vendor_name, vendor_contact, send_date, receive_date, images, memo, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *
+    `, [data.wo_id, data.sample_type, data.vendor_name, data.vendor_contact, data.send_date, data.receive_date, data.images, data.memo, data.created_by]);
+    return res.rows[0];
+  }
+
+  async updateSample(id: number, data: Record<string, any>) {
+    const pool = getPool();
+    const fields: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    const allowed = ['status', 'vendor_name', 'vendor_contact', 'send_date', 'receive_date', 'images', 'memo'];
+    for (const key of allowed) {
+      if (data[key] !== undefined) {
+        fields.push(`${key} = $${idx++}`);
+        params.push(data[key]);
+      }
+    }
+    if (fields.length === 0) return null;
+    fields.push(`updated_at = NOW()`);
+    params.push(id);
+    const res = await pool.query(
+      `UPDATE os_samples SET ${fields.join(', ')} WHERE sample_id = $${idx} RETURNING *`,
+      params,
+    );
+    return res.rows[0] || null;
+  }
+
+  // ── 업체 로그 ──
+  async listVendorLogs(woId: number) {
+    const pool = getPool();
+    const res = await pool.query(`
+      SELECT vl.*, u.user_name AS created_by_name
+      FROM os_vendor_logs vl
+      LEFT JOIN users u ON u.user_id = vl.created_by
+      WHERE vl.wo_id = $1
+      ORDER BY vl.created_at DESC
+    `, [woId]);
+    return res.rows;
+  }
+
+  async createVendorLog(data: Record<string, any>) {
+    const pool = getPool();
+    const res = await pool.query(`
+      INSERT INTO os_vendor_logs (wo_id, vendor_name, log_type, content, attachments, created_by)
+      VALUES ($1,$2,$3,$4,$5,$6) RETURNING *
+    `, [data.wo_id, data.vendor_name, data.log_type || 'NOTE', data.content, data.attachments, data.created_by]);
+    return res.rows[0];
+  }
+
+  // ── QC ──
+  async listQc(options: any = {}) {
+    const pool = getPool();
+    const { result, qc_type, wo_id, search } = options;
+    const page = Math.max(Number(options.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (result) { conditions.push(`q.result = $${idx++}`); params.push(result); }
+    if (qc_type) { conditions.push(`q.qc_type = $${idx++}`); params.push(qc_type); }
+    if (wo_id) { conditions.push(`q.wo_id = $${idx++}`); params.push(wo_id); }
+    if (search) {
+      conditions.push(`(q.qc_no ILIKE $${idx} OR w.wo_no ILIKE $${idx})`);
+      params.push(`%${search}%`); idx++;
+    }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const countSql = `SELECT COUNT(*) FROM os_qc_inspections q LEFT JOIN os_work_orders w ON w.wo_id = q.wo_id ${where}`;
+    const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT q.*, w.wo_no, b.brief_title
+      FROM os_qc_inspections q
+      LEFT JOIN os_work_orders w ON w.wo_id = q.wo_id
+      LEFT JOIN os_briefs b ON b.brief_id = w.brief_id
+      ${where}
+      ORDER BY q.created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `;
+    params.push(limit, offset);
+    const data = (await pool.query(dataSql, params)).rows;
+    return { data, total, page, limit };
+  }
+
+  async getQcById(id: number) {
+    const pool = getPool();
+    const res = await pool.query(`
+      SELECT q.*, w.wo_no, b.brief_title
+      FROM os_qc_inspections q
+      LEFT JOIN os_work_orders w ON w.wo_id = q.wo_id
+      LEFT JOIN os_briefs b ON b.brief_id = w.brief_id
+      WHERE q.qc_id = $1
+    `, [id]);
+    return res.rows[0] || null;
+  }
+
+  async createQc(data: Record<string, any>) {
+    const pool = getPool();
+    const noRes = await pool.query('SELECT generate_os_qc_no() AS no');
+    const qcNo = noRes.rows[0].no;
+    // 현재 작업지시서 버전
+    const woRes = await pool.query('SELECT current_version FROM os_work_orders WHERE wo_id = $1', [data.wo_id]);
+    const woVersion = woRes.rows[0]?.current_version || 1;
+    const res = await pool.query(`
+      INSERT INTO os_qc_inspections (wo_id, qc_type, qc_no, wo_version_at_qc, inspected_qty, passed_qty, defect_qty, defect_details, images, inspected_by, inspected_at)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW()) RETURNING *
+    `, [data.wo_id, data.qc_type, qcNo, woVersion, data.inspected_qty || 0, data.passed_qty || 0, data.defect_qty || 0, data.defect_details, data.images, data.inspected_by]);
+    return res.rows[0];
+  }
+
+  // ── 결제 ──
+  async listPayments(options: any = {}) {
+    const pool = getPool();
+    const { status, wo_id, payment_step } = options;
+    const page = Math.max(Number(options.page) || 1, 1);
+    const limit = Math.min(Math.max(Number(options.limit) || 50, 1), 100);
+    const offset = (page - 1) * limit;
+    const conditions: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+
+    if (status) { conditions.push(`p.status = $${idx++}`); params.push(status); }
+    if (wo_id) { conditions.push(`p.wo_id = $${idx++}`); params.push(wo_id); }
+    if (payment_step) { conditions.push(`p.payment_step = $${idx++}`); params.push(payment_step); }
+
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
+    const countSql = `SELECT COUNT(*) FROM os_payments p ${where}`;
+    const total = parseInt((await pool.query(countSql, params)).rows[0].count, 10);
+
+    const dataSql = `
+      SELECT p.*, w.wo_no, b.brief_title
+      FROM os_payments p
+      LEFT JOIN os_work_orders w ON w.wo_id = p.wo_id
+      LEFT JOIN os_briefs b ON b.brief_id = w.brief_id
+      ${where}
+      ORDER BY p.created_at DESC
+      LIMIT $${idx++} OFFSET $${idx++}
+    `;
+    params.push(limit, offset);
+    const data = (await pool.query(dataSql, params)).rows;
+    return { data, total, page, limit };
+  }
+
+  async getPaymentSummary() {
+    const pool = getPool();
+    const res = await pool.query(`
+      SELECT
+        payment_step,
+        status,
+        COUNT(*)::int AS cnt,
+        SUM(amount)::numeric AS total_amount
+      FROM os_payments
+      GROUP BY payment_step, status
+      ORDER BY payment_step, status
+    `);
+    return res.rows;
+  }
+
+  async updatePayment(id: number, data: Record<string, any>) {
+    const pool = getPool();
+    const fields: string[] = [];
+    const params: any[] = [];
+    let idx = 1;
+    if (data.status) { fields.push(`status = $${idx++}`); params.push(data.status); }
+    if (data.approved_by) { fields.push(`approved_by = $${idx++}`); params.push(data.approved_by); fields.push(`approved_at = NOW()`); }
+    if (data.status === 'PAID') { fields.push(`paid_at = NOW()`); }
+    if (data.memo !== undefined) { fields.push(`memo = $${idx++}`); params.push(data.memo); }
+    if (fields.length === 0) return null;
+    fields.push(`updated_at = NOW()`);
+    params.push(id);
+    const res = await pool.query(
+      `UPDATE os_payments SET ${fields.join(', ')} WHERE payment_id = $${idx} RETURNING *`,
+      params,
+    );
+    return res.rows[0] || null;
+  }
+
+  async createPayment(woId: number, step: string, triggerType: string, triggerRefId: number, amount: number) {
+    const pool = getPool();
+    const res = await pool.query(`
+      INSERT INTO os_payments (wo_id, payment_step, trigger_type, trigger_ref_id, amount)
+      VALUES ($1,$2,$3,$4,$5) RETURNING *
+    `, [woId, step, triggerType, triggerRefId, amount]);
+    return res.rows[0];
+  }
+
+  // ── 브랜드 프로필 ──
+  private async ensureBrandProfileTable() {
+    const pool = getPool();
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS os_brand_profile (
+        profile_id SERIAL PRIMARY KEY,
+        brand_name VARCHAR(100),
+        target_age VARCHAR(50),
+        target_gender VARCHAR(20),
+        price_range VARCHAR(50),
+        brand_concept TEXT,
+        main_fabrics TEXT,
+        preferred_colors TEXT,
+        size_range VARCHAR(100),
+        season_focus VARCHAR(100),
+        additional_notes TEXT,
+        updated_by VARCHAR(50),
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `);
+  }
+
+  async getBrandProfile() {
+    const pool = getPool();
+    await this.ensureBrandProfileTable();
+    const res = await pool.query('SELECT * FROM os_brand_profile ORDER BY profile_id LIMIT 1');
+    return res.rows[0] || null;
+  }
+
+  async saveBrandProfile(data: Record<string, any>, userId: string) {
+    const pool = getPool();
+    await this.ensureBrandProfileTable();
+    const fields = ['brand_name', 'target_age', 'target_gender', 'price_range', 'brand_concept', 'main_fabrics', 'preferred_colors', 'size_range', 'season_focus', 'additional_notes'];
+    const existing = await pool.query('SELECT profile_id FROM os_brand_profile ORDER BY profile_id LIMIT 1');
+    if (existing.rows[0]) {
+      const sets: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+      for (const f of fields) {
+        if (data[f] !== undefined) {
+          sets.push(`${f} = $${idx++}`);
+          params.push(data[f]);
+        }
+      }
+      sets.push(`updated_by = $${idx++}`, `updated_at = NOW()`);
+      params.push(userId, existing.rows[0].profile_id);
+      const res = await pool.query(
+        `UPDATE os_brand_profile SET ${sets.join(', ')} WHERE profile_id = $${idx} RETURNING *`,
+        params,
+      );
+      return res.rows[0];
+    } else {
+      const cols: string[] = [];
+      const vals: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+      for (const f of fields) {
+        if (data[f] !== undefined) {
+          cols.push(f);
+          vals.push(`$${idx++}`);
+          params.push(data[f]);
+        }
+      }
+      cols.push('updated_by');
+      vals.push(`$${idx++}`);
+      params.push(userId);
+      const res = await pool.query(
+        `INSERT INTO os_brand_profile (${cols.join(', ')}) VALUES (${vals.join(', ')}) RETURNING *`,
+        params,
+      );
+      return res.rows[0];
+    }
+  }
+}
+
+export const outsourceRepository = new OutsourceRepository();

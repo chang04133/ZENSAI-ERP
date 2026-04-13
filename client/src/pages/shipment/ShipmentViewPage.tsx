@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Table, Button, Select, Tag, Input, DatePicker, message } from 'antd';
+import { Table, Button, Select, Tag, Input, DatePicker, Radio, message } from 'antd';
 import { SearchOutlined, EyeOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { STATUS_COLORS, getStatusLabel } from '../../components/shipment/ShipmentConstants';
 import ShipmentDetailModal from '../../components/shipment/ShipmentDetailModal';
 import { shipmentApi } from '../../modules/shipment/shipment.api';
 import { useAuthStore } from '../../modules/auth/auth.store';
+import { apiFetch } from '../../core/api.client';
 import { datePresets } from '../../utils/date-presets';
 
 const { RangePicker } = DatePicker;
@@ -19,7 +20,12 @@ export default function ShipmentViewPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string | undefined>();
   const [typeFilter, setTypeFilter] = useState<string | undefined>();
+  const [dateMode, setDateMode] = useState<'single' | 'range'>('range');
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
+  const [singleDate, setSingleDate] = useState<any>(null);
+  const [fromPartner, setFromPartner] = useState<string | undefined>();
+  const [toPartner, setToPartner] = useState<string | undefined>();
+  const [partners, setPartners] = useState<any[]>([]);
 
   const [detailOpen, setDetailOpen] = useState(false);
   const [detail, setDetail] = useState<any>(null);
@@ -37,8 +43,16 @@ export default function ShipmentViewPage() {
       if (statusFilter) params.status = statusFilter;
       if (typeFilter) params.request_type = typeFilter;
       if (user?.partnerCode) params.partner = user.partnerCode;
-      if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
-      if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
+      if (fromPartner) params.from_partner = fromPartner;
+      if (toPartner) params.to_partner = toPartner;
+      if (dateMode === 'single' && singleDate) {
+        const d = singleDate.format('YYYY-MM-DD');
+        params.date_from = d;
+        params.date_to = d;
+      } else {
+        if (dateRange?.[0]) params.date_from = dateRange[0].format('YYYY-MM-DD');
+        if (dateRange?.[1]) params.date_to = dateRange[1].format('YYYY-MM-DD');
+      }
       const result = await shipmentApi.list(params);
       setData(result.data);
       setTotal(result.total);
@@ -46,9 +60,20 @@ export default function ShipmentViewPage() {
     finally { setLoading(false); }
   };
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await apiFetch('/api/partners?limit=1000&scope=transfer');
+        const json = await res.json();
+        if (json.success && json.data?.data) setPartners(json.data.data);
+      } catch {}
+    })();
+  }, []);
+
   useEffect(() => { load(); }, [page]);
-  useEffect(() => { setPage(1); load(1); }, [statusFilter, typeFilter]);
+  useEffect(() => { setPage(1); load(1); }, [statusFilter, typeFilter, fromPartner, toPartner]);
   useEffect(() => { if (dateRange) { setPage(1); load(1); } }, [dateRange]);
+  useEffect(() => { if (singleDate) { setPage(1); load(1); } }, [singleDate]);
 
   const handleViewDetail = async (id: number) => {
     try { setDetail(await shipmentApi.get(id)); setDetailOpen(true); }
@@ -86,9 +111,12 @@ export default function ShipmentViewPage() {
     );
   };
 
+  const partnerOptions = partners.map((p: any) => ({ label: `${p.partner_name}`, value: p.partner_code }));
+
   const STATUS_OPTIONS = [
     { label: '전체', value: '' },
     { label: '대기', value: 'PENDING' },
+    { label: '승인', value: 'APPROVED' },
     { label: '출고완료', value: 'SHIPPED' },
     { label: '수량불일치', value: 'DISCREPANCY' },
     { label: '수령완료', value: 'RECEIVED' },
@@ -138,8 +166,22 @@ export default function ShipmentViewPage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>상태</div>
           <Select value={statusFilter || ''} onChange={(v) => setStatusFilter(v || undefined)} style={{ width: 120 }}
             options={STATUS_OPTIONS} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>출발</div>
+          <Select showSearch allowClear optionFilterProp="label" placeholder="전체" value={fromPartner}
+            onChange={(v) => setFromPartner(v || undefined)} style={{ width: 150 }} options={partnerOptions} /></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>도착</div>
+          <Select showSearch allowClear optionFilterProp="label" placeholder="전체" value={toPartner}
+            onChange={(v) => setToPartner(v || undefined)} style={{ width: 150 }} options={partnerOptions} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
-          <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Radio.Group size="small" value={dateMode} onChange={(e) => { setDateMode(e.target.value); setSingleDate(null); setDateRange(null); }}>
+              <Radio.Button value="single">일별</Radio.Button>
+              <Radio.Button value="range">기간별</Radio.Button>
+            </Radio.Group>
+            {dateMode === 'single'
+              ? <DatePicker value={singleDate} onChange={(v) => setSingleDate(v)} />
+              : <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} />}
+          </div></div>
         <Button onClick={() => { setPage(1); load(1); }}>조회</Button>
       </div>
       <Table columns={columns} dataSource={data} rowKey="request_id" loading={loading}

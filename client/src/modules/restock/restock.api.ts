@@ -21,6 +21,14 @@ export const restockApi = {
     return data.data as { suggestions: RestockSuggestion[]; salesPeriodDays: number };
   },
 
+  storeBrokenSizes: async (partnerCode?: string) => {
+    const q = partnerCode ? `?partner_code=${encodeURIComponent(partnerCode)}` : '';
+    const res = await apiFetch(`/api/restocks/store-broken-sizes${q}`);
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as any[];
+  },
+
   getProgressStats: async (partnerCode?: string) => {
     const q = partnerCode ? `?partner_code=${encodeURIComponent(partnerCode)}` : '';
     const res = await apiFetch(`/api/restocks/progress-stats${q}`);

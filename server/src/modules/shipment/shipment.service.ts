@@ -4,6 +4,7 @@ import { shipmentRepository } from './shipment.repository';
 import { inventoryRepository } from '../inventory/inventory.repository';
 import { getPool } from '../../db/connection';
 import { createNotification } from '../../core/notify';
+import { autoFulfillPreorders } from '../sales/preorder-auto-fulfill';
 
 class ShipmentService extends BaseService<ShipmentRequest> {
   constructor() {
@@ -35,103 +36,46 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         }
       }
 
-      // 1) 같은 출발/도착 거래처의 PENDING(출고대기) 케이스가 있으면 합치기
+      // 항상 새 의뢰 생성 (PENDING 상태, shipped_qty = 0, 재고 변동 없음)
       let requestId: number;
-      let mergedInto: string | null = null;
       const toPartner = headerData.to_partner || null;
-      const existingCase = toPartner ? await client.query(
-        `SELECT request_id, request_no FROM shipment_requests
-         WHERE from_partner = $1 AND to_partner = $2
-           AND request_type = $3 AND status = 'PENDING'
-         ORDER BY created_at DESC LIMIT 1
-         FOR UPDATE`,
-        [headerData.from_partner, toPartner, headerData.request_type],
-      ) : { rows: [] };
-
       const initialStatus = 'PENDING';
 
-      if (existingCase.rows.length > 0) {
-        // 기존 PENDING 케이스에 품목 추가 (merge)
-        requestId = existingCase.rows[0].request_id;
-        mergedInto = existingCase.rows[0].request_no;
+      const requestNo = await shipmentRepository.generateNo(client);
+      const header = await client.query(
+        `INSERT INTO shipment_requests
+         (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
+          is_customer_claim, claim_type, claim_reason, customer_name, customer_phone, group_no, target_partners)
+         VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         RETURNING *`,
+        [requestNo, headerData.from_partner || null, toPartner,
+         headerData.request_type, initialStatus, headerData.memo || null, headerData.requested_by,
+         headerData.is_customer_claim || false, headerData.claim_type || null,
+         headerData.claim_reason || null, headerData.customer_name || null, headerData.customer_phone || null,
+         headerData.group_no || null, headerData.target_partners || null],
+      );
+      requestId = header.rows[0].request_id;
 
-        // 기존 품목 조회
-        const existingItems = await client.query(
-          'SELECT variant_id, request_qty FROM shipment_request_items WHERE request_id = $1',
-          [requestId],
+      for (const item of items) {
+        await client.query(
+          `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
+           VALUES ($1, $2, $3, 0, 0)`,
+          [requestId, item.variant_id, item.request_qty],
         );
-        const existingMap = new Map(existingItems.rows.map((r: any) => [r.variant_id, r]));
-
-        for (const item of items) {
-          const existing = existingMap.get(item.variant_id);
-          if (existing) {
-            // 같은 variant → 의뢰수량만 합산 (shipped_qty는 출고확인 시 설정)
-            await client.query(
-              `UPDATE shipment_request_items
-               SET request_qty = request_qty + $1
-               WHERE request_id = $2 AND variant_id = $3`,
-              [item.request_qty, requestId, item.variant_id],
-            );
-          } else {
-            // 새 variant → 추가 (shipped_qty = 0)
-            await client.query(
-              `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-               VALUES ($1, $2, $3, 0, 0)`,
-              [requestId, item.variant_id, item.request_qty],
-            );
-          }
-        }
-
-        // 메모 추가
-        if (headerData.memo) {
-          await client.query(
-            `UPDATE shipment_requests SET memo = CASE WHEN memo IS NULL OR memo = '' THEN $1 ELSE memo || ' / ' || $1 END, updated_at = NOW() WHERE request_id = $2`,
-            [headerData.memo, requestId],
-          );
-        }
-      } else {
-        // 새 케이스 생성 (PENDING 상태, shipped_qty = 0, 재고 변동 없음)
-        const requestNo = await shipmentRepository.generateNo(client);
-        const header = await client.query(
-          `INSERT INTO shipment_requests
-           (request_no, request_date, from_partner, to_partner, request_type, status, memo, requested_by,
-            is_customer_claim, claim_type, claim_reason, customer_name, customer_phone)
-           VALUES ($1, NOW(), $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-           RETURNING *`,
-          [requestNo, headerData.from_partner, toPartner,
-           headerData.request_type, initialStatus, headerData.memo || null, headerData.requested_by,
-           headerData.is_customer_claim || false, headerData.claim_type || null,
-           headerData.claim_reason || null, headerData.customer_name || null, headerData.customer_phone || null],
-        );
-        requestId = header.rows[0].request_id;
-
-        for (const item of items) {
-          await client.query(
-            `INSERT INTO shipment_request_items (request_id, variant_id, request_qty, shipped_qty, received_qty)
-             VALUES ($1, $2, $3, 0, 0)`,
-            [requestId, item.variant_id, item.request_qty],
-          );
-        }
       }
 
       // 재고 차감은 출고확인(shipAndConfirm) 시 수행 — 여기서는 등록만
 
       if (!extClient) await client.query('COMMIT');
 
-      // 알림 생성 (비동기)
-      if (mergedInto) {
-        createNotification(
-          'SHIPMENT', '출고추가',
-          `${headerData.request_type} #${mergedInto}에 ${items.length}개 품목이 추가되었습니다.`,
-          requestId, toPartner, headerData.requested_by,
-        );
+      // 알림 생성 (비동기) — 다중 매장 의뢰면 각 대상 매장에 알림
+      const notifMsg = `${headerData.request_type} #${requestNo}이(가) 등록되었습니다. (출고확인 필요)`;
+      if (headerData.target_partners) {
+        for (const tp of String(headerData.target_partners).split(',')) {
+          createNotification('SHIPMENT', '출고등록', notifMsg, requestId, tp, headerData.requested_by);
+        }
       } else {
-        const notifTitle = '출고등록';
-        const notifMsg = `${headerData.request_type} #${requestId}이(가) 등록되었습니다. (출고확인 필요)`;
-        createNotification(
-          'SHIPMENT', notifTitle, notifMsg,
-          requestId, toPartner, headerData.requested_by,
-        );
+        createNotification('SHIPMENT', '출고등록', notifMsg, requestId, toPartner, headerData.requested_by);
       }
 
       if (extClient) return { request_id: requestId } as any;
@@ -203,7 +147,8 @@ class ShipmentService extends BaseService<ShipmentRequest> {
 
   /** 허용되는 상태 전환 정의 */
   private static ALLOWED_TRANSITIONS: Record<string, string[]> = {
-    PENDING: ['SHIPPED', 'CANCELLED', 'REJECTED'],
+    PENDING: ['APPROVED', 'SHIPPED', 'CANCELLED', 'REJECTED'],
+    APPROVED: ['SHIPPED', 'CANCELLED'],
     SHIPPED: ['RECEIVED', 'DISCREPANCY', 'CANCELLED'],
     DISCREPANCY: ['RECEIVED', 'CANCELLED'],
     RECEIVED: ['CANCELLED'],
@@ -231,8 +176,20 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         if (!allowed.includes(newStatus)) {
           throw new Error(`상태를 ${oldStatus}에서 ${newStatus}(으)로 변경할 수 없습니다.`);
         }
-        // PENDING→SHIPPED는 shipAndConfirm 전용 (shipped_qty 설정 필요)
-        if (oldStatus === 'PENDING' && newStatus === 'SHIPPED') {
+        // 반품 취소: 매장매니저는 당일만 가능 (ADMIN/SYS_ADMIN/HQ_MANAGER 제외)
+        if (newStatus === 'CANCELLED' && current.request_type === '반품') {
+          const userResult = await client.query('SELECT rg.group_name FROM users u JOIN role_groups rg ON u.role_group = rg.group_id WHERE u.user_id = $1', [userId]);
+          const role = userResult.rows[0]?.group_name;
+          if (!['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(role)) {
+            const reqDate = new Date(current.request_date).toISOString().slice(0, 10);
+            const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+            if (reqDate !== today) {
+              throw new Error('반품 취소는 등록 당일에만 가능합니다.');
+            }
+          }
+        }
+        // PENDING/APPROVED→SHIPPED는 shipAndConfirm 전용 (shipped_qty 설정 필요)
+        if ((oldStatus === 'PENDING' || oldStatus === 'APPROVED') && newStatus === 'SHIPPED') {
           throw new Error('출고확인은 전용 API(/ship-confirm)를 사용해주세요.');
         }
         // SHIPPED→RECEIVED는 receiveWithInventory 전용 (received_qty 설정 필요)
@@ -240,6 +197,28 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         if (oldStatus === 'SHIPPED' && newStatus === 'RECEIVED') {
           throw new Error('수령확인은 전용 API(/receive)를 사용해주세요.');
         }
+      }
+
+      // REJECTED 처리: 다중 매장 의뢰인 경우 target_partners에서 해당 매장만 제거
+      if (newStatus === 'REJECTED' && current.target_partners && !current.from_partner && data.reject_partner) {
+        const targets = String(current.target_partners).split(',').filter((t: string) => t !== data.reject_partner);
+        if (targets.length > 0) {
+          // 아직 다른 대상 매장이 남아있음 → 목록에서만 제거, 상태는 PENDING 유지
+          const rejectMemo = `[거절: ${data.reject_partner}] ${data.reject_reason || ''}`;
+          await client.query(
+            `UPDATE shipment_requests SET target_partners = $1, memo = COALESCE(memo || ' ', '') || $2, updated_at = NOW() WHERE request_id = $3`,
+            [targets.join(','), rejectMemo, id],
+          );
+          await client.query('COMMIT');
+          // 거절 알림
+          createNotification(
+            'SHIPMENT', '수평이동 거절',
+            `수평이동 #${current.request_no}: ${data.reject_partner} 매장이 거절했습니다. (남은 대상: ${targets.length}개 매장)`,
+            id, current.to_partner, userId,
+          );
+          return shipmentRepository.getWithItems(id);
+        }
+        // 모든 매장이 거절 → 아래로 진행하여 REJECTED 처리
       }
 
       // REJECTED: 거절 사유를 memo에 저장
@@ -297,6 +276,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
               await inventoryRepository.applyChange(
                 current.to_partner, item.variant_id, -item.received_qty,
                 txType, id, userId, client,
+                { memo: `${current.request_type} 취소(수령 원복) #${current.request_no || id}` },
               );
             }
           }
@@ -308,6 +288,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
               await inventoryRepository.applyChange(
                 current.from_partner, item.variant_id, item.shipped_qty,
                 txType, id, userId, client,
+                { memo: `${current.request_type} 취소(출고 원복) #${current.request_no || id}` },
               );
             }
           }
@@ -360,6 +341,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
     id: number,
     items: Array<{ variant_id: number; shipped_qty: number }>,
     userId: string,
+    shipperPartnerCode?: string,
   ): Promise<ShipmentRequest | null> {
     const pool = getPool();
     const client = await pool.connect();
@@ -373,9 +355,18 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       if (currentResult.rows.length === 0) throw new Error('출고건을 찾을 수 없습니다');
       const current = currentResult.rows[0];
 
-      // 상태 전환 검증: PENDING → SHIPPED만 허용
-      if (current.status !== 'PENDING') {
-        throw new Error(`현재 상태(${current.status})에서는 출고확인할 수 없습니다. PENDING 상태만 가능합니다.`);
+      // 상태 전환 검증: PENDING 또는 APPROVED → SHIPPED만 허용
+      if (current.status !== 'PENDING' && current.status !== 'APPROVED') {
+        throw new Error(`현재 상태(${current.status})에서는 출고확인할 수 없습니다. PENDING 또는 APPROVED 상태만 가능합니다.`);
+      }
+
+      // 다중 매장 의뢰: from_partner 미지정이면 출고하는 매장을 from_partner로 설정
+      if (!current.from_partner && current.target_partners && shipperPartnerCode) {
+        await client.query(
+          'UPDATE shipment_requests SET from_partner = $1 WHERE request_id = $2',
+          [shipperPartnerCode, id],
+        );
+        current.from_partner = shipperPartnerCode;
       }
 
       // request_qty 조회하여 초과 검증
@@ -415,6 +406,31 @@ class ShipmentService extends BaseService<ShipmentRequest> {
             await inventoryRepository.applyChange(
               current.from_partner, item.variant_id, -item.shipped_qty,
               txType, id, userId, client,
+              { memo: `${current.request_type} 출고 #${current.request_no || id}` },
+            );
+          }
+        }
+      }
+
+      // 수평이동: 같은 요청자(to_partner)의 동일 품목 다른 PENDING 요청 자동 취소
+      if (current.request_type === '수평이동' && current.to_partner) {
+        const shippedVariantIds = items.filter(i => i.shipped_qty > 0).map(i => i.variant_id);
+        if (shippedVariantIds.length > 0) {
+          const otherPending = await client.query(
+            `SELECT DISTINCT sr.request_id, sr.request_no
+             FROM shipment_requests sr
+             JOIN shipment_request_items sri ON sr.request_id = sri.request_id
+             WHERE sr.request_id != $1
+               AND sr.to_partner = $2
+               AND sr.request_type = '수평이동'
+               AND sr.status = 'PENDING'
+               AND sri.variant_id = ANY($3::int[])`,
+            [id, current.to_partner, shippedVariantIds],
+          );
+          for (const other of otherPending.rows) {
+            await client.query(
+              `UPDATE shipment_requests SET status = 'CANCELLED', memo = COALESCE(memo || ' ', '') || '[자동취소] #${current.request_no} 출고확인으로 인한 자동 취소', updated_at = NOW() WHERE request_id = $1`,
+              [other.request_id],
             );
           }
         }
@@ -519,12 +535,20 @@ class ShipmentService extends BaseService<ShipmentRequest> {
             await inventoryRepository.applyChange(
               current.to_partner, item.variant_id, delta,
               txType, id, userId, client,
+              { memo: `${current.request_type} 수령 #${current.request_no || id}` },
             );
           }
         }
       }
 
       await client.query('COMMIT');
+
+      // 수령 완료 시 to_partner의 예약판매 자동 해소 (테스트 환경에서는 재고 간섭 방지를 위해 비활성화)
+      if (current.to_partner && process.env.NODE_ENV !== 'test') {
+        autoFulfillPreorders(current.to_partner, items.map(i => i.variant_id), userId).catch(err => {
+          console.error('예약판매 자동해소 실패:', err.message);
+        });
+      }
 
       // 알림 생성
       if (newStatus === 'DISCREPANCY') {
@@ -551,6 +575,7 @@ class ShipmentService extends BaseService<ShipmentRequest> {
       client.release();
     }
   }
+
 }
 
 export const shipmentService = new ShipmentService();

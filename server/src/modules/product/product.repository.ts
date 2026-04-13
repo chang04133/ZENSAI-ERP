@@ -10,12 +10,13 @@ export class ProductRepository extends BaseRepository<Product> {
       searchFields: ['product_code', 'product_name'],
       filterFields: ['category', 'sub_category', 'brand', 'season', 'fit', 'length', 'is_active', 'sale_status'],
       defaultOrder: 'created_at DESC',
+      tableAlias: 'p',
     });
   }
 
   /** 목록 조회 – inventory 합계 포함, 컬러/사이즈 필터 지원 */
   async list(options: any = {}) {
-    const { page = 1, limit = 20, color, size, partner_code, issue, orderBy, orderDir } = options;
+    const { page = 1, limit = 20, color, size, partner_code, issue, event_status, orderBy, orderDir } = options;
     const offset = (page - 1) * limit;
     const qb = this.buildQuery(options);
     if (options.year_from) qb.raw('p.year >= ?', options.year_from);
@@ -79,7 +80,17 @@ export class ProductRepository extends BaseRepository<Product> {
       ) issue_filter ON p.product_code = issue_filter.product_code`;
     }
 
-    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${partnerJoin} ${issueJoin} ${whereClause}${variantFilter}`;
+    // 행사 상태 필터
+    let eventStatusFilter = '';
+    if (event_status === 'active') {
+      eventStatusFilter = ' AND p.event_price IS NOT NULL AND (p.event_end_date IS NULL OR p.event_end_date >= CURRENT_DATE)';
+    } else if (event_status === 'expired') {
+      eventStatusFilter = ' AND p.event_price IS NOT NULL AND p.event_end_date IS NOT NULL AND p.event_end_date < CURRENT_DATE';
+    } else if (event_status === 'none') {
+      eventStatusFilter = ' AND p.event_price IS NULL';
+    }
+
+    const countSql = `SELECT COUNT(DISTINCT p.product_code) FROM ${this.table} p ${variantJoin} ${partnerJoin} ${issueJoin} ${whereClause}${variantFilter}${eventStatusFilter}`;
     const countResult = await this.pool.query(countSql, params);
     const total = parseInt(countResult.rows[0].count, 10);
 
@@ -118,7 +129,7 @@ export class ProductRepository extends BaseRepository<Product> {
         WHERE pp.status IN ('DRAFT', 'IN_PRODUCTION')
         GROUP BY pi.product_code
       ) prod ON p.product_code = prod.product_code
-      ${whereClause}${variantFilter}
+      ${whereClause}${variantFilter}${eventStatusFilter}
       ORDER BY ${orderCol} ${direction}
       LIMIT $${nextIdx} OFFSET $${nextIdx + 1}`;
     const dataResult = await this.pool.query(dataSql, [...params, limit, offset]);
@@ -139,7 +150,7 @@ export class ProductRepository extends BaseRepository<Product> {
          GROUP BY variant_id
        ) inv ON pv.variant_id = inv.variant_id
        WHERE pv.product_code = $1
-       ORDER BY pv.color, pv.size`,
+       ORDER BY pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END`,
       [code],
     );
     return { ...product.rows[0], variants: variants.rows };
@@ -150,36 +161,39 @@ export class ProductRepository extends BaseRepository<Product> {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
+      const directCost = data.direct_cost || 0;
+      const costPrice = data.cost_price || directCost;
       const result = await client.query(
-        `INSERT INTO products (product_code, product_name, category, sub_category, brand, year, season, fit, length, base_price, cost_price, discount_price, event_price, sale_status, warehouse_location)
+        `INSERT INTO products (product_code, product_name, category, sub_category, brand, year, season, fit, length, base_price, direct_cost, cost_price, discount_price, event_price, sale_status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING *`,
         [
           data.product_code, data.product_name, data.category, data.sub_category || null,
           data.brand, data.year || null, data.season,
           data.fit || null, data.length || null,
-          data.base_price || 0, data.cost_price || 0,
+          data.base_price || 0, directCost, costPrice,
           data.discount_price || null, data.event_price || null,
-          data.sale_status || '판매중', data.warehouse_location || null,
+          data.sale_status || '판매중',
         ],
       );
       if (data.variants && Array.isArray(data.variants)) {
         for (const v of data.variants) {
           const sku = `${data.product_code}-${v.color}-${v.size}`;
           await client.query(
-            `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, warehouse_location, stock_qty)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+            `INSERT INTO product_variants (product_code, color, size, sku, price, barcode, custom_barcode, warehouse_location, stock_qty)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               data.product_code, v.color, v.size, sku,
-              v.price || data.base_price || 0,
-              v.barcode || null, v.warehouse_location || null, v.stock_qty || 0,
+              v.price || data.discount_price || data.base_price || 0,
+              sku, v.custom_barcode || null, v.warehouse_location || null, v.stock_qty || 0,
             ],
           );
         }
       }
       await client.query('COMMIT');
       return result.rows[0];
-    } catch (error) {
+    } catch (error: any) {
       await client.query('ROLLBACK');
+      console.error('createWithVariants 에러:', error.message, '\ndata keys:', Object.keys(data));
       throw error;
     } finally {
       client.release();
@@ -620,13 +634,19 @@ export class ProductRepository extends BaseRepository<Product> {
         );
       }
       const costResult = await client.query(
-        `SELECT COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS cost_price
-         FROM product_materials pm
-         JOIN materials m ON pm.material_id = m.material_id
-         WHERE pm.product_code = $1`,
+        `SELECT
+           COALESCE(p.direct_cost, 0)::numeric(12,0) AS direct_cost,
+           COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS material_cost
+         FROM products p
+         LEFT JOIN product_materials pm ON pm.product_code = p.product_code
+         LEFT JOIN materials m ON pm.material_id = m.material_id
+         WHERE p.product_code = $1
+         GROUP BY p.direct_cost`,
         [productCode],
       );
-      const costPrice = Number(costResult.rows[0].cost_price);
+      const directCost = Number(costResult.rows[0]?.direct_cost || 0);
+      const materialCost = Number(costResult.rows[0]?.material_cost || 0);
+      const costPrice = directCost + materialCost;
       await client.query(
         'UPDATE products SET cost_price = $1, updated_at = NOW() WHERE product_code = $2',
         [costPrice, productCode],
@@ -647,9 +667,9 @@ export class ProductRepository extends BaseRepository<Product> {
     const pool = getPool();
     await pool.query(
       `UPDATE products p
-       SET cost_price = sub.new_cost, updated_at = NOW()
+       SET cost_price = COALESCE(p.direct_cost, 0) + sub.material_cost, updated_at = NOW()
        FROM (
-         SELECT pm.product_code, COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS new_cost
+         SELECT pm.product_code, COALESCE(SUM(pm.usage_qty * m.unit_price), 0)::numeric(12,0) AS material_cost
          FROM product_materials pm
          JOIN materials m ON pm.material_id = m.material_id
          WHERE pm.product_code IN (SELECT product_code FROM product_materials WHERE material_id = $1)

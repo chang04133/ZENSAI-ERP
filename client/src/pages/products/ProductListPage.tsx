@@ -1,8 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
-import { Table, Button, Input, Select, Space, Tag, Popconfirm, Upload, Modal, Switch, AutoComplete, DatePicker, message, Alert, Spin } from 'antd';
+import { Table, Button, Input, Select, Space, Tag, Upload, Modal, Switch, AutoComplete, message, Alert, Spin } from 'antd';
 import { PlusOutlined, SearchOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
-import dayjs, { Dayjs } from 'dayjs';
-import { datePresets } from '../../utils/date-presets';
+import dayjs from 'dayjs';
 import { useNavigate } from 'react-router-dom';
 import PageHeader from '../../components/PageHeader';
 import { useProductStore } from '../../modules/product/product.store';
@@ -52,7 +51,7 @@ export default function ProductListPage() {
   const [issueFilter, setIssueFilter] = useState('');
   const [partnerFilter, setPartnerFilter] = useState('');
   const [partners, setPartners] = useState<any[]>([]);
-  const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
+  const isAdmin = user?.role === ROLES.ADMIN;
   const canWrite = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const isHQ = user && [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER].includes(user.role as any);
@@ -91,17 +90,13 @@ export default function ProductListPage() {
     if (sizeFilter.length) params.size = sizeFilter.join(',');
     if (issueFilter) params.issue = issueFilter;
     if (partnerFilter) params.partner_code = partnerFilter;
-    if (dateRange) {
-      params.date_from = dateRange[0].format('YYYY-MM-DD');
-      params.date_to = dateRange[1].format('YYYY-MM-DD');
-    }
     const lastUnderscore = sortValue.lastIndexOf('_');
     params.orderBy = sortValue.substring(0, lastUnderscore);
     params.orderDir = sortValue.substring(lastUnderscore + 1);
     fetchProducts(params);
   };
 
-  useEffect(() => { load(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, sortValue, issueFilter, partnerFilter, dateRange]);
+  useEffect(() => { load(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, statusFilter, colorFilter, sizeFilter, sortValue, issueFilter, partnerFilter]);
 
   const onSearchChange = (value: string) => {
     setSearch(value);
@@ -124,16 +119,6 @@ export default function ProductListPage() {
   useEffect(() => {
     return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
   }, []);
-
-  const handleDelete = async (code: string) => {
-    try {
-      await productApi.remove(code);
-      message.success('상품이 비활성화되었습니다.');
-      load();
-    } catch (e: any) {
-      message.error(e.message);
-    }
-  };
 
   const handleBulkStatusChange = async () => {
     if (!bulkStatus || selectedRowKeys.length === 0) return;
@@ -165,6 +150,15 @@ export default function ProductListPage() {
         if (!variants) return prev;
         return { ...prev, [productCode]: variants.map((v: any) => v.variant_id === variantId ? { ...v, low_stock_alert: checked } : v) };
       });
+    } catch (e: any) {
+      message.error(e.message);
+    }
+  };
+
+  const handleToggleReorder = async (productCode: string, checked: boolean) => {
+    try {
+      await productApi.update(productCode, { is_reorder: checked });
+      load();
     } catch (e: any) {
       message.error(e.message);
     }
@@ -251,10 +245,6 @@ export default function ProductListPage() {
       if (statusFilter.length) params.sale_status = statusFilter.join(',');
       if (colorFilter.length) params.color = colorFilter.join(',');
       if (sizeFilter.length) params.size = sizeFilter.join(',');
-      if (dateRange) {
-        params.date_from = dateRange[0].format('YYYY-MM-DD');
-        params.date_to = dateRange[1].format('YYYY-MM-DD');
-      }
       const rows = await productApi.exportVariants(params);
       const excelCols = [
         { title: '상품코드', key: 'product_code' },
@@ -358,10 +348,28 @@ export default function ProductListPage() {
     { title: '행사', dataIndex: 'event_price', key: 'event_on', width: 60, align: 'center' as const,
       filters: [{ text: '행사중', value: 'on' }, { text: '일반', value: 'off' }],
       onFilter: (v: any, r: any) => v === 'on' ? !!r.event_price : !r.event_price,
-      render: (_v: number, record: any) => (
-        <Switch size="small" checked={!!record.event_price}
-          onChange={(checked) => handleToggleEvent(record.product_code, checked, record)} />
-      ),
+      render: (_v: number, record: any) => canWrite
+        ? <Switch size="small" checked={!!record.event_price}
+            onChange={(checked) => handleToggleEvent(record.product_code, checked, record)} />
+        : record.event_price ? <Tag color="orange">ON</Tag> : <Tag color="default">OFF</Tag>,
+    },
+    { title: '행사기간', key: 'event_period', width: 140,
+      render: (_: any, record: any) => {
+        if (!record.event_price) return '-';
+        const s = record.event_start_date ? dayjs(record.event_start_date).format('MM.DD') : '';
+        const e = record.event_end_date ? dayjs(record.event_end_date).format('MM.DD') : '';
+        if (!s && !e) return <span style={{ color: '#999', fontSize: 11 }}>기간 미설정</span>;
+        const expired = record.event_end_date && dayjs(record.event_end_date).isBefore(dayjs(), 'day');
+        return <span style={{ fontSize: 11, color: expired ? '#ff4d4f' : '#fa8c16' }}>{s || '~'} ~ {e || '계속'}{expired ? ' (만료)' : ''}</span>;
+      },
+    },
+    { title: '행사매장', key: 'event_stores', width: 100,
+      render: (_: any, record: any) => {
+        if (!record.event_price) return '-';
+        const codes: string[] = record.event_store_codes || [];
+        if (codes.length === 0) return <Tag color="blue" style={{ fontSize: 11 }}>전체</Tag>;
+        return <span style={{ fontSize: 11, color: '#666' }}>{codes.length}개 매장</span>;
+      },
     },
     { title: '상태', dataIndex: 'sale_status', key: 'sale_status', width: 75,
       render: (v: string) => <Tag color={SALE_STATUS_COLORS[v] || 'default'}>{v}</Tag>,
@@ -381,29 +389,14 @@ export default function ProductListPage() {
     { title: '리오더', dataIndex: 'is_reorder', key: 'is_reorder', width: 65, align: 'center' as const,
       filters: [{ text: 'O', value: true }, { text: 'X', value: false }],
       onFilter: (v: any, r: any) => r.is_reorder === v,
-      render: (v: boolean) => v
-        ? <Tag color="blue" style={{ fontWeight: 700 }}>O</Tag>
-        : <Tag color="default" style={{ fontWeight: 700 }}>X</Tag>,
-    },
-    { title: '생산중', dataIndex: 'in_production_qty', key: 'in_production_qty', width: 70, align: 'center' as const,
-      filters: [{ text: '생산중', value: 'yes' }, { text: '-', value: 'no' }],
-      onFilter: (v: any, r: any) => v === 'yes' ? Number(r.in_production_qty) > 0 : Number(r.in_production_qty) === 0,
-      render: (v: number) => {
-        const qty = Number(v || 0);
-        return qty > 0
-          ? <Tag color="purple" style={{ fontWeight: 700 }}>{qty}</Tag>
-          : <span style={{ color: '#ccc' }}>-</span>;
-      },
+      render: (v: boolean, record: any) => canWrite
+        ? <Switch size="small" checked={!!v} onChange={(checked) => handleToggleReorder(record.product_code, checked)} />
+        : v ? <Tag color="blue" style={{ fontWeight: 700 }}>O</Tag> : <Tag color="default" style={{ fontWeight: 700 }}>X</Tag>,
     },
     ...(canWrite ? [{
-      title: '관리', key: 'actions', width: 120,
+      title: '관리', key: 'actions', width: 70,
       render: (_: any, record: any) => (
-        <Space>
-          <Button size="small" onClick={() => navigate(`/products/${record.product_code}/edit`)}>수정</Button>
-          <Popconfirm title="비활성화하시겠습니까?" onConfirm={() => handleDelete(record.product_code)}>
-            <Button size="small" danger>삭제</Button>
-          </Popconfirm>
-        </Space>
+        <Button size="small" onClick={() => navigate(`/products/${record.product_code}/edit`)}>수정</Button>
       ),
     }] : []),
   ];
@@ -417,7 +410,7 @@ export default function ProductListPage() {
             {canWrite && <Button icon={<DownloadOutlined />} onClick={handleExcelDownload} loading={excelLoading}>
               엑셀 다운로드
             </Button>}
-            {canWrite && <Button icon={<UploadOutlined />} onClick={() => {
+            {isAdmin && <Button icon={<UploadOutlined />} onClick={() => {
               setUploadModalOpen(true); setUploadResult(null);
               if (uploadPartners.length === 0) {
                 apiFetch('/api/partners?limit=1000').then(r => r.json()).then(d => {
@@ -427,22 +420,13 @@ export default function ProductListPage() {
             }}>
               엑셀 업로드
             </Button>}
-            {canWrite && <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
+            {(isAdmin || user?.role === ROLES.SYS_ADMIN) && <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/products/new')}>
               상품 등록
             </Button>}
           </Space>
         }
       />
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
-        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>조회기간(등록일)</div>
-          <DatePicker.RangePicker
-            value={dateRange}
-            onChange={(v) => { setDateRange(v as [Dayjs, Dayjs] | null); setPage(1); }}
-            presets={datePresets}
-            format="YYYY-MM-DD"
-            allowClear
-            style={{ width: 300 }}
-          /></div>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete
             value={search} onChange={onSearchChange} onSelect={onSearchSelect}

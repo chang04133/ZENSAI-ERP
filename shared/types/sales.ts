@@ -8,6 +8,7 @@ export interface Sale {
   total_price: number;
   sale_type?: string;
   tax_free?: boolean;
+  tax_free_amount?: number;
   return_reason?: string;
   memo?: string | null;
   created_at: string;

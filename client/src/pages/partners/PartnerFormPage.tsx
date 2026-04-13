@@ -8,14 +8,12 @@ import { ROLES } from '../../../../shared/constants/roles';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
 const PARTNER_TYPE_OPTIONS = [
-  { label: '본사', value: '본사' },
-  { label: '대리점', value: '대리점' },
   { label: '직영점', value: '직영점' },
   { label: '백화점', value: '백화점' },
   { label: '아울렛', value: '아울렛' },
+  { label: '대리점', value: '대리점' },
   { label: '온라인', value: '온라인' },
-  { label: '직영', value: '직영' },
-  { label: '가맹', value: '가맹' },
+  { label: '본사', value: '본사' },
 ];
 
 export default function PartnerFormPage() {

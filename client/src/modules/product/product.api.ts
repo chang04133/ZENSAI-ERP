@@ -1,5 +1,5 @@
 import { createCrudApi } from '../../core/crud.api';
-import { apiFetch } from '../../core/api.client';
+import { apiFetch, safeJson } from '../../core/api.client';
 import type { Product } from '../../../../shared/types/product';
 
 export const productApi = {
@@ -22,8 +22,8 @@ export const productApi = {
   searchVariants: async (search: string, partnerCode?: string) => {
     const pcParam = partnerCode ? `&partner_code=${encodeURIComponent(partnerCode)}` : '';
     const res = await apiFetch(`/api/products/variants/search?search=${encodeURIComponent(search)}${pcParam}`);
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error);
+    const data = await safeJson(res);
+    if (!data.success) throw new Error(data.error || '검색 실패');
     return data.data as Array<{ variant_id: number; sku: string; color: string; size: string; price: number; product_code: string; product_name: string; category: string; current_stock?: number; base_price?: number; discount_price?: number; event_price?: number }>;
   },
 

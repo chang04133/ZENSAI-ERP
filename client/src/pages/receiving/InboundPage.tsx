@@ -5,7 +5,8 @@ import {
 } from 'antd';
 import {
   PlusOutlined, DeleteOutlined, ImportOutlined, UploadOutlined, DownloadOutlined,
-  InboxOutlined, SearchOutlined, CheckCircleOutlined,
+  InboxOutlined, SearchOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
+  WarningOutlined,
 } from '@ant-design/icons';
 import type { UploadFile } from 'antd/es/upload';
 import Upload from 'antd/es/upload';
@@ -15,6 +16,7 @@ import { apiFetch } from '../../core/api.client';
 import { useAuthStore } from '../../modules/auth/auth.store';
 import { ROLES } from '../../../../shared/constants/roles';
 import { fmt } from '../../utils/format';
+import { shipmentApi } from '../../modules/shipment/shipment.api';
 import type { InboundRecord, InboundItem } from '../../../../shared/types/inbound';
 import dayjs from 'dayjs';
 
@@ -145,7 +147,7 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
         color: row.color,
         size: row.size,
         qty: 1,
-        unit_price: row.base_price || 0,
+        unit_price: Number(row.cost_price) || 0,
         current_stock: row.current_stock ?? undefined,
       },
     ]);
@@ -327,7 +329,6 @@ function RegisterTab({ partners, onCreated }: { partners: any[]; onCreated: () =
         <SearchOutlined style={{ color: '#1890ff' }} />
         <Select
           showSearch
-          value={null as any}
           placeholder="품번 / 상품명 / SKU 입력하여 추가"
           style={{ flex: 1, maxWidth: 500 }}
           filterOption={false}
@@ -504,7 +505,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
         color: row.color,
         size: row.size,
         qty: 1,
-        unit_price: row.base_price || 0,
+        unit_price: Number(row.cost_price) || 0,
         current_stock: row.current_stock ?? undefined,
       },
     ]);
@@ -594,10 +595,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
     },
     { title: '원가(원)', width: 110,
       render: (_: unknown, r: VariantRow) => (
-        <InputNumber min={0} value={r.unit_price} size="small" style={{ width: 100 }}
-          formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-          parser={(v) => Number((v || '').replace(/,/g, ''))}
-          onChange={(v) => updateCI(r.key, 'unit_price', v || 0)} />
+        <span style={{ fontSize: 12 }}>{r.unit_price != null ? fmt(r.unit_price) + '원' : '-'}</span>
       ),
     },
     { title: '', width: 40,
@@ -778,7 +776,7 @@ function HistoryTab({ partners }: { partners: any[] }) {
             {confirmRecord.memo && <div style={{ marginBottom: 12, color: '#666' }}>비고: {confirmRecord.memo}</div>}
             <div style={{ marginBottom: 12, display: 'flex', gap: 8, alignItems: 'center' }}>
               <SearchOutlined style={{ color: '#1890ff' }} />
-              <Select showSearch value={null as any} placeholder="품번 / 상품명 / SKU 입력하여 추가"
+              <Select showSearch placeholder="품번 / 상품명 / SKU 입력하여 추가"
                 style={{ flex: 1 }} filterOption={false}
                 onSearch={handleVSearch} onSelect={handleVSelect}
                 loading={searchLoadingV} options={variantOptions}
@@ -796,8 +794,178 @@ function HistoryTab({ partners }: { partners: any[] }) {
   );
 }
 
+/* ── 출고불일치 탭 (매장용) ── */
+function DiscrepancyTab() {
+  const user = useAuthStore((s) => s.user);
+  const pc = user?.partnerCode;
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // 수령 재확인 모달
+  const [receiveTarget, setReceiveTarget] = useState<any>(null);
+  const [receiveModalOpen, setReceiveModalOpen] = useState(false);
+  const [receivedQtys, setReceivedQtys] = useState<Record<number, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!pc) return;
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/shipments?status=DISCREPANCY&to_partner=${encodeURIComponent(pc)}&limit=50`);
+      const d = await res.json();
+      if (d.success) setData(d.data?.data || []);
+    } catch { /* ignore */ }
+    finally { setLoading(false); }
+  }, [pc]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const handleOpenReceive = async (record: any) => {
+    try {
+      const d = await shipmentApi.get(record.request_id);
+      setReceiveTarget(d);
+      const qtys: Record<number, number> = {};
+      (d as any).items?.forEach((item: any) => { qtys[item.variant_id] = item.received_qty || item.shipped_qty; });
+      setReceivedQtys(qtys);
+      setReceiveModalOpen(true);
+    } catch (e: any) { message.error(e.message); }
+  };
+
+  const handleConfirmReceive = async () => {
+    if (!receiveTarget || submitting) return;
+    setSubmitting(true);
+    try {
+      const rItems = (receiveTarget as any).items.map((item: any) => ({
+        variant_id: item.variant_id, received_qty: receivedQtys[item.variant_id] || 0,
+      }));
+      const result = await shipmentApi.receive(receiveTarget.request_id, rItems);
+      if ((result as any).status === 'DISCREPANCY') {
+        message.success('수령수량이 갱신되었습니다. 최종 확정은 관리자가 처리합니다.');
+      } else {
+        message.success('수령이 완료되었습니다. (매장 재고가 증가했습니다)');
+      }
+      setReceiveModalOpen(false);
+      setReceiveTarget(null);
+      load();
+    } catch (e: any) { message.error(e.message); }
+    finally { setSubmitting(false); }
+  };
+
+  const columns: any[] = [
+    { title: '의뢰번호', dataIndex: 'request_no', width: 140 },
+    { title: '유형', dataIndex: 'request_type', width: 80, render: (v: string) => <Tag>{v}</Tag> },
+    { title: '출발', dataIndex: 'from_partner_name', width: 110, ellipsis: true },
+    { title: '요청일', dataIndex: 'request_date', width: 110,
+      render: (v: string) => v ? dayjs(v).format('MM.DD HH:mm') : '-' },
+    { title: '요청수량', dataIndex: 'total_request_qty', width: 80, align: 'right' as const,
+      render: (v: number) => <b>{v || 0}</b> },
+    { title: '출고수량', dataIndex: 'total_shipped_qty', width: 80, align: 'right' as const,
+      render: (v: number) => <span style={{ color: '#fa8c16', fontWeight: 600 }}>{v || 0}</span> },
+    { title: '수령수량', dataIndex: 'total_received_qty', width: 80, align: 'right' as const,
+      render: (v: number, r: any) => {
+        const shipped = r.total_shipped_qty || 0;
+        const diff = shipped - (v || 0);
+        return (
+          <span>
+            <span style={{ color: diff !== 0 ? '#ff4d4f' : '#52c41a', fontWeight: 600 }}>{v || 0}</span>
+            {diff > 0 && <span style={{ color: '#ff4d4f', fontSize: 11, marginLeft: 4 }}>(-{diff})</span>}
+          </span>
+        );
+      },
+    },
+    { title: '메모', dataIndex: 'memo', width: 120, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '처리', key: 'action', width: 100,
+      render: (_: any, r: any) => (
+        <Button size="small" type="primary" style={{ background: '#fa541c', borderColor: '#fa541c' }}
+          icon={<ExclamationCircleOutlined />} onClick={() => handleOpenReceive(r)}>
+          수량재확인
+        </Button>
+      ),
+    },
+  ];
+
+  if (!pc) return <div style={{ padding: 40, textAlign: 'center', color: '#999' }}>매장 계정만 사용 가능합니다.</div>;
+
+  return (
+    <div>
+      <div style={{ marginBottom: 16, padding: '12px 16px', background: '#fff2e8', borderRadius: 8, border: '1px solid #ffbb96' }}>
+        <WarningOutlined style={{ color: '#fa541c', marginRight: 8 }} />
+        <span style={{ color: '#fa541c', fontWeight: 600 }}>수량불일치 건</span>
+        <span style={{ color: '#666', marginLeft: 8 }}>— 본사 출고수량과 매장 수령수량이 다른 건입니다. 수량 재확인 후 관리자가 최종 확정합니다.</span>
+      </div>
+
+      <Table dataSource={data} columns={columns} rowKey="request_id" loading={loading}
+        size="small" scroll={{ x: 900, y: 'calc(100vh - 340px)' }}
+        pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+        locale={{ emptyText: <div style={{ padding: 32, color: '#52c41a' }}><CheckCircleOutlined style={{ fontSize: 24, display: 'block', marginBottom: 8 }} />수량불일치 건이 없습니다</div> }}
+      />
+
+      {/* 수량 재확인 모달 */}
+      <Modal
+        title={receiveTarget ? `수량 재확인 — ${receiveTarget.request_no}` : '수량 재확인'}
+        open={receiveModalOpen} onCancel={() => setReceiveModalOpen(false)} width={800}
+        footer={
+          <Space>
+            <Button onClick={() => setReceiveModalOpen(false)}>취소</Button>
+            <Button type="primary" onClick={handleConfirmReceive} loading={submitting}>수령 확인</Button>
+          </Space>
+        }
+      >
+        {receiveTarget && (
+          <div>
+            <Row gutter={16} style={{ marginBottom: 16 }}>
+              <Col span={8}><Tag color="blue">{receiveTarget.request_no}</Tag> <Tag>{receiveTarget.request_type}</Tag></Col>
+              <Col span={8}>출발: <b>{receiveTarget.from_partner_name || receiveTarget.from_partner}</b></Col>
+              <Col span={8}>요청일: <b>{dayjs(receiveTarget.request_date).format('YYYY-MM-DD')}</b></Col>
+            </Row>
+            <div style={{ padding: '8px 12px', background: '#fff2e8', borderRadius: 6, marginBottom: 12, fontSize: 12, color: '#fa541c' }}>
+              출고수량과 실제 수령수량이 다르면 수량을 수정 후 확인해주세요.
+            </div>
+            <Table
+              dataSource={(receiveTarget as any).items || []}
+              rowKey="variant_id"
+              size="small"
+              pagination={false}
+              scroll={{ x: 650 }}
+              columns={[
+                { title: 'SKU', dataIndex: 'sku', width: 140 },
+                { title: '상품명', dataIndex: 'product_name', ellipsis: true },
+                { title: '색상', dataIndex: 'color', width: 70 },
+                { title: '사이즈', dataIndex: 'size', width: 60 },
+                { title: '출고', dataIndex: 'shipped_qty', width: 70, align: 'right' as const,
+                  render: (v: number) => <span style={{ color: '#fa8c16', fontWeight: 600 }}>{v}</span> },
+                { title: '수령수량', width: 100,
+                  render: (_: any, item: any) => (
+                    <InputNumber
+                      min={0} max={item.shipped_qty * 2}
+                      value={receivedQtys[item.variant_id] ?? item.shipped_qty}
+                      size="small" style={{ width: 80 }}
+                      onChange={(v) => setReceivedQtys((prev) => ({ ...prev, [item.variant_id]: v || 0 }))}
+                      status={(receivedQtys[item.variant_id] ?? item.shipped_qty) !== item.shipped_qty ? 'warning' : undefined}
+                    />
+                  ),
+                },
+                { title: '차이', width: 70, align: 'right' as const,
+                  render: (_: any, item: any) => {
+                    const recv = receivedQtys[item.variant_id] ?? item.shipped_qty;
+                    const diff = recv - item.shipped_qty;
+                    if (diff === 0) return <span style={{ color: '#52c41a' }}>-</span>;
+                    return <span style={{ color: '#ff4d4f', fontWeight: 600 }}>{diff > 0 ? '+' : ''}{diff}</span>;
+                  },
+                },
+              ]}
+            />
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
 /* ── 메인 페이지 ── */
 export default function InboundPage() {
+  const user = useAuthStore((s) => s.user);
+  const isStore = [ROLES.STORE_MANAGER, ROLES.STORE_STAFF].includes(user?.role as any) && !!user?.partnerCode;
   const [tab, setTab] = useState('register');
   const [partners, setPartners] = useState<any[]>([]);
 
@@ -811,20 +979,27 @@ export default function InboundPage() {
     setTab('history');
   };
 
+  const tabItems = [
+    {
+      key: 'register',
+      label: <span><InboxOutlined /> 입고 등록</span>,
+      children: <RegisterTab partners={partners} onCreated={handleCreated} />,
+    },
+    {
+      key: 'history',
+      label: '입고 내역',
+      children: <HistoryTab partners={partners} />,
+    },
+    ...(isStore ? [{
+      key: 'discrepancy',
+      label: <span><ExclamationCircleOutlined style={{ color: '#fa541c' }} /> 출고불일치</span>,
+      children: <DiscrepancyTab />,
+    }] : []),
+  ];
+
   return (
     <div>
-      <Tabs activeKey={tab} onChange={setTab} items={[
-        {
-          key: 'register',
-          label: <span><InboxOutlined /> 입고 등록</span>,
-          children: <RegisterTab partners={partners} onCreated={handleCreated} />,
-        },
-        {
-          key: 'history',
-          label: '입고 내역',
-          children: <HistoryTab partners={partners} />,
-        },
-      ]} />
+      <Tabs activeKey={tab} onChange={setTab} items={tabItems} />
     </div>
   );
 }

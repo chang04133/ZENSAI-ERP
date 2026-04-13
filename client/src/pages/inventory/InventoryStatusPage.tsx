@@ -29,7 +29,7 @@ export const TX_TYPE_COLORS: Record<string, string> = {
 
 export const renderQty = (qty: number) => {
   const n = Number(qty);
-  const color = n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333';
+  const color = n < 0 ? '#ff4d4f' : n === 0 ? '#ff4d4f' : n <= 5 ? '#faad14' : '#333';
   return <strong style={{ color, fontSize: 14 }}>{n.toLocaleString()}</strong>;
 };
 

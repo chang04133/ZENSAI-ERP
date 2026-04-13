@@ -45,66 +45,88 @@ export class SalesDetailedAnalysisRepository {
     // 간단 쿼리에서도 product 필터가 있으면 서브쿼리로 variant_id 제한
     const hasProductFilter = !!(filters?.category || filters?.sub_category || filters?.season || filters?.fit || filters?.length || filters?.color || filters?.size || filters?.search || filters?.year_from || filters?.year_to || filters?.sale_status);
 
-    // 상품별 집계
+    // 예약판매 포함 CTE (styleSalesByRange와 동일)
+    const salesCte = `combined_sales AS (
+      SELECT sale_id, sale_date, partner_code, variant_id, qty, unit_price, total_price, COALESCE(sale_type, '정상') AS sale_type, created_at FROM sales
+      UNION ALL
+      SELECT preorder_id AS sale_id, preorder_date AS sale_date, partner_code, variant_id, qty, unit_price, total_price, '예약판매' AS sale_type, created_at FROM preorders WHERE status = '대기'
+    )`;
+
+    // 상품별 집계 (총매출/반품 분리)
     const summarySql = `
+      WITH ${salesCte}
       SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length,
              CASE
-               WHEN p.season LIKE '%SA' THEN '봄/가을'
+               WHEN p.season LIKE '%SS' THEN '봄'
                WHEN p.season LIKE '%SM' THEN '여름'
+               WHEN p.season LIKE '%FW' THEN '가을'
                WHEN p.season LIKE '%WN' THEN '겨울'
                ELSE '기타'
              END AS season_type,
-             SUM(s.qty)::int AS total_qty,
+             SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             COUNT(*)::int AS sale_count,
+             SUM(CASE WHEN s.sale_type != '반품' THEN s.total_price ELSE 0 END)::bigint AS gross_amount,
+             COALESCE(-SUM(CASE WHEN s.sale_type = '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS return_amount,
+             COUNT(CASE WHEN s.sale_type != '반품' THEN 1 END)::int AS sale_count,
              COUNT(DISTINCT s.partner_code)::int AS partner_count
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date AND s.sale_type != '수정' ${joinFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length, season_type
-      ORDER BY total_amount DESC`;
+      ORDER BY gross_amount DESC`;
     const summary = (await this.pool.query(summarySql, params)).rows;
 
     // 개별 판매 내역
     const detailSql = `
+      WITH ${salesCte}
       SELECT s.sale_id, s.sale_date::text, s.partner_code, pt.partner_name,
              s.variant_id, pv.sku, pv.color, pv.size,
              p.product_code, p.product_name, p.category,
              s.qty, s.unit_price, s.total_price,
-             COALESCE(s.sale_type, '정상') AS sale_type,
+             s.sale_type,
              s.created_at
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       JOIN partners pt ON s.partner_code = pt.partner_code
-      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date AND s.sale_type != '반품' ${joinFilter}
       ORDER BY s.sale_date DESC, s.created_at DESC`;
     const details = (await this.pool.query(detailSql, params)).rows;
 
-    // 총합 — 필터가 있을 경우 JOIN 쿼리 사용
+    // 총합 — styleSalesByRange와 동일 구조 (gross/return 분리)
     let totals;
     if (hasProductFilter) {
       const totalSql = `
-        SELECT COUNT(*)::int AS sale_count,
-               COALESCE(SUM(s.qty), 0)::int AS total_qty,
+        WITH ${salesCte}
+        SELECT COUNT(CASE WHEN s.sale_type != '반품' THEN 1 END)::int AS sale_count,
+               COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END), 0)::int AS total_qty,
                COALESCE(SUM(s.total_price), 0)::bigint AS total_amount,
                COUNT(DISTINCT s.partner_code)::int AS partner_count,
-               COUNT(DISTINCT s.variant_id)::int AS variant_count
-        FROM sales s
+               COUNT(DISTINCT CASE WHEN s.sale_type != '반품' THEN s.variant_id END)::int AS variant_count,
+               COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS gross_amount,
+               COALESCE(-SUM(CASE WHEN s.sale_type = '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS return_amount,
+               COALESCE(SUM(CASE WHEN s.sale_type = '반품' THEN s.qty ELSE 0 END), 0)::int AS return_qty
+        FROM combined_sales s
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
         WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}`;
       totals = (await this.pool.query(totalSql, params)).rows[0];
     } else {
       const totalSql = `
-        SELECT COUNT(*)::int AS sale_count,
-               COALESCE(SUM(qty), 0)::int AS total_qty,
-               COALESCE(SUM(total_price), 0)::bigint AS total_amount,
-               COUNT(DISTINCT partner_code)::int AS partner_count,
-               COUNT(DISTINCT variant_id)::int AS variant_count
-        FROM sales
-        WHERE sale_date >= $1::date AND sale_date <= $2::date ${simpleFilter}`;
+        WITH ${salesCte}
+        SELECT COUNT(CASE WHEN s.sale_type != '반품' THEN 1 END)::int AS sale_count,
+               COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END), 0)::int AS total_qty,
+               COALESCE(SUM(s.total_price), 0)::bigint AS total_amount,
+               COUNT(DISTINCT s.partner_code)::int AS partner_count,
+               COUNT(DISTINCT CASE WHEN s.sale_type != '반품' THEN s.variant_id END)::int AS variant_count,
+               COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS gross_amount,
+               COALESCE(-SUM(CASE WHEN s.sale_type = '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS return_amount,
+               COALESCE(SUM(CASE WHEN s.sale_type = '반품' THEN s.qty ELSE 0 END), 0)::int AS return_qty
+        FROM combined_sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${simpleFilter ? simpleFilter.replace('partner_code', 's.partner_code') : ''}`;
       totals = (await this.pool.query(totalSql, simpleParams)).rows[0];
     }
 
@@ -112,27 +134,31 @@ export class SalesDetailedAnalysisRepository {
     let dailyTrend;
     if (hasProductFilter) {
       const dailySql = `
+        WITH ${salesCte}
         SELECT s.sale_date::text AS date,
                SUM(s.total_price)::bigint AS revenue,
                SUM(s.qty)::int AS qty,
                COUNT(*)::int AS cnt
-        FROM sales s
+        FROM combined_sales s
         JOIN product_variants pv ON s.variant_id = pv.variant_id
         JOIN products p ON pv.product_code = p.product_code
-        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${joinFilter}
+        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date AND s.sale_type != '반품' ${joinFilter}
         GROUP BY s.sale_date
         ORDER BY s.sale_date`;
       dailyTrend = (await this.pool.query(dailySql, params)).rows;
     } else {
       const dailySql = `
-        SELECT sale_date::text AS date,
-               SUM(total_price)::bigint AS revenue,
-               SUM(qty)::int AS qty,
+        WITH ${salesCte}
+        SELECT s.sale_date::text AS date,
+               SUM(s.total_price)::bigint AS revenue,
+               SUM(s.qty)::int AS qty,
                COUNT(*)::int AS cnt
-        FROM sales
-        WHERE sale_date >= $1::date AND sale_date <= $2::date ${simpleFilter}
-        GROUP BY sale_date
-        ORDER BY sale_date`;
+        FROM combined_sales s
+        JOIN product_variants pv ON s.variant_id = pv.variant_id
+        JOIN products p ON pv.product_code = p.product_code
+        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date AND s.sale_type != '반품' ${simpleFilter ? simpleFilter.replace('partner_code', 's.partner_code') : ''}
+        GROUP BY s.sale_date
+        ORDER BY s.sale_date`;
       dailyTrend = (await this.pool.query(dailySql, simpleParams)).rows;
     }
 
@@ -208,13 +234,28 @@ export class SalesDetailedAnalysisRepository {
       nextIdx++;
     }
 
+    // 예약판매 포함 CTE
+    const salesCte = `combined_sales AS (
+      SELECT sale_id, sale_date, partner_code, variant_id, qty, unit_price, total_price, COALESCE(sale_type, '정상') AS sale_type FROM sales
+      UNION ALL
+      SELECT preorder_id, preorder_date, partner_code, variant_id, qty, unit_price, total_price, '예약판매' FROM preorders WHERE status = '대기'
+    )`;
+
     // 총합
     const totalSql = `
-      SELECT COUNT(*)::int AS sale_count,
-             COALESCE(SUM(s.qty), 0)::int AS total_qty,
+      WITH ${salesCte}
+      SELECT COUNT(CASE WHEN s.sale_type != '반품' THEN 1 END)::int AS sale_count,
+             COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END), 0)::int AS total_qty,
              COALESCE(SUM(s.total_price), 0)::bigint AS total_amount,
-             COUNT(DISTINCT s.variant_id)::int AS variant_count
-      FROM sales s
+             COUNT(DISTINCT CASE WHEN s.sale_type != '반품' THEN s.variant_id END)::int AS variant_count,
+             COALESCE(SUM(CASE WHEN s.sale_type != '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS gross_amount,
+             COALESCE(-SUM(CASE WHEN s.sale_type = '반품' THEN s.total_price ELSE 0 END), 0)::bigint AS return_amount,
+             COALESCE(SUM(CASE WHEN s.sale_type = '반품' THEN s.qty ELSE 0 END), 0)::int AS return_qty,
+             COALESCE(SUM(CASE WHEN s.sale_type IN ('할인', '기획', '균일') THEN s.total_price ELSE 0 END), 0)::bigint AS discount_amount,
+             COALESCE(SUM(CASE WHEN s.sale_type = '행사' THEN s.total_price ELSE 0 END), 0)::bigint AS event_amount,
+             COALESCE(SUM(CASE WHEN s.sale_type = '정상' THEN s.total_price ELSE 0 END), 0)::bigint AS normal_amount,
+             COALESCE(SUM(CASE WHEN s.sale_type = '예약판매' THEN s.total_price ELSE 0 END), 0)::bigint AS preorder_amount
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}`;
@@ -222,11 +263,12 @@ export class SalesDetailedAnalysisRepository {
 
     // 카테고리별
     const catSql = `
+      WITH ${salesCte}
       SELECT COALESCE(p.category, '미분류') AS category,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
              COUNT(DISTINCT p.product_code)::int AS product_count
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
@@ -236,12 +278,13 @@ export class SalesDetailedAnalysisRepository {
 
     // 세부카테고리별
     const subCatSql = `
+      WITH ${salesCte}
       SELECT COALESCE(p.category, '미분류') AS category,
              COALESCE(p.sub_category, '미분류') AS sub_category,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
              COUNT(DISTINCT p.product_code)::int AS product_count
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
@@ -251,7 +294,7 @@ export class SalesDetailedAnalysisRepository {
 
     // 핏별 — 전체재고 보유 스타일 기준 평균
     const fitSql = `
-      WITH full_stock AS (
+      WITH ${salesCte}, full_stock AS (
         SELECT pv2.product_code FROM product_variants pv2
         LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
         GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
@@ -263,7 +306,7 @@ export class SalesDetailedAnalysisRepository {
              COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
              CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
                THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       LEFT JOIN full_stock fs ON p.product_code = fs.product_code
@@ -274,7 +317,7 @@ export class SalesDetailedAnalysisRepository {
 
     // 기장별 — 전체재고 보유 스타일 기준 평균
     const lenSql = `
-      WITH full_stock AS (
+      WITH ${salesCte}, full_stock AS (
         SELECT pv2.product_code FROM product_variants pv2
         LEFT JOIN (SELECT variant_id, COALESCE(SUM(qty),0) AS tq FROM inventory GROUP BY variant_id) ist ON pv2.variant_id = ist.variant_id
         GROUP BY pv2.product_code HAVING MIN(COALESCE(ist.tq,0)) > 0
@@ -286,7 +329,7 @@ export class SalesDetailedAnalysisRepository {
              COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END)::int AS active_style_count,
              CASE WHEN COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END) > 0
                THEN (SUM(s.total_price) / COUNT(DISTINCT CASE WHEN fs.product_code IS NOT NULL THEN p.product_code END))::bigint ELSE 0 END AS avg_per_style
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       LEFT JOIN full_stock fs ON p.product_code = fs.product_code
@@ -297,10 +340,11 @@ export class SalesDetailedAnalysisRepository {
 
     // 사이즈별
     const sizeSql = `
+      WITH ${salesCte}
       SELECT pv.size,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
@@ -310,10 +354,11 @@ export class SalesDetailedAnalysisRepository {
 
     // 컬러별
     const colorSql = `
+      WITH ${salesCte}
       SELECT pv.color,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
@@ -321,32 +366,44 @@ export class SalesDetailedAnalysisRepository {
       ORDER BY total_qty DESC LIMIT 20`;
     const byColor = (await this.pool.query(colorSql, params)).rows;
 
-    // 인기상품 TOP 15
+    // 인기상품 TOP 15 (매장일 때 남은재고 포함 + 행사매출 포함)
+    const stockSubQuery = partnerCode
+      ? `, (SELECT COALESCE(SUM(inv.qty), 0)::int FROM inventory inv
+           JOIN product_variants pv2 ON inv.variant_id = pv2.variant_id
+           WHERE pv2.product_code = p.product_code AND inv.partner_code = $${params.indexOf(partnerCode) + 1}) AS remaining_stock`
+      : '';
     const topSql = `
+      WITH ${salesCte}
       SELECT p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length,
-             SUM(s.qty)::int AS total_qty,
+             SUM(CASE WHEN s.sale_type != '반품' THEN s.qty ELSE 0 END)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
-             COUNT(*)::int AS sale_count
-      FROM sales s
+             COUNT(CASE WHEN s.sale_type != '반품' THEN 1 END)::int AS sale_count,
+             SUM(CASE WHEN s.sale_type = '행사' THEN s.total_price ELSE 0 END)::bigint AS event_amount,
+             SUM(CASE WHEN s.sale_type = '예약판매' THEN s.total_price ELSE 0 END)::bigint AS preorder_amount,
+             (-SUM(CASE WHEN s.sale_type = '반품' THEN s.total_price ELSE 0 END))::bigint AS return_amount,
+             SUM(CASE WHEN s.sale_type = '반품' THEN s.qty ELSE 0 END)::int AS return_qty${stockSubQuery}
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
       GROUP BY p.product_code, p.product_name, p.category, p.sub_category, p.fit, p.length
-      ORDER BY total_amount DESC LIMIT 15`;
+      ORDER BY total_amount DESC LIMIT 50`;
     const topProducts = (await this.pool.query(topSql, params)).rows;
 
     // 시즌별
     const seasonSql = `
+      WITH ${salesCte}
       SELECT
         CASE
-          WHEN p.season LIKE '%SA' THEN '봄/가을'
+          WHEN p.season LIKE '%SS' THEN '봄'
           WHEN p.season LIKE '%SM' THEN '여름'
+          WHEN p.season LIKE '%FW' THEN '가을'
           WHEN p.season LIKE '%WN' THEN '겨울'
           ELSE '기타'
         END AS season_type,
         SUM(s.qty)::int AS total_qty,
         SUM(s.total_price)::bigint AS total_amount
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${pcFilter} ${catFilter} ${extraFilter}
@@ -356,11 +413,12 @@ export class SalesDetailedAnalysisRepository {
 
     // 거래처별 매출
     const partnerSql = `
+      WITH ${salesCte}
       SELECT s.partner_code, pt.partner_name, pt.partner_type,
              SUM(s.qty)::int AS total_qty,
              SUM(s.total_price)::bigint AS total_amount,
              COUNT(DISTINCT p.product_code)::int AS product_count
-      FROM sales s
+      FROM combined_sales s
       JOIN partners pt ON s.partner_code = pt.partner_code
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
@@ -374,8 +432,9 @@ export class SalesDetailedAnalysisRepository {
     let comboPcFilter = '';
     if (partnerCode) { comboParams.push(partnerCode); comboPcFilter = `AND s.partner_code = $3`; }
     const comboSql = `
+      WITH ${salesCte}
       SELECT DISTINCT p.category, p.sub_category, p.season, p.fit, pv.color, pv.size
-      FROM sales s
+      FROM combined_sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date ${comboPcFilter}`;
@@ -649,8 +708,9 @@ export class SalesDetailedAnalysisRepository {
       ),
       current_season AS (
         SELECT CASE
-          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5) THEN 'SS'
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (9,10,11) THEN 'FW'
           ELSE 'WN'
         END AS season_code
       ),
@@ -673,12 +733,11 @@ export class SalesDetailedAnalysisRepository {
         CROSS JOIN current_season cs
         LEFT JOIN season_weights sw ON sw.code_value = 'SEASON_WEIGHT_' ||
           CASE
-            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SS' THEN 'SS'
             WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%FW' THEN 'FW'
             WHEN p.season LIKE '%WN' THEN 'WN'
-            WHEN p.season LIKE '%SS' THEN 'SA'
-            WHEN p.season LIKE '%FW' THEN 'WN'
-            ELSE 'SA'
+            ELSE 'SS'
           END || '_' || cs.season_code
         WHERE p.is_active = TRUE ${catFilter}
       )`;

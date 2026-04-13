@@ -177,8 +177,27 @@ router.post('/logout', authMiddleware, async (req, res) => {
 });
 
 // GET /api/auth/me
-router.get('/me', authMiddleware, (req, res) => {
-  res.json({ success: true, data: req.user });
+router.get('/me', authMiddleware, async (req, res) => {
+  try {
+    // Re-query DB for fresh user data (JWT payload may be stale)
+    const user = await findUserForLogin(req.user!.userId);
+    if (!user || !user.is_active) {
+      res.status(401).json({ success: false, error: '비활성화된 계정입니다.' });
+      return;
+    }
+    res.json({
+      success: true,
+      data: {
+        userId: user.user_id,
+        userName: user.user_name,
+        role: user.role_name,
+        partnerCode: user.partner_code,
+        partnerName: user.partner_name || null,
+      },
+    });
+  } catch {
+    res.json({ success: true, data: req.user });
+  }
 });
 
 export default router;

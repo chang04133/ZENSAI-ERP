@@ -50,15 +50,39 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
     FROM shipment_requests sr WHERE 1=1 ${shipFilter}`, params),
     pool.query(`SELECT COALESCE(SUM(qty), 0) as total_qty, COUNT(*) as total_items FROM inventory i WHERE 1=1 ${invFilter}`, params),
     pool.query(`SELECT
-      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' THEN total_price END), 0) as month_revenue,
-      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' THEN qty END), 0) as month_qty,
-      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' THEN total_price END), 0) as week_revenue,
-      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' THEN qty END), 0) as week_qty
-    FROM sales s WHERE 1=1 ${salesFilter}`, params),
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' AND sale_type NOT IN ('반품', '수정') THEN total_price END), 0) as month_gross,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' AND sale_type != '수정' THEN total_price END), 0) as month_revenue,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' THEN
+        CASE WHEN sale_type = '반품' THEN -qty WHEN sale_type = '수정' THEN 0 ELSE qty END
+      END), 0) as month_qty,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' AND sale_type NOT IN ('반품', '수정') THEN total_price END), 0) as week_gross,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' AND sale_type != '수정' THEN total_price END), 0) as week_revenue,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' THEN
+        CASE WHEN sale_type = '반품' THEN -qty WHEN sale_type = '수정' THEN 0 ELSE qty END
+      END), 0) as week_qty,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '30 days' AND sale_type = '반품' THEN ABS(total_price) END), 0) as month_return,
+      COALESCE(SUM(CASE WHEN sale_date >= CURRENT_DATE - INTERVAL '7 days' AND sale_type = '반품' THEN ABS(total_price) END), 0) as week_return
+    FROM (
+      SELECT s.sale_date, s.total_price, s.qty, s.sale_type FROM sales s WHERE 1=1 ${salesFilter}
+      UNION ALL
+      SELECT po.preorder_date, po.total_price, po.qty, '예약판매' as sale_type FROM preorders po WHERE po.status = '대기' AND po.fulfilled_sale_id IS NULL ${isStore ? `AND po.partner_code = $1` : ''}
+    ) combined`, params),
     pool.query(`SELECT
-      COALESCE(SUM(total_price), 0) as today_revenue,
-      COALESCE(SUM(qty), 0) as today_qty
-    FROM sales s WHERE sale_date = CURRENT_DATE ${salesFilter}`, params),
+      COALESCE(SUM(CASE WHEN sale_type != '수정' THEN total_price ELSE 0 END), 0) as today_revenue,
+      COALESCE(SUM(CASE WHEN sale_type = '반품' THEN -qty WHEN sale_type = '수정' THEN 0 ELSE qty END), 0) as today_qty,
+      COALESCE(SUM(CASE WHEN sale_type = '반품' THEN ABS(total_price) END), 0) as today_return,
+      COALESCE(SUM(CASE WHEN sale_type NOT IN ('반품', '수정') THEN total_price END), 0) as today_gross,
+      COALESCE(SUM(CASE WHEN sale_type = '정상' THEN total_price END), 0) as today_normal,
+      COALESCE(SUM(CASE WHEN sale_type IN ('할인', '기획', '균일') THEN total_price END), 0) as today_discount,
+      COALESCE(SUM(CASE WHEN sale_type = '행사' THEN total_price END), 0) as today_event,
+      COALESCE(SUM(CASE WHEN sale_type = '예약판매' THEN total_price END), 0) as today_preorder,
+      COUNT(CASE WHEN sale_type NOT IN ('반품', '수정') THEN 1 END)::int as today_sale_count,
+      COUNT(CASE WHEN sale_type = '반품' THEN 1 END)::int as today_return_count
+    FROM (
+      SELECT s.total_price, s.qty, s.sale_type FROM sales s WHERE s.sale_date = CURRENT_DATE ${salesFilter ? salesFilter : ''}
+      UNION ALL
+      SELECT po.total_price, po.qty, '예약판매' as sale_type FROM preorders po WHERE po.preorder_date = CURRENT_DATE AND po.status = '대기' AND po.fulfilled_sale_id IS NULL ${isStore ? `AND po.partner_code = $${pIdx - 1}` : ''}
+    ) combined`, params),
   ]);
 
   const [recentShipments, topProducts, lowStock, monthlySalesTrend, pendingApprovals] = await Promise.all([
@@ -68,11 +92,13 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       FROM shipment_requests sr
       LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
-      WHERE 1=1 ${shipFilter}
+      WHERE sr.request_type != '수평이동' ${shipFilter}
       ORDER BY sr.created_at DESC LIMIT 5
     `, params),
     pool.query(`
-      SELECT p.product_name, p.product_code, SUM(s.qty) as total_qty, SUM(s.total_price) as total_amount
+      SELECT p.product_name, p.product_code,
+             SUM(CASE WHEN s.sale_type = '반품' THEN -s.qty WHEN s.sale_type = '수정' THEN 0 ELSE s.qty END) as total_qty,
+             SUM(CASE WHEN s.sale_type != '수정' THEN s.total_price ELSE 0 END) as total_amount
       FROM sales s
       JOIN product_variants pv ON s.variant_id = pv.variant_id
       JOIN products p ON pv.product_code = p.product_code
@@ -103,11 +129,16 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       ORDER BY i.qty ASC LIMIT 7
     `, lowStockParams),
     pool.query(`
-      SELECT TO_CHAR(s.sale_date, 'MM/DD') as label,
-             SUM(s.total_price) as revenue, SUM(s.qty) as qty
-      FROM sales s
-      WHERE s.sale_date >= CURRENT_DATE - INTERVAL '14 days' ${salesFilter}
-      GROUP BY s.sale_date ORDER BY s.sale_date
+      SELECT TO_CHAR(sale_date, 'MM/DD') as label,
+             SUM(CASE WHEN sale_type != '수정' THEN total_price ELSE 0 END) as revenue,
+             SUM(CASE WHEN sale_type = '반품' THEN -qty WHEN sale_type = '수정' THEN 0 ELSE qty END) as qty,
+             SUM(CASE WHEN sale_type = '반품' THEN ABS(total_price) ELSE 0 END) as return_amount
+      FROM (
+        SELECT s.sale_date, s.total_price, s.qty, s.sale_type FROM sales s WHERE s.sale_date >= CURRENT_DATE - INTERVAL '14 days' ${salesFilter}
+        UNION ALL
+        SELECT po.preorder_date, po.total_price, po.qty, '예약판매' as sale_type FROM preorders po WHERE po.preorder_date >= CURRENT_DATE - INTERVAL '14 days' AND po.status = '대기' AND po.fulfilled_sale_id IS NULL ${isStore ? `AND po.partner_code = $1` : ''}
+      ) combined
+      GROUP BY sale_date ORDER BY sale_date
     `, params),
     isStore ? Promise.resolve({ rows: [] }) : pool.query(`
       SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
@@ -121,7 +152,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
       LEFT JOIN users u ON sr.requested_by = u.user_id
       LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
-      WHERE sr.status = 'PENDING'
+      WHERE sr.status = 'PENDING' AND sr.request_type NOT IN ('수평이동', '반품')
       GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
                sr.from_partner, sr.to_partner, sr.memo, sr.requested_by,
                fp.partner_name, tp.partner_name, u.user_name
@@ -168,20 +199,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
   pendingActions.discrepancies = discrepancyResult.rows;
 
   if (isStore) {
-    const [shipmentsToProcess, shipmentsToReceive, restockPending] = await Promise.all([
-      // 대기중 출고의뢰 (내 매장에서 출고해야 할 것)
-      pool.query(`
-        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
-               tp.partner_name as to_partner_name,
-               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
-               COUNT(ri.item_id)::int as item_count
-        FROM shipment_requests sr
-        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
-        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
-        WHERE sr.status = 'PENDING' AND sr.from_partner = $1
-        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date, tp.partner_name
-        ORDER BY sr.created_at DESC LIMIT 20
-      `, [pc]),
+    const [shipmentsToReceive, shipmentsToShip] = await Promise.all([
       // 출고완료된 의뢰 (내 매장으로 수령확인 대기)
       pool.query(`
         SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
@@ -191,28 +209,60 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
         FROM shipment_requests sr
         LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
         LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
-        WHERE sr.status = 'SHIPPED' AND sr.to_partner = $1
+        WHERE sr.status = 'SHIPPED' AND sr.to_partner = $1 AND sr.request_type != '수평이동'
         GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date, fp.partner_name
         ORDER BY sr.created_at DESC LIMIT 20
       `, [pc]),
-      // 재입고 진행중 (내 매장 재입고 요청 중 미완료)
+      // 출고 처리 대기 (승인된 의뢰 중 내 매장에서 출고해야 하는 건)
       pool.query(`
-        SELECT rr.request_id, rr.request_no, rr.status, rr.request_date, rr.expected_date,
+        SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
+               tp.partner_name as to_partner_name,
                COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
                COUNT(ri.item_id)::int as item_count
-        FROM restock_requests rr
-        LEFT JOIN restock_request_items ri ON rr.request_id = ri.request_id
-        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED') AND rr.partner_code = $1
-        GROUP BY rr.request_id, rr.request_no, rr.status, rr.request_date, rr.expected_date
-        ORDER BY CASE rr.status WHEN 'ORDERED' THEN 1 WHEN 'APPROVED' THEN 2 ELSE 3 END, rr.created_at DESC
-        LIMIT 20
+        FROM shipment_requests sr
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'APPROVED' AND sr.from_partner = $1
+        GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
       `, [pc]),
     ]);
-    pendingActions.shipmentsToProcess = shipmentsToProcess.rows;
     pendingActions.shipmentsToReceive = shipmentsToReceive.rows;
-    pendingActions.restockPending = restockPending.rows;
+    pendingActions.shipmentsToShip = shipmentsToShip.rows;
+
+    // 수평이동 대기 (매장 매니저용)
+    const [transferToShip, transferToReceive] = await Promise.all([
+      // 내가 보내야 할 수평이동 (PENDING, from_partner = 내 매장)
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_date,
+               tp.partner_name as to_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'PENDING' AND sr.request_type = '수평이동' AND sr.from_partner = $1
+        GROUP BY sr.request_id, sr.request_no, sr.request_date, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `, [pc]),
+      // 내가 수령해야 할 수평이동 (SHIPPED, to_partner = 내 매장)
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_date,
+               fp.partner_name as from_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'SHIPPED' AND sr.request_type = '수평이동' AND sr.to_partner = $1
+        GROUP BY sr.request_id, sr.request_no, sr.request_date, fp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `, [pc]),
+    ]);
+    pendingActions.transferToShip = transferToShip.rows;
+    pendingActions.transferToReceive = transferToReceive.rows;
   } else {
-    const [pendingRestocks, shippedAwaitingReceipt] = await Promise.all([
+    const [pendingRestocks, shippedAwaitingReceipt, pendingReturns] = await Promise.all([
       // 재입고 승인 대기 (DRAFT 상태)
       pool.query(`
         SELECT rr.request_id, rr.request_no, rr.request_date, rr.expected_date,
@@ -226,7 +276,7 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
         GROUP BY rr.request_id, rr.request_no, rr.request_date, rr.expected_date, p.partner_name
         ORDER BY rr.created_at DESC LIMIT 20
       `),
-      // 출고완료 → 수령확인 대기
+      // 출고완료 → 수령확인 대기 (수평이동 제외 — 매장 간 처리)
       pool.query(`
         SELECT sr.request_id, sr.request_no, sr.request_type, sr.request_date,
                fp.partner_name as from_partner_name, tp.partner_name as to_partner_name,
@@ -236,30 +286,110 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
         LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
         LEFT JOIN partners tp ON sr.to_partner = tp.partner_code
         LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
-        WHERE sr.status = 'SHIPPED'
+        WHERE sr.status = 'SHIPPED' AND sr.request_type != '수평이동'
         GROUP BY sr.request_id, sr.request_no, sr.request_type, sr.request_date,
                  fp.partner_name, tp.partner_name
+        ORDER BY sr.created_at DESC LIMIT 20
+      `),
+      // 반품 승인 대기 (매장→본사, PENDING 상태)
+      pool.query(`
+        SELECT sr.request_id, sr.request_no, sr.request_date,
+               fp.partner_name as from_partner_name,
+               COALESCE(SUM(ri.request_qty), 0)::int as total_qty,
+               COUNT(ri.item_id)::int as item_count
+        FROM shipment_requests sr
+        LEFT JOIN partners fp ON sr.from_partner = fp.partner_code
+        LEFT JOIN shipment_request_items ri ON sr.request_id = ri.request_id
+        WHERE sr.status = 'PENDING' AND sr.request_type = '반품'
+        GROUP BY sr.request_id, sr.request_no, sr.request_date, fp.partner_name
         ORDER BY sr.created_at DESC LIMIT 20
       `),
     ]);
     pendingActions.pendingRestocks = pendingRestocks.rows;
     pendingActions.shippedAwaitingReceipt = shippedAwaitingReceipt.rows;
+    pendingActions.pendingReturns = pendingReturns.rows;
   }
 
-  // 매장용: 오늘 판매 내역 상세 (최근 20건)
+  // 예약판매 미처리 건수 (preorders 테이블)
+  const preorderResult = isStore
+    ? await pool.query(`SELECT COUNT(*)::int AS cnt FROM preorders WHERE status = '대기' AND partner_code = $1`, [pc])
+    : await pool.query(`SELECT COUNT(*)::int AS cnt FROM preorders WHERE status = '대기'`);
+  const preorderCount = preorderResult.rows[0]?.cnt || 0;
+
+  // 본사용: 매장별 예약판매 건수
+  let preordersByPartner: any[] = [];
+  if (!isStore) {
+    const pbpResult = await pool.query(`
+      SELECT po.partner_code, p.partner_name, COUNT(*)::int AS cnt
+      FROM preorders po
+      JOIN partners p ON po.partner_code = p.partner_code
+      WHERE po.status = '대기'
+      GROUP BY po.partner_code, p.partner_name
+      ORDER BY cnt DESC
+    `);
+    preordersByPartner = pbpResult.rows;
+  }
+
+  // 오늘 판매 내역 상세 — 예약판매(orphaned preorders) 포함
   let todaySalesDetail: any[] = [];
   if (isStore && pc) {
     const detailRes = await pool.query(`
-      SELECT s.sale_id, s.qty, s.unit_price, s.total_price,
-             COALESCE(s.sale_type, '정상') as sale_type,
-             pv.sku, pv.color, pv.size, p.product_name,
-             TO_CHAR(s.created_at AT TIME ZONE 'Asia/Seoul', 'HH24:MI') as sale_time
-      FROM sales s
-      LEFT JOIN product_variants pv ON s.variant_id = pv.variant_id
-      LEFT JOIN products p ON pv.product_code = p.product_code
-      WHERE s.sale_date = CURRENT_DATE AND s.partner_code = $1
-      ORDER BY s.created_at DESC LIMIT 20
+      SELECT * FROM (
+        SELECT s.sale_id, s.qty, s.unit_price, s.total_price,
+               COALESCE(s.sale_type, '정상') as sale_type,
+               pv.sku, pv.color, pv.size, p.product_name,
+               TO_CHAR(s.created_at, 'HH24:MI') as sale_time,
+               s.created_at, pt.partner_name
+        FROM sales s
+        LEFT JOIN product_variants pv ON s.variant_id = pv.variant_id
+        LEFT JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN partners pt ON s.partner_code = pt.partner_code
+        WHERE s.sale_date = CURRENT_DATE AND s.partner_code = $1
+        UNION ALL
+        SELECT po.preorder_id as sale_id, po.qty, po.unit_price, po.total_price,
+               '예약판매' as sale_type,
+               pv.sku, pv.color, pv.size, p.product_name,
+               TO_CHAR(po.created_at, 'HH24:MI') as sale_time,
+               po.created_at, pt.partner_name
+        FROM preorders po
+        LEFT JOIN product_variants pv ON po.variant_id = pv.variant_id
+        LEFT JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN partners pt ON po.partner_code = pt.partner_code
+        WHERE po.preorder_date = CURRENT_DATE AND po.partner_code = $1
+          AND po.status = '대기' AND po.fulfilled_sale_id IS NULL
+      ) combined
+      ORDER BY created_at DESC LIMIT 20
     `, [pc]);
+    todaySalesDetail = detailRes.rows;
+  } else if (!isStore) {
+    // 본사/관리자: 전 매장 오늘 판매 내역 (최근 30건)
+    const detailRes = await pool.query(`
+      SELECT * FROM (
+        SELECT s.sale_id, s.qty, s.unit_price, s.total_price,
+               COALESCE(s.sale_type, '정상') as sale_type,
+               pv.sku, pv.color, pv.size, p.product_name,
+               TO_CHAR(s.created_at, 'HH24:MI') as sale_time,
+               s.created_at, pt.partner_name
+        FROM sales s
+        LEFT JOIN product_variants pv ON s.variant_id = pv.variant_id
+        LEFT JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN partners pt ON s.partner_code = pt.partner_code
+        WHERE s.sale_date = CURRENT_DATE AND s.sale_type != '수정'
+        UNION ALL
+        SELECT po.preorder_id as sale_id, po.qty, po.unit_price, po.total_price,
+               '예약판매' as sale_type,
+               pv.sku, pv.color, pv.size, p.product_name,
+               TO_CHAR(po.created_at, 'HH24:MI') as sale_time,
+               po.created_at, pt.partner_name
+        FROM preorders po
+        LEFT JOIN product_variants pv ON po.variant_id = pv.variant_id
+        LEFT JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN partners pt ON po.partner_code = pt.partner_code
+        WHERE po.preorder_date = CURRENT_DATE
+          AND po.status = '대기' AND po.fulfilled_sale_id IS NULL
+      ) combined
+      ORDER BY created_at DESC LIMIT 30
+    `);
     todaySalesDetail = detailRes.rows;
   }
 
@@ -282,6 +412,8 @@ router.get('/stats', authMiddleware, asyncHandler(async (req, res) => {
       monthlySalesTrend: monthlySalesTrend.rows,
       pendingApprovals: pendingApprovals.rows,
       pendingActions,
+      preorderCount,
+      preordersByPartner,
       isStore: !!isStore,
       partnerCode: pc || null,
     },

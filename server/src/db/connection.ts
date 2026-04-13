@@ -13,9 +13,9 @@ export function getPool(): Pool {
       max: 10,
     });
 
-    // Set search_path to zensai schema for every new connection
+    // Set search_path and timezone for every new connection
     pool.on('connect', (client) => {
-      client.query(`SET search_path TO ${SCHEMA}, public`);
+      client.query(`SET search_path TO ${SCHEMA}, public; SET timezone TO 'Asia/Seoul'`);
     });
   }
   return pool;
@@ -27,7 +27,7 @@ export async function initDB(): Promise<void> {
   try {
     // Create zensai schema if not exists
     await client.query(`CREATE SCHEMA IF NOT EXISTS ${SCHEMA}`);
-    await client.query(`SET search_path TO ${SCHEMA}, public`);
+    await client.query(`SET search_path TO ${SCHEMA}, public; SET timezone TO 'Asia/Seoul'`);
     const res = await client.query('SELECT NOW()');
     console.log(`DB 연결 성공 (스키마: ${SCHEMA}):`, res.rows[0].now);
   } finally {

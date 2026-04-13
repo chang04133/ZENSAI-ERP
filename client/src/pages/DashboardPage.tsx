@@ -1,19 +1,19 @@
-import { useEffect, useState, useRef, useCallback, CSSProperties } from 'react';
+import { useEffect, useState, useCallback, CSSProperties } from 'react';
 import { Card, Col, Row, Typography, Table, Tag, Badge, Progress, Button, Popconfirm, Modal, InputNumber, Input, Select, message, Empty } from 'antd';
-import type { InputRef } from 'antd';
 import {
   ShopOutlined, TagsOutlined, InboxOutlined, DollarOutlined,
   RiseOutlined, ShoppingCartOutlined, TruckOutlined,
   CheckOutlined, BellOutlined, SendOutlined,
-  SwapOutlined, ReloadOutlined, PercentageOutlined, WarningOutlined,
-  PlusOutlined, BarcodeOutlined,
+  SwapOutlined, PercentageOutlined, WarningOutlined,
+  PlusOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
 import { ROLES, ROLE_LABELS } from '../../../shared/constants/roles';
 import { apiFetch, safeJson } from '../core/api.client';
 import { salesApi } from '../modules/sales/sales.api';
-import { productApi } from '../modules/product/product.api';
+import type { ColumnsType } from 'antd/es/table';
+import { ToolOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -58,7 +58,7 @@ function MiniBar({ data }: { data: Array<{ label: string; revenue: number }> }) 
         const h = Math.max((Number(d.revenue) / max) * 80, 4);
         return (
           <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <div style={{ fontSize: 10, color: '#888' }}>{Number(d.revenue) > 0 ? `${(Number(d.revenue) / 10000).toFixed(0)}만` : ''}</div>
+            <div style={{ fontSize: 10, color: '#888' }}>{Number(d.revenue) > 0 ? `${Number(d.revenue).toLocaleString()}원` : ''}</div>
             <div style={{ width: '100%', maxWidth: 28, height: h, background: 'linear-gradient(180deg, #4f46e5, #818cf8)', borderRadius: 4 }} />
             <div style={{ fontSize: 9, color: '#aaa' }}>{d.label}</div>
           </div>
@@ -78,9 +78,18 @@ export default function DashboardPage() {
   const [generalNotifs, setGeneralNotifs] = useState<any[]>([]);
 
   const [sellThrough, setSellThrough] = useState<any>(null);
+  const [asStats, setAsStats] = useState<any>(null);
 
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
+
+  const loadAsStats = async () => {
+    try {
+      const res = await apiFetch('/api/crm/after-sales/stats');
+      const data = await safeJson(res);
+      if (data.success) setAsStats(data.data);
+    } catch { /* ignore */ }
+  };
 
   const loadSellThrough = async () => {
     try {
@@ -164,9 +173,9 @@ export default function DashboardPage() {
   };
 
   const refreshAll = useCallback(() => {
-    loadStats(); loadNotifications(); loadGeneralNotifs();
+    loadStats(); loadNotifications(); loadGeneralNotifs(); loadAsStats();
     if (!isStore) loadSellThrough();
-    if (isStore) loadMyPendingRequests();
+    if (isStore) { loadMyPendingRequests(); }
   }, [isStore]);
 
   // 초기 로드 + 탭 전환/페이지 복귀 시 자동 새로고침
@@ -224,63 +233,42 @@ export default function DashboardPage() {
   };
 
 
-  // ── 빠른 매출 등록 (매장 전용) ──
-  const [quickSaleOpen, setQuickSaleOpen] = useState(false);
-  const [scanCode, setScanCode] = useState('');
-  const [scannedProduct, setScannedProduct] = useState<any>(null);
-  const [quickQty, setQuickQty] = useState(1);
-  const [quickUnitPrice, setQuickUnitPrice] = useState(0);
-  const [quickSaleType, setQuickSaleType] = useState('정상');
-  const [quickSubmitting, setQuickSubmitting] = useState(false);
-  const [scanning, setScanning] = useState(false);
-  const [quickSearchResults, setQuickSearchResults] = useState<any[]>([]);
-  const scanInputRef = useRef<InputRef>(null);
+  // 예약판매 모달
+  const [preorderModalOpen, setPreorderModalOpen] = useState(false);
+  const [preorderList, setPreorderList] = useState<any[]>([]);
+  const [preorderListLoading, setPreorderListLoading] = useState(false);
+  const [preorderPartnerFilter, setPreorderPartnerFilter] = useState<string | undefined>(undefined);
 
-  const handleScan = async () => {
-    if (!scanCode.trim()) return;
-    setScanning(true);
+  const loadPreorderList = async () => {
+    setPreorderListLoading(true);
     try {
-      const result = await salesApi.scanProduct(scanCode.trim());
-      if (result) {
-        setScannedProduct(result);
-        setQuickUnitPrice(result.selling_price || result.unit_price || 0);
-        setQuickQty(1);
-      } else {
-        message.warning('상품을 찾을 수 없습니다.');
-      }
-    } catch (e: any) { message.error(e.message); }
-    finally { setScanning(false); }
+      const r = await salesApi.preorders();
+      setPreorderList(r.data || r || []);
+    } catch (e: any) { message.error('예약판매 로드 실패: ' + e.message); }
+    finally { setPreorderListLoading(false); }
   };
 
-  const handleQuickSale = async () => {
-    if (!scannedProduct) return;
-    setQuickSubmitting(true);
-    try {
-      await salesApi.createBatch({
-        sale_date: dayjs().format('YYYY-MM-DD'),
-        items: [{
-          variant_id: scannedProduct.variant_id,
-          qty: quickQty,
-          unit_price: quickUnitPrice,
-          sale_type: quickSaleType,
-        }],
-      });
-      message.success('매출 등록 완료');
-      setScannedProduct(null);
-      setScanCode('');
-      setQuickQty(1);
-      setQuickSaleType('정상');
-      setQuickSaleOpen(false);
-      loadStats(); // 대시보드 새로고침
-    } catch (e: any) { message.error(e.message); }
-    finally { setQuickSubmitting(false); }
+  const openPreorderModal = (partnerCode?: string) => {
+    setPreorderPartnerFilter(partnerCode || undefined);
+    setPreorderModalOpen(true);
+    loadPreorderList();
   };
 
   const pa = stats?.pendingActions || {};
   const discrepancyCount = pa.discrepancies?.length || 0;
-  const totalPendingActions = isStore
-    ? (pa.shipmentsToProcess?.length || 0) + (pa.shipmentsToReceive?.length || 0) + (pa.restockPending?.length || 0) + discrepancyCount
-    : (stats?.pendingApprovals?.length || 0) + (pa.pendingRestocks?.length || 0) + (pa.shippedAwaitingReceipt?.length || 0) + discrepancyCount;
+  const preorderCount = stats?.preorderCount || 0;
+  const transferToShipCount = (pa.transferToShip || []).length;
+  const transferToReceiveCount = (pa.transferToReceive || []).length;
+
+  // 해야할일: 직접 처리해야 하는 건
+  const todoCount = isStore
+    ? (pa.shipmentsToReceive?.length || 0) + (pa.shipmentsToShip?.length || 0) + discrepancyCount + preorderCount + transferToShipCount + transferToReceiveCount
+    : (stats?.pendingApprovals?.length || 0) + (pa.pendingReturns?.length || 0) + discrepancyCount;
+  // 대기중: 다른 사람의 처리를 기다리는 건 (본사만)
+  const waitingCount = isAdmin
+    ? (pa.shippedAwaitingReceipt?.length || 0) + preorderCount
+    : 0;
+  const totalPendingActions = todoCount;
 
   const pendingCount = Number(stats?.shipments?.pending || 0);
   const shippedCount = Number(stats?.shipments?.shipped || 0);
@@ -299,7 +287,7 @@ export default function DashboardPage() {
     { title: '#', key: 'rank', width: 36, render: (_: any, __: any, i: number) => <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600 }}>{i + 1}</span> },
     { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
     { title: '판매', dataIndex: 'total_qty', key: 'qty', width: 70, render: (v: number) => `${Number(v).toLocaleString()}개` },
-    { title: '매출', dataIndex: 'total_amount', key: 'amt', width: 100, render: (v: number) => `${(Number(v) / 10000).toFixed(0)}만원` },
+    { title: '매출', dataIndex: 'total_amount', key: 'amt', width: 100, render: (v: number) => `${Number(v).toLocaleString()}원` },
   ];
 
   const lowStockColumns = [
@@ -352,19 +340,21 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* ── 해야 할 일 (최상단 히어로 배너 + 인사말 통합) ── */}
-      {totalPendingActions > 0 ? (
-        <div style={{ marginBottom: 24 }}>
-          {/* 히어로 배너 */}
-          <div style={{
-            background: 'linear-gradient(135deg, #e8350e 0%, #ff6b35 40%, #f7931e 70%, #ffad33 100%)',
-            borderRadius: 18,
-            padding: '28px 32px 24px',
-            marginBottom: 14,
-            boxShadow: '0 8px 32px rgba(232, 53, 14, 0.35)',
-            position: 'relative' as const,
-            overflow: 'hidden',
-          }}>
+      {/* ── 해야 할 일 (최상단 히어로 배너) ── */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{
+          background: totalPendingActions > 0
+            ? 'linear-gradient(135deg, #e8350e 0%, #ff6b35 40%, #f7931e 70%, #ffad33 100%)'
+            : 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6366f1 100%)',
+          borderRadius: 18,
+          padding: '28px 32px 24px',
+          marginBottom: 14,
+          boxShadow: totalPendingActions > 0
+            ? '0 8px 32px rgba(232, 53, 14, 0.35)'
+            : '0 8px 32px rgba(102, 126, 234, 0.35)',
+          position: 'relative' as const,
+          overflow: 'hidden',
+        }}>
             {/* 배경 장식 원 */}
             <div style={{ position: 'absolute', top: -30, right: -30, width: 140, height: 140, borderRadius: '50%', background: 'rgba(255,255,255,0.08)' }} />
             <div style={{ position: 'absolute', bottom: -40, right: 80, width: 100, height: 100, borderRadius: '50%', background: 'rgba(255,255,255,0.06)' }} />
@@ -380,214 +370,160 @@ export default function DashboardPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
                 <div>
                   <div style={{ fontSize: 22, fontWeight: 800, color: '#fff', lineHeight: 1.3, letterSpacing: -0.5 }}>
-                    {user?.userName}님, 처리할 일이 <span style={{
-                      background: '#fff',
-                      color: '#e8350e',
-                      borderRadius: 8,
-                      padding: '2px 12px',
-                      fontSize: 24,
-                      fontWeight: 900,
-                    }}>{totalPendingActions}건</span> 있습니다
+                    {totalPendingActions > 0 ? (
+                      <>{user?.userName}님, 처리할 일이 <span style={{
+                        background: '#fff',
+                        color: '#e8350e',
+                        borderRadius: 8,
+                        padding: '2px 12px',
+                        fontSize: 24,
+                        fontWeight: 900,
+                      }}>{totalPendingActions}건</span> 있습니다</>
+                    ) : (
+                      <>{user?.userName}님, 좋은 하루 보내세요</>
+                    )}
                   </div>
                 </div>
               </div>
 
-              {/* 매장 매니저: 할일 요약 카드들 (더 크게) */}
+              {/* 매장 매니저: 할일 요약 카드들 */}
               {isStore && (
                 <Row gutter={[14, 14]}>
-                  {(pa.shipmentsToProcess || []).length > 0 && (
-                    <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <TruckOutlined style={{ fontSize: 26, color: '#fff' }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고 처리 대기</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#f97316', lineHeight: 1.1 }}>{(pa.shipmentsToProcess || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
-                          </div>
+                  <Col xs={24} sm={8}>
+                    <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                      style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <InboxOutlined style={{ fontSize: 26, color: '#fff' }} />
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#f97316', fontWeight: 600, textAlign: 'right' }}>처리하기 &rarr;</div>
-                      </div>
-                    </Col>
-                  )}
-                  {(pa.shipmentsToReceive || []).length > 0 && (
-                    <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <InboxOutlined style={{ fontSize: 26, color: '#fff' }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수령확인 대기</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>{(pa.shipmentsToReceive || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
-                          </div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수령 대기</div>
+                          <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>{(pa.shipmentsToReceive || []).length + transferToReceiveCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
                       </div>
-                    </Col>
-                  )}
-                  {(pa.restockPending || []).length > 0 && (
-                    <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/inventory/restock')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <ReloadOutlined style={{ fontSize: 26, color: '#fff' }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>재입고 진행</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#8b5cf6', lineHeight: 1.1 }}>{(pa.restockPending || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
-                          </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                    </div>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                      style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <TruckOutlined style={{ fontSize: 26, color: '#fff' }} />
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#8b5cf6', fontWeight: 600, textAlign: 'right' }}>전체보기 &rarr;</div>
-                      </div>
-                    </Col>
-                  )}
-                  {discrepancyCount > 0 && (
-                    <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <WarningOutlined style={{ fontSize: 26, color: '#fff' }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수량불일치</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#ea580c', lineHeight: 1.1 }}>{discrepancyCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
-                          </div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고 처리</div>
+                          <div style={{ fontSize: 28, fontWeight: 900, color: '#f97316', lineHeight: 1.1 }}>{(pa.shipmentsToShip || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#ea580c', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
                       </div>
-                    </Col>
-                  )}
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#f97316', fontWeight: 600, textAlign: 'right' }}>처리하기 &rarr;</div>
+                    </div>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                      style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <WarningOutlined style={{ fontSize: 26, color: '#fff' }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수량불일치</div>
+                          <div style={{ fontSize: 28, fontWeight: 900, color: '#ea580c', lineHeight: 1.1 }}>{discrepancyCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#ea580c', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
+                    </div>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <div onClick={() => navigate('/sales/entry?tab=preorders')}
+                      style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #d97706)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <ShoppingCartOutlined style={{ fontSize: 26, color: '#fff' }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>예약판매 대기</div>
+                          <div style={{ fontSize: 28, fontWeight: 900, color: '#d97706', lineHeight: 1.1 }}>{preorderCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#d97706', fontWeight: 600, textAlign: 'right' }}>예약판매 관리 &rarr;</div>
+                    </div>
+                  </Col>
+                  <Col xs={24} sm={8}>
+                    <div onClick={() => navigate('/shipment/transfer')}
+                      style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
+                      onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
+                      onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                        <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #06b6d4, #0891b2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <SwapOutlined style={{ fontSize: 26, color: '#fff' }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수평이동 출고대기</div>
+                          <div style={{ fontSize: 28, fontWeight: 900, color: '#0891b2', lineHeight: 1.1 }}>{transferToShipCount}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                        </div>
+                      </div>
+                      <div style={{ marginTop: 10, fontSize: 12, color: '#0891b2', fontWeight: 600, textAlign: 'right' }}>출고처리 &rarr;</div>
+                    </div>
+                  </Col>
                 </Row>
               )}
 
-              {/* Admin/HQ: 할일 요약 카드들 (더 크게) */}
+              {/* Admin/HQ: 해야할일 + 대기중 */}
               {isAdmin && (
-                <Row gutter={[14, 14]}>
-                  {(stats?.pendingApprovals || []).length > 0 && (
+                <div>
+                  {/* 해야할일 */}
+                  <div style={{ marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>해야할일</span>
+                  </div>
+                  <Row gutter={[14, 14]}>
                     <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
+                      <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                        style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
                         onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                           <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f59e0b, #f97316)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                             <TruckOutlined style={{ fontSize: 26, color: '#fff' }} />
                           </div>
                           <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고 대기</div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>출고/승인 대기</div>
                             <div style={{ fontSize: 28, fontWeight: 900, color: '#f97316', lineHeight: 1.1 }}>{(stats?.pendingApprovals || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
                           </div>
                         </div>
                         <div style={{ marginTop: 10, fontSize: 12, color: '#f97316', fontWeight: 600, textAlign: 'right' }}>처리하기 &rarr;</div>
                       </div>
                     </Col>
-                  )}
-                  {(pa.pendingRestocks || []).length > 0 && (
                     <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/inventory/restock')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
+                      <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                        style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
                         onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <ReloadOutlined style={{ fontSize: 26, color: '#fff' }} />
+                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #ef4444, #dc2626)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                            <RollbackOutlined style={{ fontSize: 26, color: '#fff' }} />
                           </div>
                           <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>재입고 승인</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#8b5cf6', lineHeight: 1.1 }}>{(pa.pendingRestocks || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>반품 승인</div>
+                            <div style={{ fontSize: 28, fontWeight: 900, color: '#dc2626', lineHeight: 1.1 }}>{(pa.pendingReturns || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
                           </div>
                         </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#8b5cf6', fontWeight: 600, textAlign: 'right' }}>승인하기 &rarr;</div>
+                        <div style={{ marginTop: 10, fontSize: 12, color: '#dc2626', fontWeight: 600, textAlign: 'right' }}>승인하기 &rarr;</div>
                       </div>
                     </Col>
-                  )}
-                  {(pa.shippedAwaitingReceipt || []).length > 0 && (
                     <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
+                      <div onClick={() => navigate('/shipment/dashboard?filter=todo')}
+                        style={{ background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.1)' }}
                         onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-                          <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #10b981, #059669)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                            <SwapOutlined style={{ fontSize: 26, color: '#fff' }} />
-                          </div>
-                          <div>
-                            <div style={{ fontSize: 13, color: '#888', marginBottom: 2 }}>수령확인 대기</div>
-                            <div style={{ fontSize: 28, fontWeight: 900, color: '#10b981', lineHeight: 1.1 }}>{(pa.shippedAwaitingReceipt || []).length}<span style={{ fontSize: 16, fontWeight: 600, marginLeft: 2 }}>건</span></div>
-                          </div>
-                        </div>
-                        <div style={{ marginTop: 10, fontSize: 12, color: '#10b981', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
-                      </div>
-                    </Col>
-                  )}
-                  {discrepancyCount > 0 && (
-                    <Col xs={24} sm={8}>
-                      <div
-                        onClick={() => navigate('/shipment/dashboard?filter=todo')}
-                        style={{
-                          background: 'rgba(255,255,255,0.97)', borderRadius: 14, padding: '20px 20px',
-                          cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s',
-                          boxShadow: '0 4px 16px rgba(0,0,0,0.1)',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)'; e.currentTarget.style.boxShadow = '0 8px 28px rgba(0,0,0,0.18)'; }}
-                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}
-                      >
+                        onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0) scale(1)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.1)'; }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
                           <div style={{ width: 52, height: 52, borderRadius: 14, background: 'linear-gradient(135deg, #f97316, #ea580c)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                             <WarningOutlined style={{ fontSize: 26, color: '#fff' }} />
@@ -600,30 +536,124 @@ export default function DashboardPage() {
                         <div style={{ marginTop: 10, fontSize: 12, color: '#ea580c', fontWeight: 600, textAlign: 'right' }}>확인하기 &rarr;</div>
                       </div>
                     </Col>
+                  </Row>
+
+                  {/* 대기중 */}
+                  {waitingCount > 0 && (
+                    <>
+                      <div style={{ marginTop: 16, marginBottom: 6 }}>
+                        <span style={{ fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: 600 }}>대기중</span>
+                      </div>
+                      <Row gutter={[14, 14]}>
+                        <Col xs={24} sm={8}>
+                          <div onClick={() => navigate('/shipment/dashboard?filter=waiting')}
+                            style={{ background: 'rgba(255,255,255,0.85)', borderRadius: 14, padding: '16px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'; }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#e6f4ff', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <SwapOutlined style={{ fontSize: 22, color: '#1677ff' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>매장 수령대기</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#1677ff', lineHeight: 1.1 }}>{(pa.shippedAwaitingReceipt || []).length}<span style={{ fontSize: 14, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                              </div>
+                            </div>
+                          </div>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                          <div onClick={() => openPreorderModal()}
+                            style={{ background: 'rgba(255,255,255,0.85)', borderRadius: 14, padding: '16px 20px', cursor: 'pointer', transition: 'transform 0.15s, box-shadow 0.15s', boxShadow: '0 4px 16px rgba(0,0,0,0.08)' }}
+                            onMouseEnter={e => { e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 20px rgba(0,0,0,0.12)'; }}
+                            onMouseLeave={e => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 16px rgba(0,0,0,0.08)'; }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                              <div style={{ width: 44, height: 44, borderRadius: 12, background: '#fff7e6', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                                <ShoppingCartOutlined style={{ fontSize: 22, color: '#d97706' }} />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>예약판매</div>
+                                <div style={{ fontSize: 24, fontWeight: 800, color: '#d97706', lineHeight: 1.1 }}>{preorderCount}<span style={{ fontSize: 14, fontWeight: 600, marginLeft: 2 }}>건</span></div>
+                              </div>
+                            </div>
+                          </div>
+                        </Col>
+                      </Row>
+                    </>
                   )}
-                </Row>
+                </div>
               )}
             </div>
           </div>
-
-          {/* 상세 테이블 (재입고만) */}
         </div>
-      ) : (
-        /* 할일 없을 때 기본 인사말 */
-        <div style={{ marginBottom: 28 }}>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            {user?.userName}님, 좋은 하루 보내세요
-          </Typography.Title>
-          <Typography.Text type="secondary">
-            {dateStr} &middot; {user ? ROLE_LABELS[user.role] || user.role : ''}
-            {isStore && stats?.partnerCode && (
-              <Tag color="blue" style={{ marginLeft: 8 }}>{stats.partnerCode}</Tag>
+
+      {/* ── 관리자: 오늘 매출 요약 ── */}
+      {!isStore && stats?.todaySales && (() => {
+        const gross = Number(stats.todaySales.today_gross || 0);
+        const ret = Number(stats.todaySales.today_return || 0);
+        const net = Number(stats.todaySales.today_revenue || 0);
+        const types = [
+          { label: '정상가', value: Number(stats.todaySales.today_normal || 0), color: '#0284c7' },
+          { label: '할인가', value: Number(stats.todaySales.today_discount || 0), color: '#ca8a04' },
+          { label: '행사가', value: Number(stats.todaySales.today_event || 0), color: '#9333ea' },
+          { label: '예약판매', value: Number(stats.todaySales.today_preorder || 0), color: '#ea580c' },
+        ];
+        return (
+          <Card size="small" style={{ borderRadius: 12, marginBottom: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 20, flexWrap: 'wrap', marginBottom: gross > 0 ? 14 : 0 }}>
+              <div>
+                <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>오늘 총매출</div>
+                <div style={{ fontSize: 28, fontWeight: 900, color: '#111', lineHeight: 1.1 }}>{gross.toLocaleString()}원</div>
+              </div>
+              <div style={{ fontSize: 20, color: '#ccc', fontWeight: 300 }}>−</div>
+              <div>
+                <div style={{ fontSize: 11, color: '#dc2626' }}>반품</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: ret > 0 ? '#dc2626' : '#ddd' }}>
+                  {ret.toLocaleString()}원
+                  {ret > 0 && <span style={{ fontSize: 11, fontWeight: 400, marginLeft: 4 }}>({stats.todaySales.today_return_count || 0}건)</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 20, color: '#ccc', fontWeight: 300 }}>=</div>
+              <div>
+                <div style={{ fontSize: 11, color: '#2563eb' }}>순매출</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: '#2563eb' }}>{net.toLocaleString()}원</div>
+              </div>
+              <div style={{ borderLeft: '1px solid #eee', paddingLeft: 16, display: 'flex', gap: 16 }}>
+                <div><div style={{ fontSize: 11, color: '#888' }}>수량</div><div style={{ fontSize: 15, fontWeight: 700 }}>{Number(stats.todaySales.today_qty || 0).toLocaleString()}개</div></div>
+                <div><div style={{ fontSize: 11, color: '#888' }}>건수</div><div style={{ fontSize: 15, fontWeight: 700 }}>{Number(stats.todaySales.today_sale_count || 0)}건</div></div>
+              </div>
+            </div>
+            {gross > 0 && (
+              <>
+                <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', height: 20, marginBottom: 8 }}>
+                  {types.map(t => {
+                    const pct = gross > 0 ? (t.value / gross) * 100 : 0;
+                    if (pct === 0) return null;
+                    return (
+                      <div key={t.label} style={{
+                        width: `${pct}%`, background: t.color, minWidth: pct > 3 ? 0 : 20,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 10, color: '#fff', fontWeight: 600,
+                      }}>
+                        {pct >= 10 ? `${t.label} ${pct.toFixed(0)}%` : pct >= 5 ? `${pct.toFixed(0)}%` : ''}
+                      </div>
+                    );
+                  })}
+                </div>
+                <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                  {types.map(t => (
+                    <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: 2, background: t.value > 0 ? t.color : '#ddd' }} />
+                      <span style={{ fontSize: 12, color: '#666' }}>{t.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: t.value > 0 ? t.color : '#ccc' }}>{t.value.toLocaleString()}원</span>
+                    </div>
+                  ))}
+                </div>
+              </>
             )}
-          </Typography.Text>
-        </div>
-      )}
+          </Card>
+        );
+      })()}
 
-      {/* ── 매장 전용: 오늘 매출 히어로 카드 ── */}
       {isStore && (
         <div style={{
           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 50%, #6366f1 100%)',
@@ -640,9 +670,7 @@ export default function DashboardPage() {
                   <DollarOutlined style={{ marginRight: 6 }} />오늘 매출
                 </div>
                 <div style={{ fontSize: 44, fontWeight: 900, color: '#fff', lineHeight: 1.1, letterSpacing: -1 }}>
-                  {Number(stats?.todaySales?.today_revenue || 0) >= 10000
-                    ? `${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(1)}만원`
-                    : `${Number(stats?.todaySales?.today_revenue || 0).toLocaleString()}원`}
+                  {`${Number(stats?.todaySales?.today_gross || 0).toLocaleString()}원`}
                 </div>
                 <div style={{ display: 'flex', gap: 20, marginTop: 12 }}>
                   <div style={{ background: 'rgba(255,255,255,0.15)', borderRadius: 10, padding: '8px 16px' }}>
@@ -653,12 +681,24 @@ export default function DashboardPage() {
                     <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>판매 건수</div>
                     <div style={{ fontSize: 22, fontWeight: 800, color: '#fff' }}>{(stats?.todaySalesDetail || []).length}건</div>
                   </div>
+                  {Number(stats?.todaySales?.today_return || 0) > 0 && (
+                    <>
+                      <div style={{ background: 'rgba(255,100,100,0.25)', borderRadius: 10, padding: '8px 16px' }}>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>반품</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#fca5a5' }}>-{Number(stats?.todaySales?.today_return || 0).toLocaleString()}원</div>
+                      </div>
+                      <div style={{ background: 'rgba(100,200,255,0.2)', borderRadius: 10, padding: '8px 16px' }}>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)' }}>순매출</div>
+                        <div style={{ fontSize: 22, fontWeight: 800, color: '#93c5fd' }}>{Number(stats?.todaySales?.today_revenue || 0).toLocaleString()}원</div>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <Button
                 type="primary" size="large"
                 icon={<PlusOutlined />}
-                onClick={() => { setQuickSaleOpen(true); setTimeout(() => scanInputRef.current?.focus(), 200); }}
+                onClick={() => navigate('/sales/entry')}
                 style={{
                   height: 52, fontSize: 16, fontWeight: 700, borderRadius: 14,
                   background: 'rgba(255,255,255,0.95)', color: '#6366f1', border: 'none',
@@ -672,56 +712,68 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── 매장 전용: 오늘 판매 내역 ── */}
-      {isStore && (
-        <Card
-          title={<span><ShoppingCartOutlined style={{ marginRight: 8, color: '#6366f1' }} />오늘 판매 내역</span>}
-          size="small"
-          style={{ borderRadius: 12, marginBottom: 16, borderLeft: '4px solid #6366f1' }}
-          extra={<a onClick={() => navigate('/sales/entry')}>전체보기</a>}
-        >
-          {(stats?.todaySalesDetail || []).length > 0 ? (
-            <Table
-              columns={[
-                { title: '시간', dataIndex: 'sale_time', key: 'time', width: 60 },
-                { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
-                { title: '컬러/사이즈', key: 'variant', width: 110,
-                  render: (_: any, r: any) => <span style={{ fontSize: 12, color: '#666' }}>{r.color}/{r.size}</span>,
-                },
-                { title: '유형', dataIndex: 'sale_type', key: 'type', width: 60,
-                  render: (v: string) => <Tag color={v === '정상' ? 'blue' : v === '반품' ? 'red' : 'orange'}>{v}</Tag>,
-                },
-                { title: '수량', dataIndex: 'qty', key: 'qty', width: 55, render: (v: number) => `${v}개` },
-                { title: '금액', dataIndex: 'total_price', key: 'price', width: 90, align: 'right' as const,
-                  render: (v: number) => <span style={{ fontWeight: 600 }}>{Number(v).toLocaleString()}원</span>,
-                },
-              ]}
-              dataSource={stats?.todaySalesDetail || []}
-              rowKey="sale_id"
-              pagination={false}
-              size="small"
-              scroll={{ x: 500 }}
-            />
-          ) : (
-            <Empty description="오늘 판매 내역이 없습니다" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          )}
-        </Card>
-      )}
+      {/* ── 오늘 판매 내역 (매장 + 본사 공통) ── */}
+      <Card
+        title={<span><ShoppingCartOutlined style={{ marginRight: 8, color: '#6366f1' }} />오늘 판매 내역{!isStore && ' (전 매장)'}</span>}
+        size="small"
+        style={{ borderRadius: 12, marginBottom: 16, borderLeft: '4px solid #6366f1' }}
+        extra={<a onClick={() => navigate('/sales/dashboard')}>전체보기</a>}
+      >
+        {(stats?.todaySalesDetail || []).length > 0 ? (
+          <Table
+            columns={[
+              { title: '시간', dataIndex: 'sale_time', key: 'time', width: 60 },
+              ...(!isStore ? [{ title: '매장' as const, dataIndex: 'partner_name' as const, key: 'partner', width: 100, ellipsis: true }] : []),
+              { title: '상품명', dataIndex: 'product_name', key: 'name', ellipsis: true },
+              { title: 'SKU', dataIndex: 'sku', key: 'sku', width: 100, ellipsis: true,
+                render: (v: string) => <span style={{ fontSize: 11, color: '#888', fontFamily: 'monospace' }}>{v || '-'}</span>,
+              },
+              { title: '컬러/사이즈', key: 'variant', width: 110,
+                render: (_: any, r: any) => <span style={{ fontSize: 12, color: '#666' }}>{r.color}/{r.size}</span>,
+              },
+              { title: '유형', dataIndex: 'sale_type', key: 'type', width: 70,
+                render: (v: string) => <Tag color={v === '정상' ? 'blue' : v === '반품' ? 'red' : v === '예약판매' ? 'volcano' : 'orange'}>{v}</Tag>,
+              },
+              { title: '수량', dataIndex: 'qty', key: 'qty', width: 55, render: (v: number) => `${v}개` },
+              { title: '금액', dataIndex: 'total_price', key: 'price', width: 90, align: 'right' as const,
+                render: (v: number, r: any) => (
+                  <span style={{ fontWeight: 600, color: r.sale_type === '반품' ? '#dc2626' : undefined }}>
+                    {r.sale_type === '반품' ? '-' : ''}{Number(v).toLocaleString()}원
+                  </span>
+                ),
+              },
+            ]}
+            dataSource={stats?.todaySalesDetail || []}
+            rowKey="sale_id"
+            pagination={false}
+            size="small"
+            scroll={{ x: isStore ? 500 : 700 }}
+          />
+        ) : (
+          <Empty description="오늘 판매 내역이 없습니다" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+        )}
+      </Card>
 
       {/* Main Stats */}
       <Row gutter={[16, 16]}>
         {/* 매장: 히어로에서 오늘 매출 표시하므로 월간매출부터 */}
         {!isStore && (
           <Col xs={24} sm={12} lg={6}>
-            <StatCard title="오늘 매출" value={`${(Number(stats?.todaySales?.today_revenue || 0) / 10000).toFixed(0)}만원`}
+            <StatCard title="오늘 매출" value={`${Number(stats?.todaySales?.today_gross || 0).toLocaleString()}원`}
               icon={<DollarOutlined />} bg="linear-gradient(135deg, #667eea 0%, #764ba2 100%)" color="#fff"
-              sub={`${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`} />
+              sub={Number(stats?.todaySales?.today_return || 0) > 0
+                ? `반품 -${Number(stats.todaySales.today_return).toLocaleString()}원 / 순매출 ${Number(stats.todaySales.today_revenue).toLocaleString()}원`
+                : `${Number(stats?.todaySales?.today_qty || 0).toLocaleString()}개 판매`}
+              onClick={() => navigate('/sales/analytics?range=today')} />
           </Col>
         )}
         <Col xs={24} sm={12} lg={isStore ? 8 : 6}>
-          <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${(Number(stats?.sales?.month_revenue || 0) / 10000).toFixed(0)}만원`}
+          <StatCard title={isStore ? '내 매장 월간 매출' : '월간 매출 (30일)'} value={`${Number(stats?.sales?.month_gross || 0).toLocaleString()}원`}
             icon={<RiseOutlined />} bg="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)" color="#fff"
-            sub={`${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`} />
+            sub={Number(stats?.sales?.month_return || 0) > 0
+              ? `반품 -${Number(stats.sales.month_return).toLocaleString()}원 / 순매출 ${Number(stats.sales.month_revenue).toLocaleString()}원`
+              : `${Number(stats?.sales?.month_qty || 0).toLocaleString()}개 판매`}
+            onClick={() => navigate('/sales/analytics?range=30d')} />
         </Col>
         <Col xs={24} sm={12} lg={isStore ? 8 : 6}>
           <StatCard title={isStore ? '내 매장 재고' : '총 재고'} value={stats?.inventory?.totalQty || 0}
@@ -769,7 +821,10 @@ export default function DashboardPage() {
               <ShoppingCartOutlined style={{ fontSize: 24, color: '#f59e0b' }} />
               <div>
                 <div style={{ fontSize: 12, color: '#888' }}>{isStore ? '내 매장 주간 매출' : '주간 매출'}</div>
-                <div style={{ fontSize: 20, fontWeight: 700 }}>{(Number(stats?.sales?.week_revenue || 0) / 10000).toFixed(0)}만</div>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>{Number(stats?.sales?.week_gross || 0).toLocaleString()}원</div>
+                {Number(stats?.sales?.week_return || 0) > 0 && (
+                  <div style={{ fontSize: 11, color: '#dc2626' }}>반품 -{Number(stats.sales.week_return).toLocaleString()}원</div>
+                )}
               </div>
             </div>
           </Card>
@@ -818,7 +873,7 @@ export default function DashboardPage() {
         </Col>
         <Col xs={24} md={12}>
           <Card title="최근 14일 매출 추이" size="small" style={{ borderRadius: 10, height: '100%' }} loading={loading}
-            extra={<a onClick={() => navigate('/sales/entry')}>매출등록</a>}>
+            extra={<a onClick={() => navigate('/sales/entry')}>매출관리</a>}>
             <MiniBar data={stats?.monthlySalesTrend || []} />
           </Card>
         </Col>
@@ -963,27 +1018,13 @@ export default function DashboardPage() {
 
       {/* Tables */}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        <Col xs={24} md={8}>
-          <Card title={<span>{isStore ? '내 매장 재입고 필요' : '재입고 필요'} <Badge count={(stats?.lowStock || []).length} style={{ backgroundColor: '#ef4444', marginLeft: 8 }} /></span>}
-            size="small" style={{ borderRadius: 10 }} loading={loading}
-            extra={<a onClick={() => navigate('/inventory/status')}>전체보기</a>}>
-            {(stats?.lowStock || []).length > 0 ? (
-              <Table columns={lowStockColumns} dataSource={(stats?.lowStock || []).slice(0, 5)} rowKey={(r) => `${r.partner_code}-${r.variant_id}`} pagination={false} size="small" scroll={{ x: 500 }} />
-            ) : (
-              <div style={{ textAlign: 'center', padding: 24, color: '#10b981' }}>
-                <InboxOutlined style={{ fontSize: 28, marginBottom: 8, display: 'block' }} />
-                재입고 필요 품목이 없습니다
-              </div>
-            )}
-          </Card>
-        </Col>
-        <Col xs={24} md={9}>
+        <Col xs={24} md={14}>
           <Card title={isStore ? '내 매장 최근 출고의뢰' : '최근 출고의뢰'} size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<a onClick={() => navigate(isStore ? '/shipment/store-request' : '/shipment/request')}>전체보기</a>}>
             <Table columns={shipmentColumns} dataSource={stats?.recentShipments || []} rowKey="request_no" pagination={false} size="small" scroll={{ x: 500 }} />
           </Card>
         </Col>
-        <Col xs={24} md={7}>
+        <Col xs={24} md={10}>
           <Card title={isStore ? '내 매장 인기상품 TOP 5' : '인기상품 TOP 5'} size="small" style={{ borderRadius: 10 }} loading={loading}
             extra={<span style={{ fontSize: 11, color: '#888' }}>최근 30일</span>}>
             {(stats?.topProducts || []).length > 0 ? (
@@ -994,6 +1035,74 @@ export default function DashboardPage() {
           </Card>
         </Col>
       </Row>
+
+      {/* A/S 현황 */}
+      <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+        <Col span={24}>
+          <Card
+            title={<span><ToolOutlined style={{ color: '#8b5cf6', marginRight: 8 }} />A/S 현황</span>}
+            size="small" style={{ borderRadius: 10, borderLeft: '4px solid #8b5cf6' }}
+            extra={<a onClick={() => navigate('/crm/after-sales')}>전체보기</a>}
+          >
+            <Row gutter={[12, 12]}>
+              <Col xs={12} sm={6}>
+                <div style={{ textAlign: 'center', padding: '12px 8px', background: '#fef3f2', borderRadius: 10 }}>
+                  <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>미처리</div>
+                  <div style={{ fontSize: 28, fontWeight: 800, color: '#ef4444' }}>{asStats?.openCount || 0}</div>
+                  <div style={{ fontSize: 11, color: '#aaa' }}>접수 + 진행</div>
+                </div>
+              </Col>
+              {(asStats?.byStatus || []).map((s: any) => {
+                const statusColors: Record<string, { bg: string; text: string }> = {
+                  '접수': { bg: '#eff6ff', text: '#3b82f6' },
+                  '진행': { bg: '#fff7ed', text: '#f97316' },
+                  '완료': { bg: '#f0fdf4', text: '#22c55e' },
+                  '취소': { bg: '#fef2f2', text: '#ef4444' },
+                };
+                const c = statusColors[s.status] || { bg: '#f5f5f5', text: '#888' };
+                return (
+                  <Col xs={12} sm={6} key={s.status}>
+                    <div style={{ textAlign: 'center', padding: '12px 8px', background: c.bg, borderRadius: 10 }}>
+                      <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>{s.status}</div>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: c.text }}>{s.count}</div>
+                    </div>
+                  </Col>
+                );
+              })}
+            </Row>
+            {(asStats?.byType || []).length > 0 && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 12, justifyContent: 'center' }}>
+                {(asStats?.byType || []).map((t: any) => {
+                  const typeColors: Record<string, string> = { '수선': 'cyan', '클레임': 'red', '기타': 'default' };
+                  return <Tag key={t.service_type} color={typeColors[t.service_type] || 'default'}>{t.service_type} {t.count}건</Tag>;
+                })}
+              </div>
+            )}
+          </Card>
+        </Col>
+      </Row>
+
+      {/* 재고 부족 알림 */}
+      {(stats?.lowStock || []).length > 0 && (
+        <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
+          <Col span={24}>
+            <Card
+              title={<span><WarningOutlined style={{ color: '#fa8c16', marginRight: 8 }} />재고 부족 알림</span>}
+              size="small" style={{ borderRadius: 10, borderLeft: '4px solid #fa8c16' }}
+              extra={<a onClick={() => navigate('/inventory/status')}>재고현황</a>}
+            >
+              <Table
+                columns={lowStockColumns as ColumnsType<any>}
+                dataSource={stats?.lowStock || []}
+                rowKey={(r) => `${r.partner_code}-${r.variant_id}`}
+                pagination={false}
+                size="small"
+                scroll={{ x: 600 }}
+              />
+            </Card>
+          </Col>
+        </Row>
+      )}
 
       {/* 재고 요청 처리 모달 */}
       <Modal
@@ -1035,128 +1144,65 @@ export default function DashboardPage() {
         )}
       </Modal>
 
-      {/* ── 빠른 매출 등록 모달 (매장 전용) ── */}
+      {/* 예약판매 상세 모달 */}
       <Modal
-        title={<span><BarcodeOutlined style={{ marginRight: 8 }} />빠른 매출 등록</span>}
-        open={quickSaleOpen}
-        onCancel={() => { setQuickSaleOpen(false); setScannedProduct(null); setScanCode(''); setQuickSearchResults([]); }}
+        open={preorderModalOpen}
+        onCancel={() => setPreorderModalOpen(false)}
+        title="매장별 예약판매 현황"
+        width={1000}
         footer={null}
-        width={480}
         destroyOnClose
       >
-        <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>바코드 / SKU 입력</div>
-          <Input.Search
-            ref={scanInputRef}
-            placeholder="바코드 스캔 또는 SKU 입력..."
-            value={scanCode}
-            onChange={(e) => setScanCode(e.target.value)}
-            onSearch={handleScan}
-            enterButton={<span><BarcodeOutlined /> 조회</span>}
-            loading={scanning}
-            size="large"
-            allowClear
-          />
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 13, color: '#888', marginBottom: 6 }}>또는 상품명/SKU 검색</div>
-            <Select
-              showSearch placeholder="상품명 또는 SKU 2자 이상 입력"
-              filterOption={false} style={{ width: '100%' }} size="large"
-              value={scannedProduct?.variant_id}
-              onSearch={(v) => { if (v.length >= 2) productApi.searchVariants(v).then(setQuickSearchResults).catch(() => {}); }}
-              onChange={(v) => {
-                const found = quickSearchResults.find((r: any) => r.variant_id === v);
-                if (found) {
-                  setScannedProduct({ ...found, base_price: found.price, selling_price: found.price });
-                  setQuickUnitPrice(found.price || 0);
-                  setQuickQty(1);
-                }
-              }}
-              notFoundContent="2자 이상 입력"
-            >
-              {quickSearchResults.map((v: any) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>
-                  {v.sku} - {v.product_name} ({v.color}/{v.size})
-                </Select.Option>
-              ))}
-            </Select>
-          </div>
-        </div>
-
-        {scannedProduct && (
-          <div>
-            <div style={{
-              padding: 16, background: 'linear-gradient(135deg, #f0f4ff, #e8ecff)',
-              borderRadius: 12, marginBottom: 16, border: '1px solid #d4daff',
-            }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#333', marginBottom: 8 }}>
-                {scannedProduct.product_name}
-              </div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#666' }}>
-                <Tag>{scannedProduct.color}</Tag>
-                <Tag>{scannedProduct.size}</Tag>
-                <Tag color="blue">SKU: {scannedProduct.sku}</Tag>
-                {scannedProduct.current_stock !== undefined && (
-                  <Tag color={scannedProduct.current_stock > 0 ? 'green' : 'red'}>
-                    재고: {scannedProduct.current_stock}개
-                  </Tag>
-                )}
-              </div>
-            </div>
-
-            <Row gutter={12}>
-              <Col span={8}>
-                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>수량</div>
-                <InputNumber
-                  min={1} value={quickQty} onChange={(v) => setQuickQty(v || 1)}
-                  style={{ width: '100%' }} size="large"
-                />
-              </Col>
-              <Col span={8}>
-                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>단가</div>
-                <InputNumber
-                  min={0} value={quickUnitPrice} onChange={(v) => setQuickUnitPrice(v || 0)}
-                  style={{ width: '100%' }} size="large"
-                  formatter={(v) => `${v}`.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}
-                  parser={(v) => Number(v?.replace(/,/g, '') || 0)}
-                />
-              </Col>
-              <Col span={8}>
-                <div style={{ marginBottom: 4, fontSize: 13, color: '#888' }}>유형</div>
-                <Select value={quickSaleType} onChange={setQuickSaleType}
-                  style={{ width: '100%' }} size="large"
-                  options={[
-                    { value: '정상', label: '정상' },
-                    { value: '직원할인', label: '직원할인' },
-                    { value: '행사', label: '행사' },
-                    { value: '기타', label: '기타' },
-                  ]}
-                />
-              </Col>
-            </Row>
-
-            <div style={{
-              marginTop: 16, padding: 14, background: '#fafafa', borderRadius: 10,
-              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-            }}>
-              <div>
-                <div style={{ fontSize: 13, color: '#888' }}>합계 금액</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: '#6366f1' }}>
-                  {(quickQty * quickUnitPrice).toLocaleString()}원
-                </div>
-              </div>
-              <Button
-                type="primary" size="large"
-                icon={<PlusOutlined />}
-                onClick={handleQuickSale}
-                loading={quickSubmitting}
-                style={{ height: 48, fontSize: 15, fontWeight: 700, borderRadius: 12, background: '#6366f1' }}
+        {/* 매장별 요약 */}
+        {(stats?.preordersByPartner || []).length > 0 && (
+          <div style={{ marginBottom: 16, display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+            {(stats?.preordersByPartner || []).map((sp: any) => (
+              <Tag
+                key={sp.partner_code}
+                color={preorderPartnerFilter === sp.partner_code ? 'orange' : 'default'}
+                style={{ cursor: 'pointer', fontSize: 13, padding: '4px 12px' }}
+                onClick={() => setPreorderPartnerFilter(preorderPartnerFilter === sp.partner_code ? undefined : sp.partner_code)}
               >
-                매출 등록
-              </Button>
-            </div>
+                {sp.partner_name} <b>{sp.cnt}</b>건
+              </Tag>
+            ))}
+            {preorderPartnerFilter && (
+              <Tag style={{ cursor: 'pointer', fontSize: 13, padding: '4px 12px' }} onClick={() => setPreorderPartnerFilter(undefined)}>
+                전체보기
+              </Tag>
+            )}
           </div>
         )}
+        <Table
+          size="small"
+          loading={preorderListLoading}
+          dataSource={preorderPartnerFilter ? preorderList.filter((p: any) => p.partner_code === preorderPartnerFilter) : preorderList}
+          rowKey="preorder_id"
+          scroll={{ x: 900, y: 400 }}
+          pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+          columns={[
+            { title: '등록일', dataIndex: 'preorder_date', width: 100, render: (v: any) => v ? dayjs(v).format('YYYY-MM-DD') : '-' },
+            { title: '매장', dataIndex: 'partner_name', width: 100,
+              render: (v: string, r: any) => (
+                <a onClick={(e) => { e.stopPropagation(); setPreorderPartnerFilter(r.partner_code); }}
+                  style={{ color: '#d97706', fontWeight: 600 }}>{v}</a>
+              ),
+            },
+            { title: '상품명', dataIndex: 'product_name', width: 160, ellipsis: true },
+            { title: 'SKU', dataIndex: 'sku', width: 120 },
+            { title: '컬러', dataIndex: 'color', width: 80 },
+            { title: '사이즈', dataIndex: 'size', width: 70 },
+            { title: '수량', dataIndex: 'qty', width: 70, align: 'right' as const },
+            { title: '단가', dataIndex: 'unit_price', width: 90, align: 'right' as const, render: (v: number) => Number(v).toLocaleString() + '원' },
+            { title: '합계', dataIndex: 'total_price', width: 100, align: 'right' as const, render: (v: number) => Number(v).toLocaleString() + '원' },
+            { title: '현재고', dataIndex: 'current_stock', width: 70, align: 'right' as const,
+              render: (v: number, r: any) => (
+                <span style={{ color: Number(v) >= Number(r.qty) ? '#16a34a' : '#dc2626', fontWeight: 600 }}>{v ?? 0}</span>
+              ),
+            },
+            { title: '메모', dataIndex: 'memo', width: 120, ellipsis: true },
+          ] as ColumnsType<any>}
+        />
       </Modal>
 
     </div>

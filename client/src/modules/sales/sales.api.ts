@@ -17,7 +17,10 @@ export const salesApi = {
     return parse(await apiFetch('/api/sales', { method: 'POST', body: JSON.stringify(body) }));
   },
   createBatch: async (body: { sale_date: string; partner_code?: string; customer_id?: number; memo?: string; items: any[] }) => {
-    return parse(await apiFetch('/api/sales/batch', { method: 'POST', body: JSON.stringify(body) }));
+    const res = await apiFetch('/api/sales/batch', { method: 'POST', body: JSON.stringify(body) });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error);
+    return json as { success: true; data: any[]; preorders?: any[]; message?: string };
   },
 
   // 매출현황 대시보드
@@ -88,12 +91,12 @@ export const salesApi = {
 
   // 종합 매출조회 → 판매 상세
   comprehensiveDetail: async (dateFrom: string, dateTo: string, partnerCode?: string, saleType?: string) => {
-    const q = `?date_from=${dateFrom}&date_to=${dateTo}${partnerCode ? `&partner_code=${partnerCode}` : ''}${saleType ? `&sale_type=${saleType}` : ''}`;
+    const q = `?date_from=${dateFrom}&date_to=${dateTo}${partnerCode ? `&partner_code=${encodeURIComponent(partnerCode)}` : ''}${saleType ? `&sale_type=${encodeURIComponent(saleType)}` : ''}`;
     return parse(await apiFetch(`/api/sales/comprehensive/detail${q}`));
   },
 
   // 매출 수정
-  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string; tax_free?: boolean }) => {
+  update: async (id: number, body: { qty: number; unit_price: number; sale_type: string; memo?: string; tax_free_amount?: number; customer_id?: number | null }) => {
     return parse(await apiFetch(`/api/sales/${id}`, { method: 'PUT', body: JSON.stringify(body) }));
   },
   // 매출 삭제
@@ -117,8 +120,12 @@ export const salesApi = {
     const q = params ? '?' + new URLSearchParams(params).toString() : '';
     return parse(await apiFetch(`/api/sales/returns${q}`));
   },
+  // 반품 수정
+  updateReturn: async (id: number, body: { qty?: number; unit_price?: number; return_reason?: string; memo?: string }) => {
+    return parse(await apiFetch(`/api/sales/returns/${id}`, { method: 'PUT', body: JSON.stringify(body) }));
+  },
   // 교환 처리
-  createExchange: async (id: number, body: { new_variant_id: number; new_qty: number; new_unit_price: number; return_reason: string; memo?: string }) => {
+  createExchange: async (id: number, body: { new_variant_id: number; new_qty: number; new_unit_price: number; return_reason: string; memo?: string; return_qty?: number }) => {
     return parse(await apiFetch(`/api/sales/${id}/exchange`, { method: 'POST', body: JSON.stringify(body) }));
   },
   // 교환 이력
@@ -129,8 +136,9 @@ export const salesApi = {
 
 
   // 바코드/SKU 스캔 조회
-  scanProduct: async (code: string) => {
-    return parse(await apiFetch(`/api/sales/scan?code=${encodeURIComponent(code)}`));
+  scanProduct: async (code: string, partnerCode?: string) => {
+    const pcParam = partnerCode ? `&partner_code=${encodeURIComponent(partnerCode)}` : '';
+    return parse(await apiFetch(`/api/sales/scan?code=${encodeURIComponent(code)}${pcParam}`));
   },
 
   // 엑셀 업로드
@@ -144,6 +152,19 @@ export const salesApi = {
     const data = await res.json();
     if (!data.success) throw new Error(data.error);
     return data.data as { total: number; created: number; skipped: number; errors?: string[] };
+  },
+
+  // 예약판매 목록 조회
+  preorders: async () => {
+    return parse(await apiFetch('/api/sales/preorders'));
+  },
+  // 예약판매 해소
+  fulfillPreorder: async (id: number) => {
+    return parse(await apiFetch(`/api/sales/preorders/${id}/fulfill`, { method: 'POST' }));
+  },
+  // 예약판매 삭제
+  removePreorder: async (id: number) => {
+    return parse(await apiFetch(`/api/sales/preorders/${id}`, { method: 'DELETE' }));
   },
 
   // 엑셀 템플릿 다운로드 URL

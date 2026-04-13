@@ -111,7 +111,13 @@ router.get('/daily-summary', requireRole(...readRoles), asyncHandler(async (req:
 }));
 
 // 고객 CRUD
-router.get('/', requireRole(...readRoles), crmController.list);
+router.get('/', requireRole(...readRoles), asyncHandler(async (req: Request, res: Response) => {
+  const storeCode = getStorePartnerCode(req);
+  const options: any = { ...req.query };
+  if (storeCode) options.partner_code = storeCode;
+  const result = await crmService.listWithStats(options);
+  res.json({ success: true, ...result });
+}));
 router.get('/:id', requireRole(...readRoles), crmController.detail);
 router.post('/', requireRole(...writeRoles), crmController.createCustomer);
 router.put('/:id', requireRole(...writeRoles), crmController.updateCustomer);

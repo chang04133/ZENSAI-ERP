@@ -82,7 +82,7 @@ export default function UserFormPage() {
           <Form.Item name="user_name" label="이름" rules={[{ required: true, message: '이름을 입력해주세요' }]}>
             <Input />
           </Form.Item>
-          {(!isEdit || currentUser?.role === ROLES.ADMIN) && (
+          {(!isEdit || ([ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER] as string[]).includes(currentUser?.role || '')) && (
             <Form.Item
               name="password"
               label={isEdit ? '비밀번호 (변경시에만 입력)' : '비밀번호'}

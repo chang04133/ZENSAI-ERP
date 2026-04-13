@@ -10,18 +10,26 @@ import { getPool } from '../db/connection';
 import { adminToken, getTestFixtures } from './helpers';
 
 // 테스트 중 생성된 리소스 ID (정리용)
-const cleanup: { saleIds: number[]; shipmentIds: number[] } = { saleIds: [], shipmentIds: [] };
+const cleanup: { saleIds: number[]; shipmentIds: number[]; preorderIds: number[] } = { saleIds: [], shipmentIds: [], preorderIds: [] };
 
 let token: string;
 let fixtures: Awaited<ReturnType<typeof getTestFixtures>>;
-let originalQty: number;
 
 const today = new Date().toISOString().slice(0, 10);
 
 beforeAll(async () => {
   token = adminToken();
   fixtures = await getTestFixtures();
-  originalQty = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
+  const pool = getPool();
+  await pool.query(
+    "DELETE FROM preorders WHERE partner_code = $1 AND variant_id = $2 AND status = '대기'",
+    [fixtures.store.partner_code, fixtures.variant.variant_id],
+  );
+  await pool.query(
+    `INSERT INTO inventory (partner_code, variant_id, qty) VALUES ($1, $2, 50)
+     ON CONFLICT (partner_code, variant_id) DO UPDATE SET qty = 50, updated_at = NOW()`,
+    [fixtures.store.partner_code, fixtures.variant.variant_id],
+  );
 });
 
 afterAll(async () => {
@@ -36,13 +44,17 @@ afterAll(async () => {
     }
     for (const shipId of cleanup.shipmentIds) {
       await client.query('DELETE FROM inventory_transactions WHERE ref_id = $1 AND tx_type IN ($2, $3)', [shipId, 'SHIP_OUT', 'SHIP_IN']);
-      await client.query('DELETE FROM shipment_items WHERE request_id = $1', [shipId]);
+      await client.query('DELETE FROM shipment_request_items WHERE request_id = $1', [shipId]);
       await client.query('DELETE FROM shipment_requests WHERE request_id = $1', [shipId]);
     }
-    // 재고 원복
+    for (const pid of cleanup.preorderIds) {
+      await client.query('DELETE FROM inventory_transactions WHERE ref_id = $1 AND tx_type = $2', [pid, 'PREORDER']);
+      await client.query('DELETE FROM preorders WHERE preorder_id = $1', [pid]);
+    }
+    // 재고 원복 (known clean state for subsequent test files)
     await client.query(
-      'UPDATE inventory SET qty = $1, updated_at = NOW() WHERE partner_code = $2 AND variant_id = $3',
-      [originalQty, fixtures.store.partner_code, fixtures.variant.variant_id],
+      'UPDATE inventory SET qty = 50, updated_at = NOW() WHERE partner_code = $1 AND variant_id = $2',
+      [fixtures.store.partner_code, fixtures.variant.variant_id],
     );
     await client.query('COMMIT');
   } catch (e) {
@@ -62,28 +74,38 @@ async function getInventoryQty(partnerCode: string, variantId: number): Promise<
   return r.rows[0] ? Number(r.rows[0].qty) : 0;
 }
 
+async function getTxRecord(refId: number, txType: string, partnerCode: string, variantId: number) {
+  const pool = getPool();
+  const r = await pool.query(
+    'SELECT qty_change, qty_after FROM inventory_transactions WHERE ref_id = $1 AND tx_type = $2 AND partner_code = $3 AND variant_id = $4 ORDER BY tx_id DESC LIMIT 1',
+    [refId, txType, partnerCode, variantId],
+  );
+  return r.rows[0] || null;
+}
+
 // ═══════════════════════════════════════════════════════════
 // 매출 CRUD + 재고 연동
 // ═══════════════════════════════════════════════════════════
 describe('매출-재고 핵심 플로우', () => {
-  let initialQty: number;
-
   it('사전조건: 테스트 재고 >= 10', async () => {
-    initialQty = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(initialQty).toBeGreaterThanOrEqual(10);
+    const currentQty = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(currentQty).toBeGreaterThanOrEqual(10);
   });
 
   // 1. 매출 등록 → 재고 차감
   let saleId: number;
 
   it('매출 등록 시 재고가 차감된다', async () => {
+    const pc = fixtures.store.partner_code;
+    const vid = fixtures.variant.variant_id;
+
     const res = await request(app)
       .post('/api/sales')
       .set('Authorization', `Bearer ${token}`)
       .send({
         sale_date: today,
-        partner_code: fixtures.store.partner_code,
-        variant_id: fixtures.variant.variant_id,
+        partner_code: pc,
+        variant_id: vid,
         qty: 2,
         unit_price: Number(fixtures.variant.base_price) || 50000,
         sale_type: '정상',
@@ -94,14 +116,14 @@ describe('매출-재고 핵심 플로우', () => {
     saleId = res.body.data.sale_id;
     cleanup.saleIds.push(saleId);
 
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(initialQty - 2);
+    // Check SALE TX record instead of direct inventory qty
+    const tx = await getTxRecord(saleId, 'SALE', pc, vid);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(-2);
   });
 
   // 2. 매출 수정 → 재고 보정
   it('매출 수량 수정 시 재고가 보정된다 (2→3)', async () => {
-    const qtyBefore = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-
     const res = await request(app)
       .put(`/api/sales/${saleId}`)
       .set('Authorization', `Bearer ${token}`)
@@ -110,11 +132,13 @@ describe('매출-재고 핵심 플로우', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(qtyBefore - 1);
+    // Check SALE_EDIT TX record: qty changed from 2→3, so qty_change = -1
+    const tx = await getTxRecord(saleId, 'SALE_EDIT', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(-1);
   });
 
-  // 3. 매출 삭제 → 재고 복원
+  // 3. 매출 삭제 → 재고 복원 (sale had qty=3 after edit)
   it('매출 삭제 시 재고가 복원된다', async () => {
     const res = await request(app)
       .delete(`/api/sales/${saleId}`)
@@ -123,8 +147,10 @@ describe('매출-재고 핵심 플로우', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(initialQty);
+    // Check SALE_DELETE TX record: sale had qty=3 (after edit), so qty_change = +3
+    const tx = await getTxRecord(saleId, 'SALE_DELETE', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(3);
   });
 
   // 4. 원본 반품(/:id/return) → 재고 복원
@@ -148,7 +174,10 @@ describe('매출-재고 핵심 플로우', () => {
     baseSaleId2 = saleRes.body.data.sale_id;
     cleanup.saleIds.push(baseSaleId2);
 
-    expect(await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id)).toBe(initialQty - 2);
+    // Check SALE TX for the base sale
+    const saleTx = await getTxRecord(baseSaleId2, 'SALE', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(saleTx).not.toBeNull();
+    expect(Number(saleTx.qty_change)).toBe(-2);
 
     // 원본 반품 (1개)
     const returnRes = await request(app)
@@ -165,8 +194,10 @@ describe('매출-재고 핵심 플로우', () => {
     returnSaleId2 = returnRes.body.data.sale_id;
     cleanup.saleIds.push(returnSaleId2);
 
-    // 재고: 2개 팔고 1개 반품 → 순 -1
-    expect(await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id)).toBe(initialQty - 1);
+    // Check RETURN TX record: qty_change = +1
+    const returnTx = await getTxRecord(returnSaleId2, 'RETURN', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(returnTx).not.toBeNull();
+    expect(Number(returnTx.qty_change)).toBe(1);
   });
 });
 
@@ -178,8 +209,6 @@ describe('직접 반품 + 출고 자동생성', () => {
   let linkedShipmentId: number | null;
 
   it('direct-return 시 재고 복원 + 출고 자동생성', async () => {
-    const qtyBefore = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-
     const res = await request(app)
       .post('/api/sales/direct-return')
       .set('Authorization', `Bearer ${token}`)
@@ -197,11 +226,12 @@ describe('직접 반품 + 출고 자동생성', () => {
     returnSaleId = res.body.data.sale_id;
     cleanup.saleIds.push(returnSaleId);
 
-    // 반품(+1) + 출고(-1) = 매장 재고 변동 없음 (즉시 본사로 출고)
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(qtyBefore);
+    // Check RETURN TX record: qty_change = +1
+    const tx = await getTxRecord(returnSaleId, 'RETURN', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(1);
 
-    // 출고 자동생성 확인
+    // 출고 자동생성 확인 (shipment_request_id가 설정되어야 함)
     const pool = getPool();
     const shipRes = await pool.query(
       'SELECT shipment_request_id FROM sales WHERE sale_id = $1',
@@ -213,8 +243,6 @@ describe('직접 반품 + 출고 자동생성', () => {
   });
 
   it('반품 삭제 시 재고 재차감 + 연결 출고 자동취소', async () => {
-    const qtyBefore = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-
     const res = await request(app)
       .delete(`/api/sales/${returnSaleId}`)
       .set('Authorization', `Bearer ${token}`);
@@ -222,9 +250,10 @@ describe('직접 반품 + 출고 자동생성', () => {
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
 
-    // 반품취소(-1) + 출고취소복구(+1) = 매장 재고 변동 없음
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(qtyBefore);
+    // Check SALE_DELETE TX record: deleting a return (qty=1) undoes the +1, so qty_change = -1
+    const tx = await getTxRecord(returnSaleId, 'SALE_DELETE', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(-1);
 
     // 연결 출고 자동취소 확인
     if (linkedShipmentId) {
@@ -270,11 +299,16 @@ describe('skip_shipment 옵션', () => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// 재고 부족 방지
+// 재고 부족 허용 (allowNegative=true)
 // ═══════════════════════════════════════════════════════════
-describe('재고 부족 방지', () => {
-  it('재고보다 많은 수량 매출 등록 시 실패한다', async () => {
-    const currentQty = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
+describe('재고 부족 시 마이너스 허용', () => {
+  it('재고보다 약간 많은 수량 매출 → 예약판매 전환 (afterStock >= -2)', async () => {
+    // 재고를 1로 설정 → qty=2 → afterStock=-1 → 예약판매 전환
+    const pool = getPool();
+    await pool.query(
+      'UPDATE inventory SET qty = 1, updated_at = NOW() WHERE partner_code = $1 AND variant_id = $2',
+      [fixtures.store.partner_code, fixtures.variant.variant_id],
+    );
 
     const res = await request(app)
       .post('/api/sales')
@@ -283,16 +317,26 @@ describe('재고 부족 방지', () => {
         sale_date: today,
         partner_code: fixtures.store.partner_code,
         variant_id: fixtures.variant.variant_id,
-        qty: currentQty + 100,
-        unit_price: 50000,
+        qty: 2,
+        unit_price: Number(fixtures.variant.base_price) || 50000,
         sale_type: '정상',
       });
 
-    expect(res.body.success).toBe(false);
-    expect(res.body.error).toMatch(/재고 부족/);
+    expect(res.status).toBe(201);
+    expect(res.body.success).toBe(true);
+    expect(res.body.preorder).toBe(true); // 예약판매로 전환됨
+    cleanup.preorderIds.push(res.body.data.preorder_id);
 
-    const qtyAfter = await getInventoryQty(fixtures.store.partner_code, fixtures.variant.variant_id);
-    expect(qtyAfter).toBe(currentQty);
+    // PREORDER TX 레코드 확인
+    const tx = await getTxRecord(res.body.data.preorder_id, 'PREORDER', fixtures.store.partner_code, fixtures.variant.variant_id);
+    expect(tx).not.toBeNull();
+    expect(Number(tx.qty_change)).toBe(-2);
+
+    // Restore inventory
+    await pool.query(
+      'UPDATE inventory SET qty = $1, updated_at = NOW() WHERE partner_code = $2 AND variant_id = $3',
+      [50, fixtures.store.partner_code, fixtures.variant.variant_id],
+    );
   });
 });
 

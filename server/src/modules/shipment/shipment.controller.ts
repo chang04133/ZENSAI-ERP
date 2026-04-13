@@ -38,14 +38,15 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     if (!pc) { res.status(403).json({ success: false, error: '권한이 없습니다.' }); return false; }
     const shipment = await shipmentService.getWithItems(requestId);
     if (!shipment) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return false; }
-    if (shipment.from_partner !== pc && shipment.to_partner !== pc) {
-      res.status(403).json({ success: false, error: '해당 출고건에 접근 권한이 없습니다.' });
-      return false;
-    }
-    return true;
+    if (shipment.from_partner === pc || shipment.to_partner === pc) return true;
+    // 다중 매장 의뢰: target_partners에 포함된 매장이면 접근 허용
+    const targets = (shipment as any).target_partners;
+    if (targets && String(targets).split(',').includes(pc)) return true;
+    res.status(403).json({ success: false, error: '해당 출고건에 접근 권한이 없습니다.' });
+    return false;
   }
 
-  /** 보내는 측만 (from_partner) */
+  /** 보내는 측만 (from_partner 또는 target_partners에 포함된 매장) */
   private async checkSenderAccess(req: Request, res: Response, requestId: number): Promise<boolean> {
     const role = req.user?.role;
     if (role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER') return true;
@@ -53,11 +54,21 @@ class ShipmentController extends BaseController<ShipmentRequest> {
     if (!pc) { res.status(403).json({ success: false, error: '권한이 없습니다.' }); return false; }
     const shipment = await shipmentService.getWithItems(requestId);
     if (!shipment) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return false; }
-    if (shipment.from_partner !== pc) {
-      res.status(403).json({ success: false, error: '출고확인은 출발 거래처만 가능합니다.' });
-      return false;
+    // from_partner가 설정된 경우: 해당 매장만
+    if (shipment.from_partner) {
+      if (shipment.from_partner !== pc) {
+        res.status(403).json({ success: false, error: '출고확인은 출발 거래처만 가능합니다.' });
+        return false;
+      }
+      return true;
     }
-    return true;
+    // 다중 매장 의뢰: target_partners에 포함된 매장이면 OK
+    const targets = (shipment as any).target_partners;
+    if (targets && String(targets).split(',').includes(pc)) {
+      return true;
+    }
+    res.status(403).json({ success: false, error: '출고확인은 출발 거래처만 가능합니다.' });
+    return false;
   }
 
   /** 받는 측만 (to_partner) — 보낸 쪽은 수령확인 불가 */
@@ -101,14 +112,18 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       res.status(400).json({ success: false, error: `의뢰유형은 ${validTypes.join('/')} 중 하나여야 합니다.` });
       return;
     }
-    // 출고요청 외에는 from_partner 필수
-    if (headerData.request_type !== '출고요청' && !headerData.from_partner) {
+    // 일괄 의뢰용: from_partners 배열 (수평이동 전용)
+    const fromPartners: string[] | undefined = req.body.from_partners;
+    const isBatch = Array.isArray(fromPartners) && fromPartners.length > 0 && headerData.request_type === '수평이동';
+
+    // 출고요청 외에는 from_partner 필수 (일괄 의뢰 제외)
+    if (headerData.request_type !== '출고요청' && !headerData.from_partner && !isBatch) {
       res.status(400).json({ success: false, error: '출발 거래처(from_partner)는 필수입니다.' });
       return;
     }
 
     // ── 방향 검증: 출고/반품/수평이동 ──
-    if (['출고', '반품', '수평이동'].includes(headerData.request_type)) {
+    if (['출고', '반품', '수평이동'].includes(headerData.request_type) && !isBatch) {
       const pool = getPool();
 
       // 반품: to_partner 미지정 시 본사(기본 창고)로 자동 설정
@@ -201,6 +216,29 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       return;
     }
 
+    // 다중 매장 의뢰: from_partners 배열 → 하나의 의뢰에 target_partners 저장
+    if (isBatch) {
+      const role = req.user?.role;
+      if (role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER') {
+        res.status(403).json({ success: false, error: '수평이동은 매장매니저만 등록할 수 있습니다.' }); return;
+      }
+      if (!headerData.to_partner) {
+        res.status(400).json({ success: false, error: '수평이동은 도착 거래처가 필수입니다.' }); return;
+      }
+      for (const fp of fromPartners!) {
+        if (fp === headerData.to_partner) {
+          res.status(400).json({ success: false, error: '같은 매장으로는 수평이동할 수 없습니다.' }); return;
+        }
+      }
+      // 하나의 의뢰 생성: from_partner = NULL, target_partners = 콤마 구분 목록
+      const result = await shipmentService.createWithItems(
+        { ...headerData, from_partner: null, target_partners: fromPartners!.join(','), requested_by: req.user!.userId },
+        items,
+      );
+      res.status(201).json({ success: true, data: result });
+      return;
+    }
+
     const result = await shipmentService.createWithItems(
       { ...headerData, requested_by: req.user!.userId },
       items,
@@ -221,6 +259,11 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       const isManager = role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER';
       if (!isManager) {
         const shipment = await shipmentService.getWithItems(id);
+        // SHIPPED/DISCREPANCY 상태는 관리자만 취소 가능
+        if (shipment && ((shipment as any).status === 'SHIPPED' || (shipment as any).status === 'DISCREPANCY')) {
+          res.status(403).json({ success: false, error: 'SHIPPED/DISCREPANCY 상태의 취소는 관리자만 가능합니다.' });
+          return;
+        }
         if (shipment && (shipment as any).requested_by !== req.user!.userId) {
           res.status(403).json({ success: false, error: '취소는 등록자 본인 또는 관리자만 가능합니다.' });
           return;
@@ -228,15 +271,21 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       }
     }
     if (newStatus === 'REJECTED') {
-      // 거절: ADMIN/HQ_MANAGER만 가능 + 사유 필수
       const role = req.user?.role;
-      if (role !== 'ADMIN' && role !== 'SYS_ADMIN' && role !== 'HQ_MANAGER') {
-        res.status(403).json({ success: false, error: '출고요청 거절은 관리자만 가능합니다.' });
-        return;
-      }
-      if (!req.body.reject_reason || !String(req.body.reject_reason).trim()) {
-        res.status(400).json({ success: false, error: '거절 사유를 입력해주세요.' });
-        return;
+      const isManager = role === 'ADMIN' || role === 'SYS_ADMIN' || role === 'HQ_MANAGER';
+      if (!isManager) {
+        const shipment = await shipmentService.getWithItems(id);
+        if (shipment && (shipment as any).request_type === '수평이동') {
+          const pc = req.user?.partnerCode;
+          const targets = (shipment as any).target_partners ? String((shipment as any).target_partners).split(',') : [];
+          if (!pc || ((shipment as any).from_partner !== pc && (shipment as any).to_partner !== pc && !targets.includes(pc))) {
+            res.status(403).json({ success: false, error: '해당 요청에 대한 거절 권한이 없습니다.' });
+            return;
+          }
+        } else {
+          res.status(403).json({ success: false, error: '출고요청 거절은 관리자만 가능합니다.' });
+          return;
+        }
       }
     }
     if (newStatus === 'SHIPPED') {
@@ -347,7 +396,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
       res.status(400).json({ success: false, error: '최소 1개 이상의 품목을 출고해야 합니다.' });
       return;
     }
-    const result = await shipmentService.shipAndConfirm(requestId, items, req.user!.userId);
+    const result = await shipmentService.shipAndConfirm(requestId, items, req.user!.userId, req.user!.partnerCode || undefined);
     if (!result) { res.status(404).json({ success: false, error: '출고건을 찾을 수 없습니다.' }); return; }
     res.json({ success: true, data: result });
   });
@@ -478,6 +527,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
               await inventoryRepository.applyChange(
                 shipment.to_partner, item.variant_id, -item.received_qty,
                 txType, id, req.user!.userId, client,
+                { memo: `불일치 취소 → 수령 원복 #${id}` },
               );
             }
           }
@@ -488,6 +538,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
               await inventoryRepository.applyChange(
                 shipment.from_partner, item.variant_id, item.shipped_qty,
                 txType, id, req.user!.userId, client,
+                { memo: `불일치 취소 → 출고 복원 #${id}` },
               );
             }
           }
@@ -500,6 +551,7 @@ class ShipmentController extends BaseController<ShipmentRequest> {
             await inventoryRepository.applyChange(
               shipment.from_partner, item.variant_id, item.shipped_qty,
               txType, id, req.user!.userId, client,
+              { memo: `출고 취소 → 재고 복원 #${id}` },
             );
           }
         }

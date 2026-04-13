@@ -38,6 +38,7 @@ export default function StoreEventPricePage() {
   const [colorFilter, setColorFilter] = useState('');
   const [sizeFilter, setSizeFilter] = useState('');
   const [partnerFilter, setPartnerFilter] = useState('');
+  const [eventStatusFilter, setEventStatusFilter] = useState('');
   const [sortValue, setSortValue] = useState('created_at_DESC');
 
   // 필터 옵션
@@ -142,6 +143,7 @@ export default function StoreEventPricePage() {
       if (colorFilter) params.color = colorFilter;
       if (sizeFilter) params.size = sizeFilter;
       if (partnerFilter) params.partner_code = partnerFilter;
+      if (eventStatusFilter) params.event_status = eventStatusFilter;
       const lastUnderscore = sortValue.lastIndexOf('_');
       params.orderBy = sortValue.substring(0, lastUnderscore);
       params.orderDir = sortValue.substring(lastUnderscore + 1);
@@ -150,9 +152,9 @@ export default function StoreEventPricePage() {
       setTotal(result.total || 0);
     } catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
-  }, [page, search, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, sortValue]);
+  }, [page, search, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, eventStatusFilter, sortValue]);
 
-  useEffect(() => { loadAll(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, sortValue]);
+  useEffect(() => { loadAll(); }, [page, categoryFilter, yearFromFilter, yearToFilter, seasonFilter, colorFilter, sizeFilter, partnerFilter, eventStatusFilter, sortValue]);
 
   // 선택 캐시
   const handleRowSelect = (keys: string[]) => {
@@ -455,6 +457,15 @@ export default function StoreEventPricePage() {
           >
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />} onPressEnter={() => { setPage(1); loadAll(1); }} />
           </AutoComplete></div>
+        <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>행사상태</div>
+          <Select value={eventStatusFilter}
+            onChange={(v) => { setEventStatusFilter(v); setPage(1); }} style={{ width: 120 }}
+            options={[
+              { label: '전체', value: '' },
+              { label: '행사중', value: 'active' },
+              { label: '미적용', value: 'none' },
+              { label: '행사종료', value: 'expired' },
+            ]} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>거래처</div>
           <Select showSearch optionFilterProp="label" value={partnerFilter}
             onChange={(v) => { setPartnerFilter(v); setPage(1); }} style={{ width: 130 }}

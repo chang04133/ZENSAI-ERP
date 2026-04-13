@@ -7,7 +7,7 @@ import { audit } from '../../core/audit';
 import { getPool } from '../../db/connection';
 import { segmentRepository } from '../crm/segment.repository';
 
-const VALID_PARTNER_TYPES = ['본사', '대리점', '직영점', '백화점', '아울렛', '온라인', '직영', '가맹'];
+const VALID_PARTNER_TYPES = ['본사', '대리점', '직영점', '백화점', '아울렛', '온라인'];
 
 class PartnerController extends BaseController<Partner> {
   constructor() {

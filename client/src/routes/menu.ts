@@ -32,7 +32,7 @@ export const menuItems: MenuItem[] = [
       { key: '/inventory/status', label: '재고현황', icon: 'BarChartOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/store', label: '매장별 재고', icon: 'ShopOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/adjust', label: '재고조정', icon: 'EditOutlined', roles: ADMIN_HQ },
-      { key: '/inventory/restock', label: '재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ },
+      { key: '/inventory/restock', label: '매장 재입고 추천', icon: 'ReloadOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inventory/loss', label: '재고처리', icon: 'StopOutlined', roles: ADMIN_HQ },
       { key: '/inventory/transactions', label: '재고변동 내역', icon: 'FileSearchOutlined', roles: ADMIN_ONLY },
     ],
@@ -47,12 +47,22 @@ export const menuItems: MenuItem[] = [
     ],
   },
   {
+    key: 'sub-outsource', label: '외주관리', icon: 'ClusterOutlined', roles: ADMIN_HQ,
+    children: [
+      { key: '/outsource', label: '외주 대시보드', icon: 'DashboardOutlined', roles: ADMIN_HQ },
+      { key: '/outsource/work-orders', label: '작업지시서', icon: 'ToolOutlined', roles: ADMIN_HQ },
+      { key: '/outsource/samples', label: '샘플/업체관리', icon: 'ExperimentOutlined', roles: ADMIN_HQ },
+      { key: '/outsource/qc', label: '1차 QC 검수', icon: 'SafetyCertificateOutlined', roles: ADMIN_HQ },
+      { key: '/outsource/final-select', label: '최종 셀렉', icon: 'CheckSquareOutlined', roles: ADMIN_HQ },
+      { key: '/outsource/payments', label: '결제 관리', icon: 'DollarOutlined', roles: ADMIN_HQ },
+    ],
+  },
+  {
     key: '/inbound', label: '입고관리', icon: 'ImportOutlined', roles: ADMIN_HQ_STORE,
     children: [
       { key: '/inbound/dashboard', label: '종합입고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/inbound/register', label: '입고등록', icon: 'PlusCircleOutlined', roles: ADMIN_HQ },
       { key: '/inbound/view', label: '입고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/store-request', label: '매장입고 요청', icon: 'ShoppingCartOutlined', roles: [ROLES.STORE_MANAGER] },
     ],
   },
   {
@@ -61,7 +71,7 @@ export const menuItems: MenuItem[] = [
       { key: '/shipment/dashboard', label: '종합출고관리', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/request', label: '출고등록', icon: 'SendOutlined', roles: ADMIN_HQ },
       { key: '/shipment/return', label: '반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: [ROLES.STORE_MANAGER] },
+      { key: '/shipment/transfer', label: '수평이동', icon: 'SwapOutlined', roles: ADMIN_HQ_STORE },
       { key: '/shipment/view', label: '출고조회', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
     ],
   },
@@ -69,14 +79,21 @@ export const menuItems: MenuItem[] = [
     key: '/sales', label: '판매관리', icon: 'LineChartOutlined', roles: ALL,
     children: [
       { key: '/sales/dashboard', label: '종합매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ },
       { key: '/sales/sell-through', label: '판매율 분석', icon: 'RiseOutlined', roles: ADMIN_HQ },
-      { key: '/sales/entry', label: '매출등록', icon: 'PlusCircleOutlined', roles: ALL },
-      { key: '/sales/product-sales', label: '아이템별 매출', icon: 'BarChartOutlined', roles: ALL },
+      { key: '/sales/entry', label: '매출관리', icon: 'PlusCircleOutlined', roles: ALL },
+      { key: '/sales/returns', label: '고객반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/sales/preorders', label: '예약판매', icon: 'ClockCircleOutlined', roles: ADMIN_HQ },
     ],
   },
 
-  { key: '/crm', label: '고객관리', icon: 'TeamOutlined', roles: ADMIN_HQ_STORE },
+  {
+    key: 'sub-crm', label: '고객관리', icon: 'TeamOutlined', roles: ADMIN_HQ_STORE,
+    children: [
+      { key: '/crm', label: '고객현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
+      { key: '/crm/list', label: '전체 고객 관리', icon: 'UnorderedListOutlined', roles: ADMIN_ONLY },
+    ],
+  },
   {
     key: 'sub-fund', label: '자금관리', icon: 'FundOutlined', roles: ADMIN_ONLY,
     children: [
@@ -85,6 +102,7 @@ export const menuItems: MenuItem[] = [
     ],
   },
   { key: '/users', label: '직원 관리', icon: 'UserOutlined', roles: ADMIN_HQ_STORE },
+  { key: '/store/activity-logs', label: '활동 로그', icon: 'FileSearchOutlined', roles: ADMIN_HQ_STORE },
   {
     key: 'sub-master', label: '마스터관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ,
     children: [
@@ -96,9 +114,10 @@ export const menuItems: MenuItem[] = [
     key: '/system', label: '시스템관리', icon: 'ToolOutlined', roles: ADMIN_SYS,
     children: [
       { key: '/system/settings', label: '시스템 설정', icon: 'SettingOutlined', roles: ADMIN_SYS },
-      { key: '/system/deleted-data', label: '삭제데이터 조회', icon: 'DeleteOutlined', roles: ADMIN_SYS },
       { key: '/system/overview', label: '권한설정', icon: 'SafetyCertificateOutlined', roles: ADMIN_SYS },
       { key: '/system/activity-logs', label: '활동 로그', icon: 'FileSearchOutlined', roles: ADMIN_SYS },
+      { key: '/system/docs', label: '시스템 문서', icon: 'ReadOutlined', roles: ADMIN_SYS },
+      { key: '/system/test-report', label: '테스트 보고서', icon: 'ExperimentOutlined', roles: ADMIN_SYS },
     ],
   },
 ];

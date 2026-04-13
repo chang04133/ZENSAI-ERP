@@ -4,3 +4,7 @@ dist-client
 .env
 *.log
 .DS_Store
+test-results/
+playwright-report/
+e2e/.auth/
+docs/*.json

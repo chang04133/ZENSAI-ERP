@@ -20,10 +20,11 @@ export default function MyProfilePage() {
   const onFinish = async (values: any) => {
     setLoading(true);
     try {
-      const body: any = { user_name: values.user_name };
+      const body: any = { user_name: values.user_name, current_password: values.current_password };
       if (values.password) body.password = values.password;
       await userApi.updateMyProfile(body);
       message.success('내 정보가 수정되었습니다.');
+      form.setFieldValue('current_password', '');
       form.setFieldValue('password', '');
       form.setFieldValue('password_confirm', '');
       await checkAuth();
@@ -49,7 +50,7 @@ export default function MyProfilePage() {
             <Descriptions.Item label="직급">
               <Tag color="blue">{ROLE_LABELS[user?.role || ''] || user?.role}</Tag>
             </Descriptions.Item>
-            <Descriptions.Item label="소속">{user?.partnerName || '본사'}</Descriptions.Item>
+            <Descriptions.Item label="소속">{user?.partnerName || profile?.partner_name || '본사'}</Descriptions.Item>
             {profile?.last_login && (
               <Descriptions.Item label="최근 로그인">
                 {new Date(profile.last_login).toLocaleString('ko-KR')}
@@ -62,6 +63,9 @@ export default function MyProfilePage() {
           <Form form={form} layout="vertical" onFinish={onFinish}>
             <Form.Item name="user_name" label="이름" rules={[{ required: true, message: '이름을 입력해주세요' }]}>
               <Input />
+            </Form.Item>
+            <Form.Item name="current_password" label="현재 비밀번호" rules={[{ required: true, message: '현재 비밀번호를 입력해주세요' }]}>
+              <Input.Password placeholder="현재 비밀번호 입력" />
             </Form.Item>
             <Form.Item name="password" label="새 비밀번호 (변경시에만 입력)"
               rules={[{ min: 4, message: '비밀번호는 4자 이상이어야 합니다' }]}>

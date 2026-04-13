@@ -29,7 +29,7 @@ router.put('/:id', authMiddleware, requireRole('ADMIN'), asyncHandler(async (req
 }));
 
 materialController.registerCrudRoutes(router, {
-  readRoles: ['ADMIN'],
+  readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'],
   writeRoles: ['ADMIN'],
   requiredFields: ['material_name', 'material_type'],
   entityName: '자재',

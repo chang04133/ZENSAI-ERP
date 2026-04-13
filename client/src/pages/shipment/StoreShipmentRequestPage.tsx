@@ -38,10 +38,11 @@ const STEPS = [
   { key: 'SHIPPED', label: '출고완료', desc: '본사에서 출고 완료, 수령 대기 중', icon: <SendOutlined />, color: '#fa8c16', bg: '#fff7e6' },
   { key: 'DISCREPANCY', label: '수량불일치', desc: '수령 수량이 출고 수량과 다른 건', icon: <ExclamationCircleOutlined />, color: '#fa541c', bg: '#fff2e8' },
   { key: 'RECEIVED', label: '수령완료', desc: '매장에서 수령까지 완료된 건', icon: <CheckCircleOutlined />, color: '#52c41a', bg: '#f6ffed' },
+  { key: 'REJECTED', label: '거절', desc: '본사에서 거절한 요청', icon: <StopOutlined />, color: '#ff7a45', bg: '#fff2e8' },
   { key: 'CANCELLED', label: '취소', desc: '취소된 입고요청', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
 ] as const;
 
-export default function StoreShipmentRequestPage() {
+export default function StoreShipmentRequestPage({ embedded }: { embedded?: boolean }) {
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
   const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
@@ -51,7 +52,7 @@ export default function StoreShipmentRequestPage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   /* ── 대시보드 카운트 ── */
-  const [counts, setCounts] = useState<Record<string, number>>({ PENDING: 0, SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, CANCELLED: 0 });
+  const [counts, setCounts] = useState<Record<string, number>>({ PENDING: 0, SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, REJECTED: 0, CANCELLED: 0 });
   const [countsLoading, setCountsLoading] = useState(false);
 
   /* ── 상세 뷰 데이터 ── */
@@ -81,11 +82,11 @@ export default function StoreShipmentRequestPage() {
     if (!partnerCode) { setStockMap({}); setStockPartner(''); return; }
     if (partnerCode === stockPartner) return;
     try {
-      const res = await apiFetch(`/api/inventory?partner_code=${partnerCode}&limit=5000&page=1`);
+      const res = await apiFetch(`/api/inventory/stock-map?partner_code=${partnerCode}`);
       const json = await res.json();
-      if (json.success && json.data?.data) {
+      if (json.success && json.data) {
         const map: Record<number, number> = {};
-        for (const row of json.data.data) map[row.variant_id] = row.qty;
+        for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
         setStockMap(map);
         setStockPartner(partnerCode);
         setItems((prev) => prev.map((i) => ({ ...i, stock_qty: map[i.variant_id] ?? 0 })));
@@ -198,8 +199,8 @@ export default function StoreShipmentRequestPage() {
     const v = variantOptions.find((o) => o.variant_id === variantId);
     if (!v) return;
     if (items.find((i) => i.variant_id === variantId)) { message.warning('이미 추가된 품목입니다'); return; }
-    const sq = stockMap[variantId] ?? 0;
-    if (stockPartner && sq <= 0) message.warning('해당 품목의 출고창고 재고가 0입니다.');
+    const sq = stockMap[variantId] ?? v.current_stock ?? 0;
+    if (sq <= 0) message.warning('해당 품목의 출고창고 재고가 0입니다.');
     setItems([...items, { variant_id: variantId, request_qty: 0, sku: v.sku, product_name: v.product_name, color: v.color, size: v.size, stock_qty: sq }]);
   };
 
@@ -269,11 +270,11 @@ export default function StoreShipmentRequestPage() {
       const fromPartner = (d as any).from_partner;
       if (fromPartner) {
         try {
-          const res = await apiFetch(`/api/inventory?partner_code=${fromPartner}&limit=5000&page=1`);
+          const res = await apiFetch(`/api/inventory/stock-map?partner_code=${fromPartner}`);
           const json = await res.json();
-          if (json.success && json.data?.data) {
+          if (json.success && json.data) {
             const map: Record<number, number> = {};
-            for (const row of json.data.data) map[row.variant_id] = row.qty;
+            for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
             setShippedStockMap(map);
           } else { setShippedStockMap({}); }
         } catch { setShippedStockMap({}); }
@@ -391,6 +392,7 @@ export default function StoreShipmentRequestPage() {
     SHIPPED: { color: 'orange', label: '출고완료' },
     DISCREPANCY: { color: 'volcano', label: '수량불일치' },
     RECEIVED: { color: 'green', label: '수령완료' },
+    REJECTED: { color: 'volcano', label: '거절' },
     CANCELLED: { color: 'red', label: '취소' },
   };
 
@@ -416,12 +418,11 @@ export default function StoreShipmentRequestPage() {
     }
     if (st === 'SHIPPED') {
       const canReceive = record.to_partner === user?.partnerCode;
-      const canCancel = record.requested_by === user?.userId;
       return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {canReceive && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
-          {canCancel && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }
@@ -444,6 +445,18 @@ export default function StoreShipmentRequestPage() {
         </Space>
       );
     }
+    if (st === 'REJECTED') {
+      return (
+        <Space>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
+          {(isAdmin || record.to_partner === user?.partnerCode) && (
+            <Popconfirm title="삭제하시겠습니까?" onConfirm={() => handleDelete(record.request_id)}>
+              <Button size="small" danger icon={<DeleteOutlined />}>삭제</Button>
+            </Popconfirm>
+          )}
+        </Space>
+      );
+    }
     return <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>;
   };
 
@@ -459,7 +472,7 @@ export default function StoreShipmentRequestPage() {
   /* ══════════ 대시보드 ══════════ */
   const renderDashboard = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 16 }}>
       {STEPS.map((step) => {
         const count = counts[step.key] || 0;
         const needsAction = (step.key === 'PENDING' || step.key === 'SHIPPED') && count > 0;
@@ -586,9 +599,11 @@ export default function StoreShipmentRequestPage() {
 
   return (
     <div>
-      <PageHeader title="입고요청" extra={view === 'dashboard' ? (
-        <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreateModal}>입고요청</Button>
-      ) : undefined} />
+      {!embedded && (
+        <PageHeader title="입고요청" extra={view === 'dashboard' ? (
+          <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreateModal}>입고요청</Button>
+        ) : undefined} />
+      )}
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
@@ -597,6 +612,9 @@ export default function StoreShipmentRequestPage() {
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
         <Button onClick={handleSearch}>조회</Button>
+        {embedded && view === 'dashboard' && isStore && (
+          <Button type="primary" icon={<ShoppingCartOutlined />} onClick={openCreateModal}>입고요청</Button>
+        )}
       </div>
 
       {view === 'dashboard' ? renderDashboard() : renderStatusView()}
@@ -609,18 +627,23 @@ export default function StoreShipmentRequestPage() {
           </div>
 
           <Form.Item name="from_partner" label="요청 창고 (재고 출발지)" rules={[{ required: true, message: '요청할 창고를 선택해주세요' }]}>
-            <Select showSearch optionFilterProp="label" placeholder="요청할 창고 선택"
+            <Select showSearch optionFilterProp="label" placeholder="요청할 창고 선택" disabled={isStore}
               options={partners.map((p: any) => ({ label: `${p.partner_name} (${p.partner_code})`, value: p.partner_code }))}
               onChange={(v) => loadStockForPartner(v)} />
           </Form.Item>
 
           <Form.Item label="품목 추가">
             <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
-              onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
+              onSearch={handleVariantSearch} onChange={handleAddItem}
               notFoundContent="2자 이상 입력해주세요" style={{ width: '100%' }}>
-              {variantOptions.map((v) => (
-                <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
-              ))}
+              {variantOptions.map((v) => {
+                const stk = stockMap[v.variant_id] ?? v.current_stock;
+                return (
+                  <Select.Option key={v.variant_id} value={v.variant_id}>
+                    {v.sku} - {v.product_name} ({v.color}/{v.size}) [재고: {stk ?? 0}]
+                  </Select.Option>
+                );
+              })}
             </Select>
           </Form.Item>
           {items.length > 0 && (
@@ -636,7 +659,7 @@ export default function StoreShipmentRequestPage() {
                   const maxQty = stockPartner ? (r.stock_qty ?? 0) : undefined;
                   const isOver = stockPartner && r.request_qty > (r.stock_qty ?? 0);
                   return (
-                    <InputNumber min={0} max={maxQty || undefined} value={r.request_qty || undefined} size="small"
+                    <InputNumber min={1} max={maxQty || undefined} value={r.request_qty || undefined} size="small"
                       placeholder="수량"
                       status={isOver || !r.request_qty ? 'error' : undefined}
                       onChange={(v) => setItems(items.map((i) => i.variant_id === r.variant_id ? { ...i, request_qty: v || 0 } : i))} />
@@ -657,13 +680,13 @@ export default function StoreShipmentRequestPage() {
         onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
         onConfirm={handleConfirmShipped} onCancel={() => setShippedModalOpen(false)} confirmLoading={submitting}
         title="출고확인" okText="출고확인"
-        alertMessage="출고할 실제 수량을 입력하세요. 확인 시 본사 재고가 차감됩니다."
-        stockMap={shippedStockMap} />
+        alertMessage={isAdmin ? "출고할 실제 수량을 입력하세요. 확인 시 본사 재고가 차감됩니다." : "출고를 확인하세요. 확인 시 본사 재고가 차감됩니다."}
+        stockMap={shippedStockMap} readOnly={!isAdmin} />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
         onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting}
         title="수령확인" okText="수령확인"
-        alertMessage="수령한 실제 수량을 입력하세요. 확인 시 매장 재고가 증가합니다." />
+        alertMessage="수령한 실제 수량을 입력하세요. 출고수량과 다르면 '수량불일치'로 신고됩니다." />
     </div>
   );
 }

@@ -4,13 +4,14 @@ import { SettingOutlined, ExperimentOutlined, ScissorOutlined, WarningOutlined, 
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
-const SEASONS = ['SA', 'SM', 'WN'] as const;
-const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
+const SEASONS = ['SS', 'SM', 'FW', 'WN'] as const;
+const SEASON_LABELS: Record<string, string> = { SS: '봄', SM: '여름', FW: '가을', WN: '겨울' };
 
 function getCurrentSeason(): string {
   const m = new Date().getMonth() + 1;
-  if ([3, 4, 5, 9, 10, 11].includes(m)) return 'SA';
+  if ([3, 4, 5].includes(m)) return 'SS';
   if ([6, 7, 8].includes(m)) return 'SM';
+  if ([9, 10, 11].includes(m)) return 'FW';
   return 'WN';
 }
 
@@ -31,6 +32,7 @@ export default function SystemSettingsPage() {
 
   // 악성재고 설정
   const [deadStockMinAge, setDeadStockMinAge] = useState(1);
+
 
   const currentSeason = getCurrentSeason();
 
@@ -379,6 +381,7 @@ export default function SystemSettingsPage() {
           </div>
         </div>
       </Card>
+
 
       </Col>
       </Row>

@@ -6,6 +6,9 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     include: ['src/**/*.test.ts'],
-    sequence: { concurrent: false },  // 순차 실행
+    sequence: { concurrent: false },
+    fileParallelism: false,  // 파일 간 병렬 실행 비활성화 (DB 상태 공유)
+    globalSetup: ['src/__tests__/global-setup.ts'],
+    env: { NODE_ENV: 'test' },
   },
 });

@@ -55,7 +55,7 @@ interface CategoryGroup {
   items: SubItem[];
 }
 
-const SEASON_LABELS: Record<string, string> = { SA: '봄/가을', SM: '여름', WN: '겨울' };
+const SEASON_LABELS: Record<string, string> = { SS: '봄', SM: '여름', FW: '가을', WN: '겨울' };
 const fmtSeason = (v: string | null) => {
   if (!v) return '-';
   const yr = v.substring(0, 4);

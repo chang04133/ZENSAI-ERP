@@ -59,6 +59,9 @@ class ProductController extends BaseController<Product> {
       stockJoin = `LEFT JOIN inventory i ON i.variant_id = pv.variant_id AND i.partner_code = $${paramIdx}`;
       stockCol = ', COALESCE(i.qty, 0)::int AS current_stock';
       params.push(stockPartner);
+    } else {
+      stockJoin = `LEFT JOIN LATERAL (SELECT COALESCE(SUM(qty), 0)::int AS total_qty FROM inventory WHERE variant_id = pv.variant_id) isum ON TRUE`;
+      stockCol = ', isum.total_qty AS current_stock';
     }
 
     const result = await pool.query(
@@ -70,7 +73,7 @@ class ProductController extends BaseController<Product> {
        ${stockJoin}
        WHERE pv.is_active = TRUE AND p.is_active = TRUE
          ${search ? 'AND (pv.sku ILIKE $1 OR p.product_name ILIKE $1 OR p.product_code ILIKE $1)' : ''}
-       ORDER BY p.product_code, pv.color, pv.size
+       ORDER BY p.product_code, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END
        LIMIT ${lim}`,
       params,
     );
@@ -97,6 +100,7 @@ class ProductController extends BaseController<Product> {
         }
       }
       delete row.event_store_codes;
+      if (isStoreRole(req)) delete row.cost_price;
       return row;
     });
     res.json({ success: true, data: rows });
@@ -120,7 +124,8 @@ class ProductController extends BaseController<Product> {
         res.status(409).json({ success: false, error: '이미 존재하는 상품코드 또는 SKU입니다.' });
         return;
       }
-      throw error;
+      console.error('상품등록 에러:', error);
+      res.status(400).json({ success: false, error: `상품등록 실패: ${error.message}` });
     }
   });
 
@@ -145,6 +150,18 @@ class ProductController extends BaseController<Product> {
       return;
     }
     res.json({ success: true, data: variant });
+  });
+
+  delete = asyncHandler(async (req: Request, res: Response) => {
+    const code = req.params.code as string;
+    const product = await productService.getWithVariants(code);
+    if (!product) {
+      res.status(404).json({ success: false, error: '상품을 찾을 수 없습니다.' });
+      return;
+    }
+    await productService.remove(code);
+    await audit('products', code, 'DELETE', req.user?.userName || 'unknown');
+    res.json({ success: true });
   });
 
   removeVariant = asyncHandler(async (req: Request, res: Response) => {
@@ -209,7 +226,7 @@ class ProductController extends BaseController<Product> {
                p.brand, p.season, p.fit, p.length,
                pv.color, pv.size, pv.barcode, pv.custom_barcode,
                p.base_price, p.cost_price, p.discount_price, p.event_price, p.sale_status
-      ORDER BY p.product_code, pv.color, pv.size
+      ORDER BY p.product_code, pv.color, CASE pv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 WHEN 'FREE' THEN 7 ELSE 8 END
       LIMIT 5000`;
 
     const result = await pool.query(sql, params);

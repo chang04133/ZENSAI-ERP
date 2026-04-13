@@ -4,6 +4,7 @@ import { getPool } from '../../db/connection';
 import { QueryBuilder } from '../../core/query-builder';
 import { inventoryRepository } from '../inventory/inventory.repository';
 import { audit } from '../../core/audit';
+import { autoFulfillPreorders } from '../sales/preorder-auto-fulfill';
 
 export class InboundRepository extends BaseRepository<InboundRecord> {
   constructor() {
@@ -239,6 +240,7 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
         await inventoryRepository.applyChange(
           record.partner_code, item.variant_id, item.qty,
           'INBOUND', recordId, userId, client,
+          { memo: `입고 #${record.record_no || recordId}` },
         );
       }
 
@@ -249,6 +251,13 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
       );
 
       await client.query('COMMIT');
+
+      // 입고 확정 후 예약판매 자동 해소
+      if (process.env.NODE_ENV !== 'test') {
+        autoFulfillPreorders(record.partner_code, items.map(i => i.variant_id), userId).catch(err => {
+          console.error('입고 후 예약판매 자동해소 실패:', err.message);
+        });
+      }
 
       audit('inbound', String(recordId), 'UPDATE', userId,
         { inbound_no: record.inbound_no, action: 'CONFIRM', item_count: items.length }, null);
@@ -283,6 +292,7 @@ export class InboundRepository extends BaseRepository<InboundRecord> {
           await inventoryRepository.applyChange(
             record.partner_code, item.variant_id, -item.qty,
             'INBOUND', id, userId, client,
+            { memo: `입고 취소 #${record.record_no || id}` },
           );
         }
       }

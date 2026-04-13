@@ -27,15 +27,26 @@ class UserController extends BaseController<User> {
     return { level: ROLE_LEVEL[name] || 99, name };
   }
 
-  /** 내 정보 수정 (이름, 비밀번호만) */
+  /** 내 정보 수정 (이름, 비밀번호) — 현재 비밀번호 검증 필수 */
   updateMyProfile = asyncHandler(async (req: Request, res: Response) => {
     const userId = req.user!.userId;
-    const { user_name, password } = req.body;
+    const { user_name, password, current_password } = req.body;
+    if (!current_password) {
+      res.status(400).json({ success: false, error: '현재 비밀번호를 입력해주세요.' }); return;
+    }
     if (!user_name || !String(user_name).trim()) {
       res.status(400).json({ success: false, error: '이름을 입력해주세요.' }); return;
     }
     if (password && password.length < 4) {
       res.status(400).json({ success: false, error: '비밀번호는 4자 이상이어야 합니다.' }); return;
+    }
+    const pool = getPool();
+    const r = await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [userId]);
+    if (!r.rows[0]) { res.status(404).json({ success: false, error: '사용자를 찾을 수 없습니다.' }); return; }
+    const bcrypt = await import('bcryptjs');
+    const valid = await bcrypt.compare(current_password, r.rows[0].password_hash);
+    if (!valid) {
+      res.status(401).json({ success: false, error: '현재 비밀번호가 올바르지 않습니다.' }); return;
     }
     const updateData: any = { user_name: String(user_name).trim() };
     if (password) updateData.password = password;

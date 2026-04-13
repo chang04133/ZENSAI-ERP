@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-  Table, Button, Input, Select, Space, Modal, Form, Popconfirm,
+  Table, Button, Input, Select, Space, Modal, Form, Popconfirm, Radio,
   InputNumber, DatePicker, Badge, Card, Tag, message,
 } from 'antd';
 import {
@@ -34,9 +34,11 @@ interface ItemRow {
 }
 
 const STEPS = [
-  { key: 'SHIPPED', label: '이동완료', desc: '이동 완료, 수령 대기 중', icon: <SendOutlined />, color: '#1677ff', bg: '#e6f4ff' },
+  { key: 'PENDING', label: '대기', desc: '출고/입고 확인 대기 중', icon: <ClockCircleOutlined />, color: '#faad14', bg: '#fffbe6' },
+  { key: 'SHIPPED', label: '이동중', desc: '출고 완료, 수령 대기 중', icon: <SendOutlined />, color: '#1677ff', bg: '#e6f4ff' },
   { key: 'DISCREPANCY', label: '수량불일치', desc: '수령 수량이 출고 수량과 다른 건', icon: <ExclamationCircleOutlined />, color: '#fa541c', bg: '#fff2e8' },
-  { key: 'RECEIVED', label: '수령완료', desc: '수령까지 완료된 의뢰', icon: <CheckCircleOutlined />, color: '#52c41a', bg: '#f6ffed' },
+  { key: 'RECEIVED', label: '완료', desc: '수령까지 완료된 의뢰', icon: <CheckCircleOutlined />, color: '#52c41a', bg: '#f6ffed' },
+  { key: 'REJECTED', label: '거절', desc: '상대 매장에서 거절한 의뢰', icon: <CloseOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
   { key: 'CANCELLED', label: '취소', desc: '취소된 이동 의뢰', icon: <StopOutlined />, color: '#ff4d4f', bg: '#fff2f0' },
 ] as const;
 
@@ -51,7 +53,7 @@ export default function HorizontalTransferPage() {
   const [dateRange, setDateRange] = useState<[any, any] | null>(null);
 
   /* ── 대시보드 카운트 ── */
-  const [counts, setCounts] = useState<Record<string, number>>({ SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, CANCELLED: 0 });
+  const [counts, setCounts] = useState<Record<string, number>>({ PENDING: 0, SHIPPED: 0, DISCREPANCY: 0, RECEIVED: 0, CANCELLED: 0 });
   const [countsLoading, setCountsLoading] = useState(false);
 
   /* ── 상세 뷰 데이터 ── */
@@ -61,6 +63,7 @@ export default function HorizontalTransferPage() {
   const [listLoading, setListLoading] = useState(false);
 
   /* ── 모달 상태 ── */
+  const [transferMode, setTransferMode] = useState<'send' | 'request'>('send');
   const [modalOpen, setModalOpen] = useState(false);
   const [partners, setPartners] = useState<any[]>([]);
   const [form] = Form.useForm();
@@ -85,12 +88,17 @@ export default function HorizontalTransferPage() {
     if (!partnerCode) { setStockMap({}); setStockPartner(''); setStockRawData([]); return; }
     if (partnerCode === stockPartner) return;
     try {
-      const res = await apiFetch(`/api/inventory?partner_code=${partnerCode}&limit=5000&page=1`);
+      const res = await apiFetch(`/api/inventory/stock-map?partner_code=${partnerCode}`);
       const json = await res.json();
-      if (json.success && json.data?.data) {
+      if (json.success && json.data) {
         const map: Record<number, number> = {};
-        const rawWithStock = json.data.data.filter((row: any) => row.qty > 0);
-        for (const row of json.data.data) map[row.variant_id] = row.qty;
+        const rawWithStock: any[] = [];
+        for (const [vid, qty] of Object.entries(json.data)) {
+          const numVid = Number(vid);
+          const numQty = qty as number;
+          map[numVid] = numQty;
+          if (numQty > 0) rawWithStock.push({ variant_id: numVid, qty: numQty });
+        }
         setStockMap(map);
         setStockPartner(partnerCode);
         setStockRawData(rawWithStock);
@@ -249,16 +257,35 @@ export default function HorizontalTransferPage() {
   const handleCreate = async (values: any) => {
     if (creating) return;
     if (items.length === 0) { message.error('최소 1개 이상의 품목을 추가해주세요'); return; }
-    if (stockPartner) {
+    if (stockPartner && transferMode === 'send') {
       const over = items.find((i) => i.request_qty > (i.stock_qty ?? 0));
       if (over) { message.error(`${over.product_name} (${over.color}/${over.size}): 재고 ${over.stock_qty ?? 0}개 초과 (요청 ${over.request_qty}개)`); return; }
     }
     setCreating(true);
     try {
       const body: any = { ...values, request_type: '수평이동', items: items.map(({ variant_id, request_qty }) => ({ variant_id, request_qty })) };
-      if (isStore && user?.partnerCode) body.from_partner = user.partnerCode;
+      if (isStore && user?.partnerCode) {
+        if (transferMode === 'send') {
+          body.from_partner = user.partnerCode;
+        } else {
+          body.to_partner = user.partnerCode;
+          // 요청 모드: 여러 매장 선택 시 from_partners 배열로 전송 (하나의 의뢰 생성)
+          const fp = values.from_partner;
+          if (Array.isArray(fp) && fp.length > 1) {
+            body.from_partners = fp;
+            delete body.from_partner;
+          } else if (Array.isArray(fp)) {
+            body.from_partner = fp[0];
+          }
+        }
+      }
       await shipmentApi.create(body);
-      message.success('수평이동 의뢰가 등록되었습니다.');
+      const fpArr = values.from_partner;
+      if (Array.isArray(fpArr) && fpArr.length > 1) {
+        message.success(`${fpArr.length}개 매장에 수평이동 의뢰가 등록되었습니다.`);
+      } else {
+        message.success('수평이동 의뢰가 등록되었습니다.');
+      }
       setModalOpen(false); form.resetFields(); setItems([]);
       if (view === 'PENDING') loadList('PENDING', 1);
       else if (view === 'ALL') loadList('ALL', listPage);
@@ -268,6 +295,23 @@ export default function HorizontalTransferPage() {
   };
 
   const [submitting, setSubmitting] = useState(false);
+
+  // 거절 모달
+  const [rejectTarget, setRejectTarget] = useState<number | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectOpen, setRejectOpen] = useState(false);
+
+  const handleReject = async () => {
+    if (!rejectTarget) return;
+    try {
+      await shipmentApi.update(rejectTarget, { status: 'REJECTED', reject_reason: rejectReason.trim() || undefined, reject_partner: user?.partnerCode });
+      message.success('거절 처리되었습니다.');
+      setRejectOpen(false); setRejectTarget(null); setRejectReason('');
+      setExpandedDetails((prev) => { const next = { ...prev }; delete next[rejectTarget]; return next; });
+      if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
+      else { loadList(view, listPage); loadCounts(); }
+    } catch (e: any) { message.error(e.message); }
+  };
 
   const handleCancel = async (id: number) => {
     try {
@@ -295,11 +339,11 @@ export default function HorizontalTransferPage() {
       const fromPartner = (d as any).from_partner;
       if (fromPartner) {
         try {
-          const res = await apiFetch(`/api/inventory?partner_code=${fromPartner}&limit=5000&page=1`);
+          const res = await apiFetch(`/api/inventory/stock-map?partner_code=${fromPartner}`);
           const json = await res.json();
-          if (json.success && json.data?.data) {
+          if (json.success && json.data) {
             const map: Record<number, number> = {};
-            for (const row of json.data.data) map[row.variant_id] = row.qty;
+            for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
             setShippedStockMap(map);
           } else { setShippedStockMap({}); }
         } catch { setShippedStockMap({}); }
@@ -343,8 +387,14 @@ export default function HorizontalTransferPage() {
       const rItems = (receiveTarget as any).items.map((item: any) => ({
         variant_id: item.variant_id, received_qty: receivedQtys[item.variant_id] || 0,
       }));
-      await shipmentApi.receive(receiveTarget.request_id, rItems);
-      message.success('수령 확인이 완료되었습니다.');
+      const result = await shipmentApi.receive(receiveTarget.request_id, rItems);
+      if ((result as any)?.status === 'RECEIVED') {
+        message.success('모든 수량 수령 완료 — 자동 완료 처리되었습니다.');
+      } else if ((result as any)?.status === 'DISCREPANCY') {
+        message.warning('수량 불일치가 감지되었습니다. 관리자 확인이 필요합니다.');
+      } else {
+        message.success('수령 확인이 완료되었습니다.');
+      }
       setExpandedDetails((prev) => { const next = { ...prev }; delete next[receiveTarget.request_id]; return next; });
       setReceiveModalOpen(false); setReceiveTarget(null);
       if (view === 'dashboard') { loadCounts(); loadAll(allPage, statusFilter || undefined); }
@@ -354,6 +404,7 @@ export default function HorizontalTransferPage() {
   };
 
   const partnerOptions = partners
+    .filter((p) => p.partner_type !== '본사' && p.partner_type !== 'HQ')
     .filter((p) => !isStore || p.partner_code !== user?.partnerCode)
     .map((p: any) => ({ label: `${p.partner_code} - ${p.partner_name}`, value: p.partner_code }));
 
@@ -361,6 +412,8 @@ export default function HorizontalTransferPage() {
     if (!user?.partnerCode) return null;
     if (record.from_partner === user.partnerCode) return 'send';
     if (record.to_partner === user.partnerCode) return 'receive';
+    // 다중 매장 의뢰: target_partners에 포함되면 send 방향
+    if (record.target_partners && String(record.target_partners).split(',').includes(user.partnerCode)) return 'send';
     return null;
   };
 
@@ -402,7 +455,7 @@ export default function HorizontalTransferPage() {
   /* ══════════ 컬럼 정의 ══════════ */
   const baseColumns = [
     { title: '의뢰번호', dataIndex: 'request_no', key: 'request_no', width: 130 },
-    { title: '의뢰일', dataIndex: 'request_date', key: 'request_date', width: 120,
+    { title: '의뢰일', dataIndex: 'created_at', key: 'created_at', width: 120,
       render: (v: string) => v ? new Date(v).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }) : '-' },
     ...(isStore ? [{
       title: '구분', key: 'direction', width: 70,
@@ -413,7 +466,16 @@ export default function HorizontalTransferPage() {
         return '-';
       },
     }] : []),
-    { title: '출발', dataIndex: 'from_partner_name', key: 'from_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
+    { title: '출발', dataIndex: 'from_partner_name', key: 'from_partner_name', width: 130, ellipsis: true,
+      render: (v: string, r: any) => {
+        if (v) return v;
+        if (r.target_partners) {
+          const count = String(r.target_partners).split(',').length;
+          return <Tag color="blue">{count}개 매장 대기</Tag>;
+        }
+        return '-';
+      },
+    },
     { title: '도착', dataIndex: 'to_partner_name', key: 'to_partner_name', width: 110, ellipsis: true, render: (v: string) => v || '-' },
     { title: '품목', dataIndex: 'item_summary', key: 'item_summary', ellipsis: true,
       render: (v: string, r: any) => v ? <span>{v} <span style={{ color: '#999' }}>({r.item_count}종)</span></span> : '-' },
@@ -426,12 +488,17 @@ export default function HorizontalTransferPage() {
     { title: '메모', dataIndex: 'memo', key: 'memo', width: 120, render: (v: string) => v || '-', ellipsis: true },
   ];
 
-  const STATUS_TAG: Record<string, { color: string; label: string }> = {
-    PENDING: { color: 'default', label: '대기' },
-    SHIPPED: { color: 'blue', label: '이동완료' },
-    DISCREPANCY: { color: 'volcano', label: '수량불일치' },
-    RECEIVED: { color: 'green', label: '수령완료' },
-    CANCELLED: { color: 'red', label: '취소' },
+  const getStatusTag = (status: string, record: any): { color: string; label: string } => {
+    const dir = getDirection(record);
+    switch (status) {
+      case 'PENDING': return { color: 'default', label: dir === 'receive' ? '입고대기' : '출고대기' };
+      case 'SHIPPED': return { color: 'blue', label: dir === 'receive' ? '수령대기' : '상대수령대기' };
+      case 'DISCREPANCY': return { color: 'volcano', label: '수량불일치' };
+      case 'RECEIVED': return { color: 'green', label: '완료' };
+      case 'REJECTED': return { color: 'red', label: '거절' };
+      case 'CANCELLED': return { color: 'red', label: '취소' };
+      default: return { color: 'default', label: status };
+    }
   };
 
   const canCancelRecord = (record: any) => record.requested_by === user?.userId;
@@ -444,14 +511,15 @@ export default function HorizontalTransferPage() {
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {(dir === 'send' || isAdmin) && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShipModal(record)}>출고확인</Button>}
-          {canCancelRecord(record) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {dir === 'send' && <Button size="small" danger style={{ borderColor: '#ff7875' }} icon={<CloseOutlined />} onClick={() => { setRejectTarget(record.request_id); setRejectReason(''); setRejectOpen(true); }}>거절</Button>}
+          {(canCancelRecord(record) || isAdmin) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
       if (st === 'SHIPPED') return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {dir === 'receive' && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
       if (st === 'DISCREPANCY') return (
@@ -464,7 +532,7 @@ export default function HorizontalTransferPage() {
           }} okText="완료처리" cancelText="닫기">
             <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} icon={<CheckCircleOutlined />}>완료처리</Button>
           </Popconfirm>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
       return <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>;
@@ -472,19 +540,23 @@ export default function HorizontalTransferPage() {
   };
 
   const statusColumn = {
-    title: '상태', dataIndex: 'status', key: 'status', width: 90,
-    render: (v: string) => <Tag color={STATUS_TAG[v]?.color || 'default'}>{STATUS_TAG[v]?.label || v}</Tag>,
+    title: '상태', dataIndex: 'status', key: 'status', width: 100,
+    render: (v: string, record: any) => {
+      const tag = getStatusTag(v, record);
+      return <Tag color={tag.color}>{tag.label}</Tag>;
+    },
   };
 
   const columnsByStatus: Record<string, any[]> = {
     ALL: [...baseColumns.slice(0, 2), statusColumn, ...baseColumns.slice(2), allActionColumn],
-    PENDING: [...baseColumns, { title: '', key: 'action', width: 280, render: (_: any, record: any) => {
+    PENDING: [...baseColumns, { title: '', key: 'action', width: 320, render: (_: any, record: any) => {
       const dir = getDirection(record);
       return (
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {(dir === 'send' || isAdmin) && <Button size="small" type="primary" icon={<SendOutlined />} onClick={() => handleOpenShipModal(record)}>출고확인</Button>}
-          {canCancelRecord(record) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {dir === 'send' && <Button size="small" danger style={{ borderColor: '#ff7875' }} icon={<CloseOutlined />} onClick={() => { setRejectTarget(record.request_id); setRejectReason(''); setRejectOpen(true); }}>거절</Button>}
+          {(canCancelRecord(record) || isAdmin) && <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }}],
@@ -494,7 +566,7 @@ export default function HorizontalTransferPage() {
         <Space>
           <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
           {dir === 'receive' && <Button size="small" type="primary" icon={<CheckCircleOutlined />} style={{ background: '#52c41a', borderColor: '#52c41a' }} onClick={() => handleOpenReceiveModal(record)}>수령확인</Button>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }}],
@@ -510,11 +582,12 @@ export default function HorizontalTransferPage() {
           }} okText="완료처리" cancelText="닫기">
             <Button size="small" type="primary" style={{ background: '#52c41a', borderColor: '#52c41a' }} icon={<CheckCircleOutlined />}>완료처리</Button>
           </Popconfirm>}
-          {canCancelRecord(record) && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
+          {isAdmin && <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기"><Button size="small" danger icon={<CloseOutlined />}>취소</Button></Popconfirm>}
         </Space>
       );
     }}],
     RECEIVED: [...baseColumns, { title: '', key: 'action', width: 60, render: (_: any, r: any) => <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r.request_id)}>상세</Button> }],
+    REJECTED: [...baseColumns, { title: '', key: 'action', width: 60, render: (_: any, r: any) => <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r.request_id)}>상세</Button> }],
     CANCELLED: [...baseColumns, { title: '', key: 'action', width: 60, render: (_: any, r: any) => <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(r.request_id)}>상세</Button> }],
   };
 
@@ -522,10 +595,10 @@ export default function HorizontalTransferPage() {
   const renderDashboard = () => (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
       {/* 상태별 카드 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 16 }}>
       {STEPS.map((step) => {
         const count = counts[step.key] || 0;
-        const needsAction = (step.key === 'SHIPPED' || step.key === 'DISCREPANCY') && count > 0;
+        const needsAction = (step.key === 'PENDING' || step.key === 'SHIPPED' || step.key === 'DISCREPANCY') && count > 0;
         return (
           <Card
             key={step.key}
@@ -616,6 +689,7 @@ export default function HorizontalTransferPage() {
           {!isAdmin && (view === 'PENDING' || isAll) && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => {
               form.resetFields(); setItems([]); setStockMap({}); setStockPartner(''); setStockRawData([]);
+              setTransferMode('send');
               if (isStore && user?.partnerCode) loadStockForPartner(user.partnerCode);
               setModalOpen(true);
             }}>수평이동 등록</Button>
@@ -657,7 +731,7 @@ export default function HorizontalTransferPage() {
       {/* ── 검색 ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
-          <Input placeholder="의뢰번호 검색" prefix={<SearchOutlined />} value={search}
+          <Input placeholder="의뢰번호 / 상품명 / SKU 검색" prefix={<SearchOutlined />} value={search}
             onChange={(e) => setSearch(e.target.value)} onPressEnter={handleSearch} style={{ width: '100%' }} /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>기간</div>
           <RangePicker presets={datePresets} value={dateRange} onChange={(v) => setDateRange(v as any)} /></div>
@@ -670,19 +744,46 @@ export default function HorizontalTransferPage() {
       {/* ══ 모달 ══ */}
       <Modal title="수평이동 등록" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={creating} okText="등록" cancelText="취소" width={700}>
         <Form form={form} layout="vertical" onFinish={handleCreate}>
+          {isStore && (
+            <div style={{ marginBottom: 16 }}>
+              <Radio.Group value={transferMode} onChange={(e) => {
+                const mode = e.target.value as 'send' | 'request';
+                setTransferMode(mode);
+                form.resetFields(['from_partner', 'to_partner']);
+                setItems([]); setStockMap({}); setStockPartner(''); setStockRawData([]);
+                if (mode === 'send' && user?.partnerCode) loadStockForPartner(user.partnerCode);
+              }} buttonStyle="solid" style={{ width: '100%' }}>
+                <Radio.Button value="send" style={{ width: '50%', textAlign: 'center' }}>보내기 (우리매장 → 상대매장)</Radio.Button>
+                <Radio.Button value="request" style={{ width: '50%', textAlign: 'center' }}>요청하기 (상대매장 → 우리매장)</Radio.Button>
+              </Radio.Group>
+            </div>
+          )}
           {!isStore && (
             <Form.Item name="from_partner" label="이동 출발 거래처" rules={[{ required: true, message: '출발 거래처를 선택해주세요' }]}>
               <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions}
                 onChange={(v) => loadStockForPartner(v)} />
             </Form.Item>
           )}
-          <Form.Item name="to_partner" label={isStore ? '이동 보낼 매장' : '이동 도착 거래처'} rules={[{ required: true, message: '도착 거래처를 선택해주세요' }]}>
-            <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
-          </Form.Item>
+          {isStore && transferMode === 'request' && (
+            <Form.Item name="from_partner" label="요청할 매장 (보내는 쪽) — 여러 매장 선택 가능" rules={[{ required: true, message: '매장을 선택해주세요' }]}>
+              <Select mode="multiple" showSearch optionFilterProp="label" placeholder="매장을 선택하세요 (복수 선택 가능)" options={partnerOptions}
+                onChange={(v: string[]) => { if (v.length === 1) loadStockForPartner(v[0]); else { setStockMap({}); setStockPartner(''); } }} />
+            </Form.Item>
+          )}
+          {(isStore && transferMode === 'send') && (
+            <Form.Item name="to_partner" label="보낼 매장 (받는 쪽)" rules={[{ required: true, message: '매장을 선택해주세요' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="매장 선택" options={partnerOptions} />
+            </Form.Item>
+          )}
+          {!isStore && (
+            <Form.Item name="to_partner" label="이동 도착 거래처" rules={[{ required: true, message: '도착 거래처를 선택해주세요' }]}>
+              <Select showSearch optionFilterProp="label" placeholder="거래처 선택" options={partnerOptions} />
+            </Form.Item>
+          )}
           <Form.Item label="품목 추가">
             <div style={{ display: 'flex', gap: 8 }}>
               <Select showSearch placeholder="SKU, 상품명으로 검색 (2자 이상)" filterOption={false}
-                onSearch={handleVariantSearch} onChange={handleAddItem} value={null as any}
+                onSearch={handleVariantSearch} onChange={handleAddItem}
                 notFoundContent="2자 이상 입력해주세요" style={{ flex: 1 }}>
                 {variantOptions.map((v) => (
                   <Select.Option key={v.variant_id} value={v.variant_id}>{v.sku} - {v.product_name} ({v.color}/{v.size}){v.current_stock != null ? ` [재고: ${v.current_stock}]` : ''}</Select.Option>
@@ -723,12 +824,33 @@ export default function HorizontalTransferPage() {
       <ShippedQtyModal open={shipModalOpen} detail={shipTarget} qtys={shippedQtys}
         onQtyChange={(vid, qty) => setShippedQtys({ ...shippedQtys, [vid]: qty })}
         onConfirm={handleConfirmShip} onCancel={() => setShipModalOpen(false)} confirmLoading={submitting}
-        alertMessage="출고할 실제 수량을 입력하세요. 확인 시 출발매장 재고가 차감됩니다."
-        stockMap={shippedStockMap} />
+        alertMessage={isAdmin ? "출고할 실제 수량을 입력하세요. 확인 시 출발매장 재고가 차감됩니다." : "출고를 확인하세요. 확인 시 출발매장 재고가 차감됩니다."}
+        stockMap={shippedStockMap} readOnly={!isAdmin} />
       <ReceivedQtyModal open={receiveModalOpen} detail={receiveTarget} qtys={receivedQtys}
         onQtyChange={(vid, qty) => setReceivedQtys({ ...receivedQtys, [vid]: qty })}
         onConfirm={handleConfirmReceive} onCancel={() => setReceiveModalOpen(false)} confirmLoading={submitting}
-        alertMessage="수령한 실제 수량을 입력하세요. 확인 시 도착매장 재고가 증가합니다." />
+        alertMessage="수령한 실제 수량을 입력하세요. 출고수량과 다르면 '수량불일치'로 신고됩니다." />
+
+      {/* 거절 사유 입력 모달 */}
+      <Modal
+        title="수평이동 요청 거절"
+        open={rejectOpen}
+        onOk={handleReject}
+        onCancel={() => { setRejectOpen(false); setRejectTarget(null); setRejectReason(''); }}
+        okText="거절 처리"
+        okButtonProps={{ danger: true }}
+        cancelText="닫기"
+      >
+        <div style={{ marginBottom: 12, color: '#666' }}>거절 사유를 입력해주세요. 요청한 매장에 알림이 발송됩니다.</div>
+        <Input.TextArea
+          rows={3}
+          placeholder="거절 사유 입력"
+          value={rejectReason}
+          onChange={(e) => setRejectReason(e.target.value)}
+          maxLength={200}
+          showCount
+        />
+      </Modal>
     </div>
   );
 }

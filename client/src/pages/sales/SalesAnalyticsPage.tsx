@@ -19,7 +19,7 @@ export const CAT_COLORS: Record<string, string> = {
   TOP: '#6366f1', BOTTOM: '#ec4899', OUTER: '#f59e0b', DRESS: '#10b981', ACC: '#06b6d4',
 };
 export const SEASON_COLORS: Record<string, string> = {
-  '봄/가을': '#10b981', '여름': '#f59e0b', '겨울': '#3b82f6', '기타': '#94a3b8',
+  '봄': '#10b981', '여름': '#f59e0b', '가을': '#fb923c', '겨울': '#3b82f6', '기타': '#94a3b8',
 };
 export const COLORS = ['#6366f1', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#8b5cf6', '#ef4444', '#14b8a6'];
 
@@ -99,7 +99,7 @@ export const fmtSeason = (code: string) => {
   if (!code) return '기타';
   const y = code.substring(2, 4);
   const t = code.substring(4);
-  return `${y} ${t === 'SA' ? '봄/가을' : t === 'SM' ? '여름' : t === 'WN' ? '겨울' : t}`;
+  return `${y} ${t === 'SS' ? '봄' : t === 'SM' ? '여름' : t === 'FW' ? '가을' : t === 'WN' ? '겨울' : t}`;
 };
 
 export function capArr(arr: any[], max: number, labelKey: string, sumKeys: string[]): any[] {

@@ -3,6 +3,7 @@ import { partnerController } from './partner.controller';
 
 const router = Router();
 partnerController.registerCrudRoutes(router, {
+  readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
   writeRoles: ['ADMIN', 'HQ_MANAGER'],
   requiredFields: ['partner_code', 'partner_name', 'partner_type'],
   paramName: 'code',

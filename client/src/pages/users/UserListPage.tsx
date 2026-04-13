@@ -49,9 +49,9 @@ export default function UserListPage() {
     { title: '직급', dataIndex: 'role_name', key: 'role_name',
       render: (v: string) => <Tag color="blue">{ROLE_LABELS[v] || v}</Tag>,
     },
-    ...(!isStoreManager ? [
-      { title: '소속매장', dataIndex: 'partner_name', key: 'partner_name', render: (v: string) => v || '-' },
-    ] : []),
+    { title: '소속', dataIndex: 'partner_name', key: 'partner_name',
+      render: (v: string) => v ? <Tag color="blue">{v}</Tag> : <Tag>본사</Tag>,
+    },
     { title: '상태', dataIndex: 'is_active', key: 'is_active',
       render: (v: boolean) => <Tag color={v ? 'green' : 'red'}>{v ? '활성' : '비활성'}</Tag>,
     },

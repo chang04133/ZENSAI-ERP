@@ -35,6 +35,7 @@ interface StatusEntry {
 
 interface TypeSummary {
   PENDING: StatusEntry;
+  APPROVED: StatusEntry;
   SHIPPED: StatusEntry;
   RECEIVED: StatusEntry;
   CANCELLED: StatusEntry;
@@ -44,6 +45,7 @@ interface TypeSummary {
 const emptyEntry = (): StatusEntry => ({ count: 0, qty: 0, fromCount: 0, toCount: 0 });
 const emptySummary = (): TypeSummary => ({
   PENDING: emptyEntry(),
+  APPROVED: emptyEntry(),
   SHIPPED: emptyEntry(),
   RECEIVED: emptyEntry(),
   CANCELLED: emptyEntry(),
@@ -56,6 +58,7 @@ export default function ShipmentDashboardPage() {
   const user = useAuthStore((s) => s.user);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialFilterApplied = useRef(false);
+  const hasUrlFilter = useRef(!!searchParams.get('filter'));
   const [summaryLoading, setSummaryLoading] = useState(true);
 
   // Summary by type
@@ -110,6 +113,11 @@ export default function ShipmentDashboardPage() {
   // Expanded rows
   const [expandedDetails, setExpandedDetails] = useState<Record<number, any[]>>({});
   const [expandLoading, setExpandLoading] = useState<Record<number, boolean>>({});
+
+  // --- 권한 판별 (상단 배치: loadTransferList 등에서 사용) ---
+  const isAdmin = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(user?.role || '');
+  const isStoreUser = !isAdmin && !!user?.partnerCode;
+  const myPartner = user?.partnerCode;
 
   const baseParams = useCallback((): Record<string, string> => {
     const p: Record<string, string> = {};
@@ -172,18 +180,20 @@ export default function ShipmentDashboardPage() {
   }, [loadTypeList, returnPage, returnStatusFilter]);
 
   const loadTransferList = useCallback(() => {
-    loadTypeList('수평이동', transferPage, transferStatusFilter, setTransferData, setTransferTotal, setTransferListLoading, transferDirection);
-  }, [loadTypeList, transferPage, transferStatusFilter, transferDirection]);
+    // 본사: 수평이동 대기(PENDING)는 본사 액션 대상이 아니므로 기본 필터에서 제외
+    const effectiveFilter = transferStatusFilter;
+    loadTypeList('수평이동', transferPage, effectiveFilter, setTransferData, setTransferTotal, setTransferListLoading, transferDirection);
+  }, [loadTypeList, transferPage, transferStatusFilter, transferDirection, isAdmin]);
 
   const loadStoreReqList = useCallback(() => {
     loadTypeList('출고요청', storeReqPage, storeReqStatusFilter, setStoreReqData, setStoreReqTotal, setStoreReqListLoading);
   }, [loadTypeList, storeReqPage, storeReqStatusFilter]);
 
   useEffect(() => { loadSummary(); }, [loadSummary]);
-  useEffect(() => { loadShipmentList(); }, [loadShipmentList]);
-  useEffect(() => { loadReturnList(); }, [loadReturnList]);
-  useEffect(() => { loadTransferList(); }, [loadTransferList]);
-  useEffect(() => { loadStoreReqList(); }, [loadStoreReqList]);
+  useEffect(() => { if (!hasUrlFilter.current) loadShipmentList(); }, [loadShipmentList]);
+  useEffect(() => { if (!hasUrlFilter.current) loadReturnList(); }, [loadReturnList]);
+  useEffect(() => { if (!hasUrlFilter.current) loadTransferList(); }, [loadTransferList]);
+  useEffect(() => { if (!hasUrlFilter.current) loadStoreReqList(); }, [loadStoreReqList]);
 
   const refreshAll = () => {
     loadSummary();
@@ -246,11 +256,11 @@ export default function ShipmentDashboardPage() {
       const fromPartner = (d as any).from_partner;
       if (fromPartner) {
         try {
-          const res = await apiFetch(`/api/inventory?partner_code=${fromPartner}&limit=5000&page=1`);
+          const res = await apiFetch(`/api/inventory/stock-map?partner_code=${fromPartner}`);
           const json = await res.json();
-          if (json.success && json.data?.data) {
+          if (json.success && json.data) {
             const map: Record<number, number> = {};
-            for (const row of json.data.data) map[row.variant_id] = row.qty;
+            for (const [vid, qty] of Object.entries(json.data)) map[Number(vid)] = qty as number;
             setShipStockMap(map);
           } else { setShipStockMap({}); }
         } catch { setShipStockMap({}); }
@@ -265,7 +275,7 @@ export default function ShipmentDashboardPage() {
     try {
       const items = Object.entries(shipQtys).map(([vid, qty]) => ({ variant_id: Number(vid), shipped_qty: qty }));
       await shipmentApi.shipConfirm(shipDetail.request_id, items);
-      message.success('출고확인 완료');
+      message.success(shipDetail.request_type === '반품' ? '반품출고가 완료되었습니다.' : '출고확인 완료');
       setShipOpen(false);
       refreshAll();
     } catch (e: any) { message.error(e.message); }
@@ -300,6 +310,14 @@ export default function ShipmentDashboardPage() {
     finally { setRecvConfirmLoading(false); }
   };
 
+  const handleReturnApprove = async (id: number) => {
+    try {
+      await shipmentApi.update(id, { status: 'APPROVED' });
+      message.success('반품이 승인되었습니다. 매장에서 반품출고 가능합니다.');
+      refreshAll();
+    } catch (e: any) { message.error(e.message); }
+  };
+
   const handleCancel = async (id: number) => {
     try {
       await shipmentApi.update(id, { status: 'CANCELLED' });
@@ -308,10 +326,11 @@ export default function ShipmentDashboardPage() {
     } catch (e: any) { message.error(e.message); }
   };
 
-  const handleReject = (id: number) => {
+  const handleReject = (id: number, requestType?: string) => {
     let reason = '';
+    const isTransfer = requestType === '수평이동';
     Modal.confirm({
-      title: '출고요청 거절',
+      title: isTransfer ? '수평이동 거절' : '출고요청 거절',
       content: (
         <div style={{ marginTop: 12 }}>
           <div style={{ marginBottom: 6, fontWeight: 500 }}>거절 사유</div>
@@ -321,25 +340,26 @@ export default function ShipmentDashboardPage() {
       ),
       okText: '거절', cancelText: '닫기', okButtonProps: { danger: true },
       async onOk() {
-        if (!reason.trim()) { message.warning('거절 사유를 입력해주세요.'); throw new Error('cancel'); }
         try {
-          await shipmentApi.update(id, { status: 'REJECTED', reject_reason: reason.trim() });
-          message.success('출고요청이 거절되었습니다.');
+          const body: any = { status: 'REJECTED', reject_reason: reason.trim() || undefined };
+          if (isTransfer && myPartner) body.reject_partner = myPartner;
+          await shipmentApi.update(id, body);
+          message.success(isTransfer ? '수평이동이 거절되었습니다.' : '출고요청이 거절되었습니다.');
           refreshAll();
         } catch (e: any) { message.error(e.message); throw e; }
       },
     });
   };
 
-  // --- 권한 판별 ---
-  const isAdmin = ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'].includes(user?.role || '');
-  const isStoreUser = !isAdmin && !!user?.partnerCode;
-  const myPartner = user?.partnerCode;
-  // 출고확인: 보내는 쪽(from_partner) 또는 관리자
-  const canShipConfirm = (r: any) => isAdmin || r.from_partner === myPartner;
-  // 수령확인: 받는 쪽(to_partner)만 — 관리자는 반품 수령만 가능
+  // 출고확인/승인 권한: request_type별 분기
+  const canShipConfirm = (r: any) => {
+    if (r.request_type === '반품') return isAdmin;
+    if (r.request_type === '수평이동') return isAdmin || r.from_partner === myPartner;
+    return isAdmin || r.from_partner === myPartner;
+  };
+  // 수령확인: 받는 쪽(to_partner) 또는 관리자(반품만)
   const canRecvConfirm = (r: any) => {
-    if (isAdmin) return r.request_type === '반품';
+    if (isAdmin) return r.request_type === '반품'; // 관리자는 반품 수령확인만 가능
     return r.to_partner === myPartner;
   };
   // 취소: 처음 등록한 사람만 가능
@@ -358,13 +378,32 @@ export default function ShipmentDashboardPage() {
   const actionColumn = (record: any) => (
     <Space size={4}>
       <Button size="small" icon={<EyeOutlined />} onClick={() => handleViewDetail(record.request_id)}>상세</Button>
-      {record.status === 'PENDING' && canShipConfirm(record) && (
-        <Button size="small" type="primary" icon={<SendOutlined />}
-          onClick={() => openShipConfirm(record.request_id)}>출고확인</Button>
+      {/* 반품 승인: PENDING → APPROVED (재고 변동 없음) */}
+      {record.status === 'PENDING' && record.request_type === '반품' && isAdmin && (
+        <Popconfirm title="반품을 승인하시겠습니까?" onConfirm={() => handleReturnApprove(record.request_id)} okText="승인" cancelText="닫기">
+          <Button size="small" type="primary" style={{ background: '#fa8c16', borderColor: '#fa8c16' }}
+            icon={<CheckCircleOutlined />}>반품 승인</Button>
+        </Popconfirm>
       )}
-      {record.status === 'PENDING' && isAdmin && record.request_type === '출고요청' && (
+      {/* 반품출고: APPROVED → SHIPPED (매장 재고 차감) */}
+      {record.status === 'APPROVED' && record.request_type === '반품' && (isAdmin || record.from_partner === myPartner) && (
+        <Button size="small" type="primary" icon={<SendOutlined />}
+          onClick={() => openShipConfirm(record.request_id)}>반품출고</Button>
+      )}
+      {/* 출고확인/이동확인 (반품 제외) */}
+      {(record.status === 'PENDING' || record.status === 'APPROVED') && record.request_type !== '반품' && canShipConfirm(record) && (
+        <Button size="small" type="primary" icon={<SendOutlined />}
+          onClick={() => openShipConfirm(record.request_id)}>
+          {record.request_type === '수평이동' ? '이동확인' : '출고확인'}
+        </Button>
+      )}
+      {record.status === 'PENDING' && record.request_type === '출고요청' && isAdmin && (
         <Button size="small" danger icon={<StopOutlined />}
-          onClick={() => handleReject(record.request_id)}>거절</Button>
+          onClick={() => handleReject(record.request_id, record.request_type)}>거절</Button>
+      )}
+      {record.status === 'PENDING' && record.request_type === '수평이동' && (isAdmin || record.from_partner === myPartner || record.to_partner === myPartner) && (
+        <Button size="small" danger icon={<StopOutlined />}
+          onClick={() => handleReject(record.request_id, record.request_type)}>거절</Button>
       )}
       {record.status === 'SHIPPED' && canRecvConfirm(record) && (
         <Button size="small" style={{ color: '#08979c', borderColor: '#87e8de' }}
@@ -382,17 +421,17 @@ export default function ShipmentDashboardPage() {
             icon={<CheckCircleOutlined />}>완료처리</Button>
         </Popconfirm>
       )}
-      {record.status === 'PENDING' && canCancel(record) && (
+      {(record.status === 'PENDING' || record.status === 'APPROVED') && canCancel(record) && (
         <Popconfirm title="취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기">
           <Button size="small" danger icon={<CloseCircleOutlined />}>취소</Button>
         </Popconfirm>
       )}
-      {record.status === 'SHIPPED' && canCancel(record) && (
+      {record.status === 'SHIPPED' && isAdmin && (
         <Popconfirm title="취소하면 출고 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기">
           <Button size="small" danger icon={<CloseCircleOutlined />}>취소</Button>
         </Popconfirm>
       )}
-      {record.status === 'DISCREPANCY' && canCancel(record) && (
+      {record.status === 'DISCREPANCY' && isAdmin && (
         <Popconfirm title="취소하면 재고가 복구됩니다. 취소하시겠습니까?" onConfirm={() => handleCancel(record.request_id)} okText="취소처리" cancelText="닫기">
           <Button size="small" danger icon={<CloseCircleOutlined />}>취소</Button>
         </Popconfirm>
@@ -464,8 +503,11 @@ export default function ShipmentDashboardPage() {
   }) => {
     const { title, icon, color, borderColor, summary, steps, data, total, page, onPageChange,
       listLoading, statusFilter, onStatusFilter, columns, emptyText } = config;
-    // 전체 건수: 진행중(PENDING + SHIPPED + DISCREPANCY)만 합산
-    const activeCount = summary.PENDING.count + summary.SHIPPED.count + summary.DISCREPANCY.count;
+    // 전체 건수: steps에 포함된 진행중 상태만 합산
+    const activeStatuses = ['PENDING', 'APPROVED', 'SHIPPED', 'DISCREPANCY'];
+    const activeCount = steps
+      .filter(st => activeStatuses.includes(st.status))
+      .reduce((sum, st) => sum + (summary[st.status as keyof TypeSummary]?.count || 0), 0);
 
     return (
       <Card
@@ -534,13 +576,14 @@ export default function ShipmentDashboardPage() {
     + transferSummary.DISCREPANCY.count + storeReqSummary.DISCREPANCY.count;
 
   const todoCount = isAdmin
-    ? storeReqSummary.PENDING.count + returnSummary.SHIPPED.count + allDiscrepancy
+    ? shipmentSummary.PENDING.count + storeReqSummary.PENDING.count + returnSummary.PENDING.count + returnSummary.SHIPPED.count + allDiscrepancy
     : shipmentSummary.SHIPPED.count + storeReqSummary.SHIPPED.count
+      + returnSummary.APPROVED.count
       + transferSummary.SHIPPED.toCount
       + shipmentSummary.DISCREPANCY.count + storeReqSummary.DISCREPANCY.count
       + transferSummary.DISCREPANCY.toCount;
   const waitingCount = isAdmin
-    ? shipmentSummary.SHIPPED.count + storeReqSummary.SHIPPED.count + transferSummary.SHIPPED.count
+    ? shipmentSummary.SHIPPED.count + storeReqSummary.SHIPPED.count + transferSummary.SHIPPED.count + returnSummary.APPROVED.count
     : storeReqSummary.PENDING.count + returnSummary.SHIPPED.count
       + transferSummary.SHIPPED.fromCount;
 
@@ -559,29 +602,29 @@ export default function ShipmentDashboardPage() {
     setGlobalFilter(mode);
     if (mode === 'todo') {
       if (isAdmin) {
-        // ADMIN 해야할일: 출고요청 승인대기 + 반품 수령 + 수량불일치
-        setShipmentStatusFilter('DISCREPANCY'); setShipmentPage(1);
-        setReturnStatusFilter('SHIPPED,DISCREPANCY'); setReturnPage(1);
+        // ADMIN 해야할일: 출고대기 + 출고요청 승인대기 + 반품 수령 + 수량불일치
+        setShipmentStatusFilter('PENDING,APPROVED,DISCREPANCY'); setShipmentPage(1);
+        setReturnStatusFilter('PENDING,SHIPPED,DISCREPANCY'); setReturnPage(1);
         setTransferStatusFilter('DISCREPANCY'); setTransferPage(1); setTransferDirection('');
         setStoreReqStatusFilter('PENDING,DISCREPANCY'); setStoreReqPage(1);
       } else {
-        // 매장 해야할일: 출고/출고요청 수령 + 수평이동 수령(to=나) + 수량불일치
+        // 매장 해야할일: 출고/출고요청 수령 + 반품출고(APPROVED) + 수평이동 수령(to=나) + 수량불일치
         setShipmentStatusFilter('SHIPPED,DISCREPANCY'); setShipmentPage(1);
-        setReturnStatusFilter('PENDING'); setReturnPage(1);
+        setReturnStatusFilter('APPROVED'); setReturnPage(1);
         setTransferStatusFilter('SHIPPED,DISCREPANCY'); setTransferPage(1); setTransferDirection('to');
         setStoreReqStatusFilter('SHIPPED,DISCREPANCY'); setStoreReqPage(1);
       }
     } else {
       if (isAdmin) {
-        // ADMIN 대기중: 출고 매장수령대기 + 출고요청 출고완료(매장수령대기) + 수평이동 수령대기
+        // ADMIN 대기중: 출고 매장수령대기 + 출고요청 출고완료(매장수령대기) + 수평이동 수령대기 + 반품출고대기
         setShipmentStatusFilter('SHIPPED'); setShipmentPage(1);
-        setReturnStatusFilter('PENDING'); setReturnPage(1);
+        setReturnStatusFilter('APPROVED'); setReturnPage(1);
         setTransferStatusFilter('SHIPPED'); setTransferPage(1); setTransferDirection('');
         setStoreReqStatusFilter('SHIPPED'); setStoreReqPage(1);
       } else {
-        // 매장 대기중: 출고요청 본사승인대기 + 반품 본사수령대기 + 수평이동 상대수령대기(from=나)
+        // 매장 대기중: 출고요청 본사승인대기 + 반품승인대기 + 반품수령대기 + 수평이동 상대수령대기(from=나)
         setShipmentStatusFilter('PENDING'); setShipmentPage(1);
-        setReturnStatusFilter('SHIPPED'); setReturnPage(1);
+        setReturnStatusFilter('PENDING,SHIPPED'); setReturnPage(1);
         setTransferStatusFilter('SHIPPED'); setTransferPage(1); setTransferDirection('from');
         setStoreReqStatusFilter('PENDING'); setStoreReqPage(1);
       }
@@ -594,22 +637,28 @@ export default function ShipmentDashboardPage() {
     const filterParam = searchParams.get('filter');
     if (filterParam === 'todo' || filterParam === 'waiting') {
       initialFilterApplied.current = true;
+      hasUrlFilter.current = false;
       applyGlobalFilter(filterParam);
-      // URL에서 파라미터 제거 (뒤로가기 시 재적용 방지)
       setSearchParams({}, { replace: true });
+    } else if (hasUrlFilter.current) {
+      hasUrlFilter.current = false;
+      loadShipmentList(); loadReturnList(); loadTransferList(); loadStoreReqList();
     }
   }, [searchParams]);
 
   // 해야할일 상세 내역 (카드 하단 텍스트)
   const todoDetails = isAdmin
     ? [
+        shipmentSummary.PENDING.count > 0 && `출고대기 ${shipmentSummary.PENDING.count}건`,
         storeReqSummary.PENDING.count > 0 && `출고요청 ${storeReqSummary.PENDING.count}건`,
+        returnSummary.PENDING.count > 0 && `반품승인대기 ${returnSummary.PENDING.count}건`,
         returnSummary.SHIPPED.count > 0 && `반품수령 ${returnSummary.SHIPPED.count}건`,
         allDiscrepancy > 0 && `수량불일치 ${allDiscrepancy}건`,
       ].filter(Boolean)
     : [
         shipmentSummary.SHIPPED.count > 0 && `출고수령 ${shipmentSummary.SHIPPED.count}건`,
         storeReqSummary.SHIPPED.count > 0 && `요청수령 ${storeReqSummary.SHIPPED.count}건`,
+        returnSummary.APPROVED.count > 0 && `반품출고 ${returnSummary.APPROVED.count}건`,
         transferSummary.SHIPPED.toCount > 0 && `이동수령 ${transferSummary.SHIPPED.toCount}건`,
         (shipmentSummary.DISCREPANCY.count + storeReqSummary.DISCREPANCY.count + transferSummary.DISCREPANCY.toCount) > 0
           && `수량불일치 ${shipmentSummary.DISCREPANCY.count + storeReqSummary.DISCREPANCY.count + transferSummary.DISCREPANCY.toCount}건`,
@@ -620,6 +669,7 @@ export default function ShipmentDashboardPage() {
         shipmentSummary.SHIPPED.count > 0 && `출고수령대기 ${shipmentSummary.SHIPPED.count}건`,
         storeReqSummary.SHIPPED.count > 0 && `요청수령대기 ${storeReqSummary.SHIPPED.count}건`,
         transferSummary.SHIPPED.count > 0 && `이동수령대기 ${transferSummary.SHIPPED.count}건`,
+        returnSummary.APPROVED.count > 0 && `반품출고대기 ${returnSummary.APPROVED.count}건`,
       ].filter(Boolean)
     : [
         storeReqSummary.PENDING.count > 0 && `출고요청대기 ${storeReqSummary.PENDING.count}건`,
@@ -712,7 +762,7 @@ export default function ShipmentDashboardPage() {
         summary: shipmentSummary,
         steps: isStoreUser
           ? [{ status: 'SHIPPED', label: '수령대기' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '수령완료' }]
-          : [{ status: 'SHIPPED', label: '출고완료' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '수령완료' }],
+          : [{ status: 'PENDING', label: '대기' }, { status: 'SHIPPED', label: '출고완료' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '수령완료' }],
         data: shipmentData,
         total: shipmentTotal,
         page: shipmentPage,
@@ -732,8 +782,8 @@ export default function ShipmentDashboardPage() {
         borderColor: '#fa8c16',
         summary: returnSummary,
         steps: isAdmin
-          ? [{ status: 'PENDING', label: '대기' }, { status: 'SHIPPED', label: '수령대기' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '반품수령' }]
-          : [{ status: 'PENDING', label: '대기' }, { status: 'SHIPPED', label: '반품출고' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '반품수령' }],
+          ? [{ status: 'PENDING', label: '승인대기' }, { status: 'APPROVED', label: '출고대기' }, { status: 'SHIPPED', label: '수령대기' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '반품수령' }]
+          : [{ status: 'PENDING', label: '승인대기' }, { status: 'APPROVED', label: '출고대기' }, { status: 'SHIPPED', label: '반품출고' }, { status: 'DISCREPANCY', label: '수량불일치' }, { status: 'RECEIVED', label: '반품수령' }],
         data: returnData,
         total: returnTotal,
         page: returnPage,
@@ -752,12 +802,18 @@ export default function ShipmentDashboardPage() {
         color: '#722ed1',
         borderColor: '#722ed1',
         summary: transferSummary,
-        steps: [
-          { status: 'PENDING', label: '대기' },
-          { status: 'SHIPPED', label: isStoreUser ? '출고/수령대기' : '이동출고' },
-          { status: 'DISCREPANCY', label: '수량불일치' },
-          { status: 'RECEIVED', label: '이동완료' },
-        ],
+        steps: isAdmin
+          ? [
+              { status: 'SHIPPED', label: '이동출고' },
+              { status: 'DISCREPANCY', label: '수량불일치' },
+              { status: 'RECEIVED', label: '이동완료' },
+            ]
+          : [
+              { status: 'PENDING', label: '대기' },
+              { status: 'SHIPPED', label: isStoreUser ? '출고/수령대기' : '이동출고' },
+              { status: 'DISCREPANCY', label: '수량불일치' },
+              { status: 'RECEIVED', label: '이동완료' },
+            ],
         data: transferData,
         total: transferTotal,
         page: transferPage,
@@ -805,6 +861,10 @@ export default function ShipmentDashboardPage() {
         onCancel={() => setShipOpen(false)}
         confirmLoading={shipConfirmLoading}
         stockMap={shipStockMap}
+        readOnly={!isAdmin || (shipDetail as any)?.request_type === '반품'}
+        title={(shipDetail as any)?.request_type === '반품' ? '반품출고 확인' : undefined}
+        alertMessage={(shipDetail as any)?.request_type === '반품' ? '확인 시 반품처(매장) 재고가 차감됩니다.' : undefined}
+        okText={(shipDetail as any)?.request_type === '반품' ? '반품출고' : undefined}
       />
 
       <ReceivedQtyModal
@@ -815,6 +875,7 @@ export default function ShipmentDashboardPage() {
         onConfirm={handleRecvConfirm}
         onCancel={() => setRecvOpen(false)}
         confirmLoading={recvConfirmLoading}
+        alertMessage="수령한 실제 수량을 입력하세요. 출고수량과 다르면 '수량불일치'로 신고됩니다."
       />
     </div>
   );

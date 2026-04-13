@@ -7,6 +7,14 @@ const crud = createCrudApi<ShipmentRequest>('/api/shipments');
 export const shipmentApi = {
   ...crud,
 
+  /** 생성 (일괄 의뢰 시 group_no/count 포함 반환) */
+  create: async (body: any) => {
+    const res = await apiFetch('/api/shipments', { method: 'POST', body: JSON.stringify(body) });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data;
+  },
+
   /** 상태별 요약 */
   summary: async () => {
     const res = await apiFetch('/api/shipments/summary');

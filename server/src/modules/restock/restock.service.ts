@@ -25,8 +25,11 @@ class RestockService extends BaseService<RestockRequest> {
     }
     return result;
   }
-  async getRestockSuggestions() {
-    return restockRepository.getRestockSuggestions();
+  async getRestockSuggestions(partnerCode?: string) {
+    return restockRepository.getRestockSuggestions(partnerCode);
+  }
+  async getStoreBrokenSizes(partnerCode: string) {
+    return restockRepository.getStoreBrokenSizes(partnerCode);
   }
   async getProgressStats(partnerCode?: string) {
     return restockRepository.getProgressStats(partnerCode);
@@ -139,6 +142,7 @@ class RestockService extends BaseService<RestockRequest> {
           await inventoryRepository.applyChange(
             current.partner_code, row.variant_id, row.received_qty,
             'RESTOCK', id, userId, client,
+            { memo: `재입고 수령 #${current.request_no || id}` },
           );
         }
       }

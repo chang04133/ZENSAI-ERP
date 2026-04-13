@@ -44,6 +44,20 @@ router.post('/', ...admin, asyncHandler(async (req, res) => {
   try {
     await client.query('BEGIN');
 
+    // 본사 소속 거래처는 창고 1개만 허용
+    const partnerRow = await client.query('SELECT partner_type FROM partners WHERE partner_code = $1', [warehouse_code]);
+    const partnerType = partnerRow.rows[0]?.partner_type || '본사'; // 미등록 거래처는 본사로 자동생성됨
+    if (partnerType === '본사') {
+      const hqWh = await client.query(
+        `SELECT w.warehouse_code FROM warehouses w JOIN partners p ON w.partner_code = p.partner_code WHERE p.partner_type = '본사'`
+      );
+      if (hqWh.rows.length > 0) {
+        await client.query('ROLLBACK');
+        res.status(400).json({ success: false, error: `본사 창고는 1개만 등록 가능합니다. (현재: ${hqWh.rows[0].warehouse_code})` });
+        return;
+      }
+    }
+
     // 거래처에 없으면 자동 생성
     const existing = await client.query('SELECT partner_code FROM partners WHERE partner_code = $1', [warehouse_code]);
     if (existing.rows.length === 0) {

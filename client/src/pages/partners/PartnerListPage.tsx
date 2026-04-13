@@ -36,6 +36,8 @@ export default function PartnerListPage() {
     fetchPartners(params);
   }, [page, search, partnerType, isActive, fetchPartners]);
 
+  const [hqWarehouseCode, setHqWarehouseCode] = useState<string | null>(null);
+
   const loadWarehouses = async () => {
     try {
       const list = await warehouseApi.list();
@@ -43,6 +45,8 @@ export default function PartnerListPage() {
       setWarehouseCodes(codes);
       const def = list.find((w: any) => w.is_default);
       setDefaultWarehouse(def?.warehouse_code || null);
+      const hqWh = list.find((w: any) => w.partner_type === '본사');
+      setHqWarehouseCode(hqWh?.warehouse_code || null);
     } catch { /* ignore */ }
   };
 
@@ -89,7 +93,7 @@ export default function PartnerListPage() {
   };
 
   // 창고 토글
-  const handleToggleWarehouse = async (code: string, name: string, isWarehouse: boolean) => {
+  const handleToggleWarehouse = async (code: string, name: string, isWarehouse: boolean, pType?: string) => {
     try {
       if (isWarehouse) {
         // 창고 해제 — 기본 창고면 불가
@@ -100,7 +104,11 @@ export default function PartnerListPage() {
         await warehouseApi.remove(code);
         message.success(`${name} 창고 해제`);
       } else {
-        // 창고 등록
+        // 본사 소속은 창고 1개만 허용
+        if (pType === '본사' && hqWarehouseCode) {
+          message.warning(`본사 창고는 1개만 등록 가능합니다. (현재: ${hqWarehouseCode})`);
+          return;
+        }
         await warehouseApi.create({ warehouse_code: code, warehouse_name: name });
         message.success(`${name} 창고 등록`);
       }
@@ -141,10 +149,10 @@ export default function PartnerListPage() {
                   ? <StarFilled style={{ color: '#faad14', cursor: 'default' }} title="기본 창고" />
                   : <StarFilled style={{ color: '#d9d9d9', cursor: 'pointer' }} title="기본 창고로 설정" onClick={() => handleSetDefault(r.partner_code)} />
                 }
-                <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => handleToggleWarehouse(r.partner_code, r.partner_name, true)}>O</Tag>
+                <Tag color="blue" style={{ cursor: 'pointer' }} onClick={() => handleToggleWarehouse(r.partner_code, r.partner_name, true, r.partner_type)}>O</Tag>
               </>
             ) : (
-              <Tag style={{ cursor: 'pointer' }} onClick={() => handleToggleWarehouse(r.partner_code, r.partner_name, false)}>X</Tag>
+              <Tag style={{ cursor: 'pointer' }} onClick={() => handleToggleWarehouse(r.partner_code, r.partner_name, false, r.partner_type)}>X</Tag>
             )}
           </Space>
         );
@@ -206,14 +214,12 @@ export default function PartnerListPage() {
             style={{ width: 130 }}
             options={[
               { label: '전체 보기', value: '' },
-              { label: '본사', value: '본사' },
-              { label: '대리점', value: '대리점' },
               { label: '직영점', value: '직영점' },
               { label: '백화점', value: '백화점' },
               { label: '아울렛', value: '아울렛' },
+              { label: '대리점', value: '대리점' },
               { label: '온라인', value: '온라인' },
-              { label: '직영', value: '직영' },
-              { label: '가맹', value: '가맹' },
+              { label: '본사', value: '본사' },
             ]}
           /></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장 상태</div>

@@ -11,7 +11,7 @@ export class BusinessError extends Error {
 }
 
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
-  console.error('서버 오류:', err.message);
+  console.error('서버 오류:', _req.method, _req.path, err.message);
 
   // BusinessError 인스턴스는 명시적 비즈니스 에러
   if (err instanceof BusinessError) {

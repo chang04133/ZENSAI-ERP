@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, Select, Space, Tag, Table, Row, Col, Progress, Spin, message, DatePicker, Button, Segmented, Modal, AutoComplete, Input } from 'antd';
 import {
   SkinOutlined, ColumnHeightOutlined, TagOutlined, BgColorsOutlined,
@@ -19,11 +20,13 @@ const SIZE_ORDER = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'];
 const MAX_CHART = 7;
 
 export function SalesAnalyticsPeriod() {
-  const [mode, setMode] = useState<ViewMode>('monthly');
-  const [refDate, setRefDate] = useState<Dayjs>(dayjs());
+  const [searchParams] = useSearchParams();
+  const [mode, setMode] = useState<ViewMode>((searchParams.get('mode') as ViewMode) || 'monthly');
+  const [refDate, setRefDate] = useState<Dayjs>(searchParams.get('date') ? dayjs(searchParams.get('date')) : dayjs());
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const searchRef = useRef('');
   const [searchSuggestions, setSearchSuggestions] = useState<Array<{ product_code: string; product_name: string; category: string; season: string; brand: string }>>([]);
   const suggestTimer = useRef<ReturnType<typeof setTimeout>>();
   const [categoryFilter, setCategoryFilter] = useState('');
@@ -107,6 +110,14 @@ export function SalesAnalyticsPeriod() {
   }, [filterCombos, categoryFilter, subCategoryFilter, seasonFilter, fitFilter]);
 
   /* -- YEAR 코드 로드 -- */
+  /* -- URL 파라미터로 기간 동기화 (종합매출현황에서 클릭 시) -- */
+  useEffect(() => {
+    const urlMode = searchParams.get('mode') as ViewMode;
+    const urlDate = searchParams.get('date');
+    if (urlMode && ['daily', 'weekly', 'monthly'].includes(urlMode)) setMode(urlMode);
+    if (urlDate) setRefDate(dayjs(urlDate));
+  }, [searchParams]);
+
   useEffect(() => {
     codeApi.getByType('YEAR').then((data: any[]) => {
       data.sort((a: any, b: any) => b.code_value.localeCompare(a.code_value));
@@ -115,25 +126,7 @@ export function SalesAnalyticsPeriod() {
     return () => { if (suggestTimer.current) clearTimeout(suggestTimer.current); };
   }, []);
 
-  /* -- AutoComplete 핸들러 -- */
-  const onSearchChange = (value: string) => {
-    setSearch(value);
-    if (suggestTimer.current) clearTimeout(suggestTimer.current);
-    if (!value.trim()) { setSearchSuggestions([]); return; }
-    suggestTimer.current = setTimeout(async () => {
-      try {
-        const data = await productApi.searchSuggest(value);
-        setSearchSuggestions(Array.isArray(data) ? data : []);
-      } catch { setSearchSuggestions([]); }
-    }, 300);
-  };
-
-  const onSearchSelect = (value: string) => {
-    setSearch(value);
-    load(value);
-  };
-
-  /* -- 데이터 로드 -- */
+  /* -- 데이터 로드 (searchRef로 항상 최신값 사용) -- */
   const load = (searchOverride?: string) => {
     setLoading(true);
     const r = getRange(mode, refDate);
@@ -143,7 +136,7 @@ export function SalesAnalyticsPeriod() {
     if (fitFilter) filters.fit = fitFilter;
     if (colorFilter) filters.color = colorFilter;
     if (sizeFilter) filters.size = sizeFilter;
-    const s = searchOverride !== undefined ? searchOverride : search;
+    const s = searchOverride !== undefined ? searchOverride : searchRef.current;
     if (s) filters.search = s;
     if (statusFilter) filters.sale_status = statusFilter;
     if (yearFromFilter) filters.year_from = yearFromFilter;
@@ -153,6 +146,32 @@ export function SalesAnalyticsPeriod() {
       .then((d) => { setData(d); if (d?.filterCombinations) setFilterCombos(d.filterCombinations); })
       .catch((e: any) => message.error(e.message))
       .finally(() => setLoading(false));
+  };
+
+  /* -- 검색 핸들러 -- */
+  const handleSearchChange = (value: string) => {
+    searchRef.current = value;
+    setSearch(value);
+    if (suggestTimer.current) clearTimeout(suggestTimer.current);
+    if (!value.trim()) { setSearchSuggestions([]); return; }
+    suggestTimer.current = setTimeout(async () => {
+      try {
+        const res = await productApi.searchSuggest(value);
+        setSearchSuggestions(Array.isArray(res) ? res : []);
+      } catch { setSearchSuggestions([]); }
+    }, 300);
+  };
+
+  const handleSearchSelect = (value: string) => {
+    searchRef.current = value;
+    setSearch(value);
+    setSearchSuggestions([]);
+    load(value);
+  };
+
+  const handleSearchEnter = () => {
+    setSearchSuggestions([]);
+    load(searchRef.current);
   };
 
   useEffect(() => { load(); }, [mode, refDate, categoryFilter, subCategoryFilter, yearFromFilter, yearToFilter, seasonFilter, fitFilter, lengthFilter, colorFilter, sizeFilter, statusFilter]);
@@ -219,11 +238,11 @@ export function SalesAnalyticsPeriod() {
   const byLength = capArr(data?.byLength || [], MAX_CHART, 'length', ['total_amount', 'total_qty', 'product_count', 'active_style_count']);
   const bySize = capArr(data?.bySize || [], MAX_CHART, 'size', ['total_qty', 'total_amount']);
   const byColor = capArr(data?.byColor || [], MAX_CHART, 'color', ['total_qty', 'total_amount']);
-  const topProducts = (data?.topProducts || []).slice(0, MAX_CHART);
+  const topProducts = data?.topProducts || [];
   const bySeason = capArr(data?.bySeason || [], MAX_CHART, 'season_type', ['total_amount', 'total_qty']);
   const byPartner = data?.byPartner || [];
 
-  const pickerType = mode === 'monthly' ? 'month' : mode === 'weekly' ? 'week' : undefined;
+  const pickerType = mode === 'monthly' ? 'month' as const : undefined;
   const maxCatAmt = Math.max(1, ...byCategory.map((c: any) => Number(c.total_amount)));
   const fitAvgPerStyle = (r: any) => { const ac = Number(r.active_style_count ?? r.product_count); return ac > 0 ? Number(r.total_amount) / ac : 0; };
   const lenAvgPerStyle = (r: any) => { const ac = Number(r.active_style_count ?? r.product_count); return ac > 0 ? Number(r.total_amount) / ac : 0; };
@@ -243,8 +262,9 @@ export function SalesAnalyticsPeriod() {
           { label: '월별', value: 'monthly' },
         ]} size="small" />
         <Button size="small" icon={<LeftOutlined />} onClick={() => handleMove(-1)} />
-        <DatePicker value={refDate} onChange={handleDatePick} picker={pickerType}
-          allowClear={false} style={{ width: mode === 'monthly' ? 130 : 150 }} size="small" />
+        <DatePicker key={mode} value={refDate} onChange={handleDatePick} picker={pickerType}
+          allowClear={false} style={{ width: 150 }} size="small"
+          format={mode === 'weekly' ? 'YYYY-MM-DD' : undefined} />
         <Button size="small" icon={<RightOutlined />} onClick={() => handleMove(1)} disabled={isForwardDisabled()} />
         <Tag color="blue" style={{ fontSize: 12, padding: '1px 8px', margin: 0 }}>{range.label}</Tag>
       </Space>
@@ -253,7 +273,7 @@ export function SalesAnalyticsPeriod() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
         <div style={{ minWidth: 200, maxWidth: 320 }}><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>검색</div>
           <AutoComplete
-            value={search} onChange={onSearchChange} onSelect={onSearchSelect}
+            value={search} onChange={handleSearchChange} onSelect={handleSearchSelect}
             style={{ width: '100%' }}
             options={searchSuggestions.map(s => ({
               value: s.product_code,
@@ -264,7 +284,7 @@ export function SalesAnalyticsPeriod() {
             }))}
           >
             <Input placeholder="코드 또는 이름 검색" prefix={<SearchOutlined />}
-              onPressEnter={() => load()} />
+              onPressEnter={handleSearchEnter} />
           </AutoComplete></div>
         <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>카테고리</div>
           <Select value={categoryFilter} onChange={handleCategoryFilterChange} style={{ width: 120 }}
@@ -303,27 +323,82 @@ export function SalesAnalyticsPeriod() {
 
       {loading && !data ? <Spin style={{ display: 'block', margin: '60px auto' }} /> : (
         <>
-          {/* 요약 카드 */}
-          <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-            {[
-              { label: '총 매출', value: `${fmt(totals.total_amount || 0)}원`, icon: <DollarOutlined />, color: '#1890ff', bg: '#e6f7ff' },
-              { label: '판매 수량', value: `${fmt(totals.total_qty || 0)}개`, icon: <ShoppingCartOutlined />, color: '#52c41a', bg: '#f6ffed' },
-              { label: '판매 건수', value: `${totals.sale_count || 0}건`, icon: <TagOutlined />, color: '#fa8c16', bg: '#fff7e6' },
-              { label: '판매 상품', value: `${totals.variant_count || 0}종`, icon: <SkinOutlined />, color: '#722ed1', bg: '#f9f0ff' },
-            ].map((item) => (
-              <Col xs={12} sm={6} key={item.label}>
-                <div style={{ background: item.bg, borderRadius: 8, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 22, color: item.color }}>{item.icon}</div>
-                    <div>
-                      <div style={{ fontSize: 11, color: '#888' }}>{item.label}</div>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: item.color }}>{item.value}</div>
+          {/* ── 매출 요약 ── */}
+          {(() => {
+            const gross = Number(totals.gross_amount || 0);
+            const ret = Number(totals.return_amount || 0);
+            const net = Number(totals.total_amount || 0);
+            const normal = Number(totals.normal_amount || 0);
+            const discount = Number(totals.discount_amount || 0);
+            const event = Number(totals.event_amount || 0);
+            const preorder = Number(totals.preorder_amount || 0);
+            const types = [
+              { label: '정상가', value: normal, color: '#0284c7' },
+              { label: '할인가', value: discount, color: '#ca8a04' },
+              { label: '행사가', value: event, color: '#9333ea' },
+              { label: '예약판매', value: preorder, color: '#ea580c' },
+            ];
+            return (
+              <Card size="small" style={{ borderRadius: 12, marginBottom: 16 }}>
+                {/* 상단: 총매출 / 반품 / 순매출 */}
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 24, flexWrap: 'wrap', marginBottom: 16 }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#888', marginBottom: 2 }}>총매출</div>
+                    <div style={{ fontSize: 30, fontWeight: 900, color: '#111', lineHeight: 1.1 }}>{fmtW(gross)}</div>
+                  </div>
+                  <div style={{ fontSize: 22, color: '#ccc', fontWeight: 300 }}>−</div>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 2 }}>반품</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: ret > 0 ? '#dc2626' : '#ddd', lineHeight: 1.1 }}>
+                      {fmtW(ret)}{ret > 0 && <span style={{ fontSize: 12, fontWeight: 400, marginLeft: 4 }}>({totals.return_qty || 0}건)</span>}
                     </div>
                   </div>
+                  <div style={{ fontSize: 22, color: '#ccc', fontWeight: 300 }}>=</div>
+                  <div>
+                    <div style={{ fontSize: 12, color: '#2563eb', marginBottom: 2 }}>순매출</div>
+                    <div style={{ fontSize: 22, fontWeight: 800, color: '#2563eb', lineHeight: 1.1 }}>{fmtW(net)}</div>
+                  </div>
+                  <div style={{ borderLeft: '1px solid #eee', paddingLeft: 20, display: 'flex', gap: 20 }}>
+                    <div><div style={{ fontSize: 11, color: '#888' }}>수량</div><div style={{ fontSize: 16, fontWeight: 700 }}>{fmt(totals.total_qty || 0)}개</div></div>
+                    <div><div style={{ fontSize: 11, color: '#888' }}>건수</div><div style={{ fontSize: 16, fontWeight: 700 }}>{totals.sale_count || 0}건</div></div>
+                    <div><div style={{ fontSize: 11, color: '#888' }}>상품</div><div style={{ fontSize: 16, fontWeight: 700 }}>{totals.variant_count || 0}종</div></div>
+                  </div>
                 </div>
-              </Col>
-            ))}
-          </Row>
+                {/* 가격유형 비율 바 */}
+                {gross > 0 && (
+                  <div style={{ display: 'flex', borderRadius: 6, overflow: 'hidden', height: 24, marginBottom: 10 }}>
+                    {types.map(t => {
+                      const pct = gross > 0 ? (t.value / gross) * 100 : 0;
+                      if (pct === 0) return null;
+                      return (
+                        <div key={t.label} style={{
+                          width: `${pct}%`, background: t.color, minWidth: pct > 3 ? 0 : 24,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontSize: 11, color: '#fff', fontWeight: 600, transition: 'width 0.3s',
+                        }}>
+                          {pct >= 10 ? `${t.label} ${pct.toFixed(0)}%` : pct >= 5 ? `${pct.toFixed(0)}%` : ''}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {/* 가격유형 수치 */}
+                <div style={{ display: 'flex', gap: 24, flexWrap: 'wrap' }}>
+                  {types.map(t => {
+                    const pct = gross > 0 ? (t.value / gross * 100).toFixed(1) : '0.0';
+                    return (
+                      <div key={t.label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: 3, background: t.value > 0 ? t.color : '#ddd', flexShrink: 0 }} />
+                        <span style={{ fontSize: 13, color: '#555' }}>{t.label}</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: t.value > 0 ? t.color : '#ccc' }}>{fmtW(t.value)}</span>
+                        <span style={{ fontSize: 11, color: '#aaa' }}>({pct}%)</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            );
+          })()}
 
           {/* 카테고리별 + 세부카테고리 */}
           <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
@@ -525,33 +600,49 @@ export function SalesAnalyticsPeriod() {
             </Col>
           </Row>
 
-          {/* 인기상품 TOP 15 */}
+          {/* 품목별 판매 내역 */}
           {topProducts.length > 0 && (
-            <Card size="small" title={`인기상품 TOP ${topProducts.length}`}>
+            <Card size="small" title={<><ShoppingCartOutlined style={{ marginRight: 6 }} />품목별 판매 내역 ({topProducts.length}개 상품)</>}>
               <Table
                 columns={[
-                  { title: '#', key: 'rank', width: 36,
+                  { title: '#', key: 'rank', width: 36, fixed: 'left' as const,
                     render: (_: any, __: any, i: number) => (
-                      <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600, fontSize: 14 }}>{i + 1}</span>
+                      <span style={{ color: i < 3 ? '#f59e0b' : '#aaa', fontWeight: 600 }}>{i + 1}</span>
                     ) },
-                  { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110,
+                  { title: '상품코드', dataIndex: 'product_code', key: 'code', width: 110, fixed: 'left' as const,
                     render: (v: string, record: any) => (
-                      <a onClick={() => handleProductClick(record)}>{v}</a>
+                      <a onClick={() => handleProductClick(record)} style={{ fontWeight: 600 }}>{v}</a>
                     ) },
-                  { title: '상품명', dataIndex: 'product_name', key: 'name', width: 140, ellipsis: true },
+                  { title: '상품명', dataIndex: 'product_name', key: 'name', width: 150, ellipsis: true },
                   { title: '카테고리', dataIndex: 'category', key: 'cat', width: 80,
                     render: (v: string) => <Tag style={CAT_COLORS[v] ? { color: CAT_COLORS[v], borderColor: CAT_COLORS[v] } : {}}>{v}</Tag>,
                     filters: [...new Set(topProducts.map((p: any) => p.category))].map((v: any) => ({ text: v, value: v })),
                     onFilter: (v: any, r: any) => r.category === v },
-                  { title: '세부', dataIndex: 'sub_category', key: 'sub', width: 75,
-                    render: (v: string) => v ? <Tag color="cyan">{v}</Tag> : '-' },
-                  { title: '핏', dataIndex: 'fit', key: 'fit', width: 70, render: (v: string) => v || '-' },
-                  { title: '기장', dataIndex: 'length', key: 'len', width: 70, render: (v: string) => v || '-' },
-                  { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 70, align: 'right' as const,
-                    render: (v: number) => <strong>{fmt(v)}</strong> },
+                  { title: '핏/기장', key: 'fit_len', width: 100,
+                    render: (_: any, r: any) => {
+                      const parts = [r.fit, r.length].filter(Boolean);
+                      return parts.length > 0 ? <span style={{ fontSize: 12, color: '#666' }}>{parts.join(' / ')}</span> : '-';
+                    } },
+                  { title: '수량', dataIndex: 'total_qty', key: 'qty', width: 65, align: 'right' as const,
+                    render: (v: number) => <strong>{fmt(v)}</strong>,
+                    sorter: (a: any, b: any) => Number(a.total_qty) - Number(b.total_qty) },
                   { title: '매출액', dataIndex: 'total_amount', key: 'amt', width: 110, align: 'right' as const,
-                    render: (v: number) => <strong>{fmtW(Number(v))}</strong> },
-                  { title: '비율', key: 'ratio', width: 130,
+                    render: (v: number) => <strong>{fmtW(Number(v))}</strong>,
+                    sorter: (a: any, b: any) => Number(a.total_amount) - Number(b.total_amount),
+                    defaultSortOrder: 'descend' as const },
+                  { title: '건수', dataIndex: 'sale_count', key: 'sc', width: 55, align: 'right' as const,
+                    render: (v: number) => v || '-' },
+                  { title: '행사가', dataIndex: 'event_amount', key: 'ev', width: 95, align: 'right' as const,
+                    render: (v: number) => Number(v) > 0 ? <span style={{ color: '#9333ea' }}>{fmtW(Number(v))}</span> : <span style={{ color: '#ddd' }}>-</span> },
+                  { title: '예약', dataIndex: 'preorder_amount', key: 'pre', width: 95, align: 'right' as const,
+                    render: (v: number) => Number(v) > 0 ? <span style={{ color: '#ea580c' }}>{fmtW(Number(v))}</span> : <span style={{ color: '#ddd' }}>-</span> },
+                  { title: '반품', key: 'ret', width: 95, align: 'right' as const,
+                    render: (_: any, r: any) => {
+                      const ra = Number(r.return_amount || 0);
+                      const rq = Number(r.return_qty || 0);
+                      return ra > 0 ? <span style={{ color: '#dc2626' }}>-{fmtW(ra)} ({rq})</span> : <span style={{ color: '#ddd' }}>-</span>;
+                    } },
+                  { title: '비율', key: 'ratio', width: 100,
                     render: (_: any, r: any) => {
                       const total = topProducts.reduce((s: number, p: any) => s + Number(p.total_amount), 0);
                       const pct = total > 0 ? (Number(r.total_amount) / total) * 100 : 0;
@@ -560,7 +651,29 @@ export function SalesAnalyticsPeriod() {
                 ]}
                 dataSource={topProducts}
                 rowKey="product_code"
-                pagination={false} size="small" scroll={{ x: 900 }}
+                size="small"
+                scroll={{ x: 1200, y: 'calc(100vh - 240px)' }}
+                pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
+                summary={(rows) => {
+                  const sumQty = rows.reduce((s, r) => s + Number(r.total_qty), 0);
+                  const sumAmt = rows.reduce((s, r) => s + Number(r.total_amount), 0);
+                  const sumEvent = rows.reduce((s, r) => s + Number(r.event_amount || 0), 0);
+                  const sumPre = rows.reduce((s, r) => s + Number(r.preorder_amount || 0), 0);
+                  const sumRetAmt = rows.reduce((s, r) => s + Number(r.return_amount || 0), 0);
+                  const sumRetQty = rows.reduce((s, r) => s + Number(r.return_qty || 0), 0);
+                  return (
+                    <Table.Summary.Row style={{ background: '#fafafa' }}>
+                      <Table.Summary.Cell index={0} colSpan={5} align="right"><strong>합계</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={5} align="right"><strong>{fmt(sumQty)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={6} align="right"><strong>{fmtW(sumAmt)}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={7} />
+                      <Table.Summary.Cell index={8} align="right"><strong style={{ color: '#9333ea' }}>{sumEvent > 0 ? fmtW(sumEvent) : '-'}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={9} align="right"><strong style={{ color: '#ea580c' }}>{sumPre > 0 ? fmtW(sumPre) : '-'}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={10} align="right"><strong style={{ color: '#dc2626' }}>{sumRetAmt > 0 ? `-${fmtW(sumRetAmt)} (${sumRetQty})` : '-'}</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={11} />
+                    </Table.Summary.Row>
+                  );
+                }}
               />
             </Card>
           )}

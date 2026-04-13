@@ -163,6 +163,7 @@ router.post('/excel/upload',
 
         await inventoryRepository.applyChange(
           row.partner_code, variantId, -row.qty, 'SALE', sale.rows[0].sale_id, userId, client,
+          { memo: '엑셀 매출 업로드' },
         );
         created++;
       }

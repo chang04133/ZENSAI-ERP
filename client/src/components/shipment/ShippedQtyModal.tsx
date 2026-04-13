@@ -12,6 +12,7 @@ interface Props {
   okText?: string;
   confirmLoading?: boolean;
   stockMap?: Record<number, number>;
+  readOnly?: boolean;
 }
 
 export default function ShippedQtyModal({
@@ -21,6 +22,7 @@ export default function ShippedQtyModal({
   okText = '출고확인',
   confirmLoading = false,
   stockMap,
+  readOnly = false,
 }: Props) {
   return (
     <Modal title={title} open={open} onCancel={onCancel} onOk={onConfirm} okText={okText} cancelText="취소" width={650} confirmLoading={confirmLoading}>
@@ -48,6 +50,7 @@ export default function ShippedQtyModal({
                 return (
                   <InputNumber min={0} max={record.request_qty} value={qtys[record.variant_id] || 0}
                     status={isOver ? 'error' : undefined}
+                    disabled={readOnly}
                     onChange={(v) => onQtyChange(record.variant_id, v || 0)} style={{ width: '100%' }} />
                 );
               }},

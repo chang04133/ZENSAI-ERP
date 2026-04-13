@@ -156,6 +156,10 @@ export default function MainLayout() {
       </Sider>
       <Layout>
         <Header style={{ padding: '0 24px', background: colorBgContainer, display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
+          <span style={{ marginRight: 12, fontSize: 13 }}>
+            <span style={{ color: '#888' }}>소속</span>{' '}
+            <span style={{ color: '#1677ff', fontWeight: 600 }}>{user?.partnerName || '본사'}</span>
+          </span>
           <Dropdown menu={userMenu} placement="bottomRight">
             <Button type="text" icon={getIcon('UserOutlined')}>
               {user?.userName}

@@ -15,6 +15,7 @@ import { useCodeLabels } from '../../hooks/useCodeLabels';
 import { restockApi } from '../../modules/restock/restock.api';
 import { useRestockStore } from '../../modules/restock/restock.store';
 import { apiFetch } from '../../core/api.client';
+import { useAuthStore } from '../../modules/auth/auth.store';
 import type { RestockSuggestion, RestockRequest } from '../../../../shared/types/restock';
 import dayjs from 'dayjs';
 
@@ -47,7 +48,10 @@ export default function RestockManagePage() {
   const navigate = useNavigate();
   const { formatCode } = useCodeLabels();
 
-  const [tab, setTab] = useState('suggestions');
+  const user = useAuthStore((s) => s.user);
+  const isStore = user?.role === 'STORE_MANAGER' || user?.role === 'STORE_STAFF';
+
+  const [tab, setTab] = useState(isStore ? 'broken' : 'suggestions');
   const [partners, setPartners] = useState<any[]>([]);
   const [partnerFilter, setPartnerFilter] = useState('');
 
@@ -72,6 +76,11 @@ export default function RestockManagePage() {
   const [progressData, setProgressData] = useState<any[]>([]);
   const [progressTotal, setProgressTotal] = useState(0);
   const [progressLoading, setProgressLoading] = useState(false);
+
+  // ── 매장 사이즈 깨짐 탭 ──
+  const [brokenData, setBrokenData] = useState<any[]>([]);
+  const [brokenLoading, setBrokenLoading] = useState(false);
+  const [brokenPartner, setBrokenPartner] = useState<string | undefined>(isStore && user?.partnerCode ? user.partnerCode : undefined);
 
   // ── 생성 모달 ──
   const [createOpen, setCreateOpen] = useState(false);
@@ -133,10 +142,20 @@ export default function RestockManagePage() {
     finally { setProgressLoading(false); }
   };
 
+  const loadBrokenSizes = async () => {
+    const pc = isStore ? user?.partnerCode : brokenPartner;
+    if (!pc) return;
+    setBrokenLoading(true);
+    try { setBrokenData(await restockApi.storeBrokenSizes(pc)); }
+    catch (e: any) { message.error(e.message); }
+    finally { setBrokenLoading(false); }
+  };
+
   useEffect(() => {
     if (tab === 'suggestions') loadSuggestions();
     else if (tab === 'requests') loadRequests();
     else if (tab === 'progress') { loadProgressStats(); loadProgressList(); }
+    else if (tab === 'broken') loadBrokenSizes();
   }, [tab]);
 
   useEffect(() => {
@@ -146,6 +165,7 @@ export default function RestockManagePage() {
   useEffect(() => { if (tab === 'requests') loadRequests(); }, [reqPage, statusFilter]);
   useEffect(() => { if (tab === 'progress') { loadProgressStats(); loadProgressList(); } }, [progressPartnerFilter]);
   useEffect(() => { if (tab === 'progress') loadProgressList(); }, [progressPage, progressStatusFilter]);
+  useEffect(() => { if (tab === 'broken') loadBrokenSizes(); }, [brokenPartner]);
 
   /* ── 의뢰 생성 ── */
   const openCreateModal = () => {
@@ -377,7 +397,8 @@ export default function RestockManagePage() {
 
   return (
     <div>
-      {/* ── 탭 상단 액션바 ── */}
+      {/* ── 탭 상단 액션바 (본사만) ── */}
+      {!isStore && (
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
         {tab === 'suggestions' && (
           <>
@@ -391,7 +412,7 @@ export default function RestockManagePage() {
               <Select mode="multiple" maxTagCount="responsive" value={sugUrgencyFilter} onChange={setSugUrgencyFilter} placeholder="전체" allowClear style={{ width: 150 }}
                 options={[{ label: '위험', value: 'CRITICAL' }, { label: '주의', value: 'WARNING' }, { label: '보통', value: 'NORMAL' }]} /></div>
             <div style={{ flex: 1 }} />
-            {selectedItems.length > 0 && (
+            {!isStore && selectedItems.length > 0 && (
               <>
                 <Button type="primary" icon={<PlusOutlined />} onClick={openCreateModal}>재입고 의뢰 ({selectedItems.length}건)</Button>
                 <Button icon={<ThunderboltOutlined />} onClick={sendToProduction}
@@ -421,10 +442,11 @@ export default function RestockManagePage() {
           </>
         )}
       </div>
+      )}
 
       <Tabs activeKey={tab} onChange={setTab} items={[
-        /* ── Tab: 재입고 제안 ── */
-        {
+        /* ── Tab: 재입고 제안 (본사만) ── */
+        ...(!isStore ? [{
           key: 'suggestions', label: <span><AlertOutlined /> 재입고 제안{suggestions.length > 0 ? ` (${suggestions.length})` : ''}</span>,
           children: (
             <>
@@ -451,16 +473,16 @@ export default function RestockManagePage() {
               <Table dataSource={filteredSuggestions} columns={sugColumns} rowKey="variant_id"
                 loading={sugLoading} size="small" scroll={{ x: 1200, y: 'calc(100vh - 380px)' }}
                 pagination={{ pageSize: 50, showTotal: (t) => `총 ${t}건` }}
-                rowSelection={{ selectedRowKeys: selectedItems.map(i => i.variant_id), onChange: (_keys, rows) => setSelectedItems(rows) }}
+                rowSelection={isStore ? undefined : { selectedRowKeys: selectedItems.map(i => i.variant_id), onChange: (_keys, rows) => setSelectedItems(rows) }}
               />
               <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
                 {salesPeriodDays}일 판매 기반 분석 · 판매율 &ge;40% · 계절가중치 적용 · 소진일 오름차순
               </div>
             </>
           ),
-        },
-        /* ── Tab: 의뢰 목록 ── */
-        {
+        }] : []),
+        /* ── Tab: 의뢰 목록 (본사만) ── */
+        ...(!isStore ? [{
           key: 'requests', label: '의뢰 목록',
           children: (
             <>
@@ -478,7 +500,7 @@ export default function RestockManagePage() {
             </>
           ),
         },
-        /* ── Tab: 진행관리 ── */
+        /* ── Tab: 진행관리 (본사만) ── */
         {
           key: 'progress', label: '진행관리',
           children: (
@@ -508,6 +530,58 @@ export default function RestockManagePage() {
               <Table dataSource={progressData} columns={progressColumns} rowKey="request_id"
                 loading={progressLoading} size="small" scroll={{ x: 1100, y: 'calc(100vh - 240px)' }}
                 pagination={{ current: progressPage, total: progressTotal, pageSize: 50, onChange: setProgressPage, showTotal: (t) => `총 ${t}건` }} />
+            </>
+          ),
+        }] : []),
+        /* ── Tab: 매장 사이즈 깨짐 (전체) ── */
+        {
+          key: 'broken', label: <span><ThunderboltOutlined /> {isStore ? '재입고 추천' : '매장 사이즈 깨짐'}{brokenData.length > 0 ? ` (${brokenData.length})` : ''}</span>,
+          children: (
+            <>
+              {!isStore && (
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12, alignItems: 'flex-end' }}>
+                  <div><div style={{ fontSize: 11, color: '#888', marginBottom: 2 }}>매장</div>
+                    <Select value={brokenPartner} onChange={setBrokenPartner} style={{ width: 200 }}
+                      placeholder="매장 선택" showSearch optionFilterProp="label"
+                      options={partners.filter((p: any) => p.partner_type === '매장' || p.partner_type === 'STORE').map((p: any) => ({ label: p.partner_name, value: p.partner_code }))} />
+                  </div>
+                  <Button icon={<ReloadOutlined />} onClick={loadBrokenSizes}>새로고침</Button>
+                </div>
+              )}
+              {!brokenPartner && !isStore ? (
+                <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>매장을 선택해주세요</div>
+              ) : (
+                <Table dataSource={brokenData} rowKey={(r) => `${r.product_code}__${r.color}`}
+                  loading={brokenLoading} size="small" scroll={{ x: 900, y: 'calc(100vh - 240px)' }}
+                  pagination={{ pageSize: 50, showTotal: (t: number) => `총 ${t}건` }}
+                  columns={[
+                    { title: '품번', dataIndex: 'product_code', width: 130, fixed: 'left' as const },
+                    { title: '상품명', dataIndex: 'product_name', width: 180, ellipsis: true },
+                    { title: '카테고리', dataIndex: 'category', width: 80 },
+                    { title: '시즌', dataIndex: 'season', width: 80 },
+                    { title: '컬러', dataIndex: 'color', width: 80 },
+                    { title: '빠진 사이즈', key: 'missing', width: 160,
+                      render: (_: any, r: any) => (
+                        <Space size={4} wrap>
+                          {(r.missing_sizes || []).map((s: string) => {
+                            const v = r.missing_variants?.find((mv: any) => mv.size === s);
+                            return <Tag key={s} color="red">{s}{v?.other_stock > 0 ? <span style={{ fontSize: 10, marginLeft: 2 }}>({v.other_stock})</span> : ''}</Tag>;
+                          })}
+                        </Space>
+                      ),
+                    },
+                    { title: '보유 사이즈', key: 'instock', width: 80, align: 'center' as const,
+                      render: (_: any, r: any) => <Tag color="green">{r.sizes_in_stock}개</Tag>,
+                    },
+                    { title: '전체', key: 'total', width: 60, align: 'center' as const,
+                      render: (_: any, r: any) => `${r.total_sizes}`,
+                    },
+                  ]}
+                />
+              )}
+              <div style={{ marginTop: 4, fontSize: 12, color: '#888' }}>
+                매장에 일부 사이즈만 빠진 품목입니다. 전체 사이즈 0인 품번은 제외됩니다. 빨간 태그 옆 괄호 안 숫자는 다른 매장/본사 창고에 남아있는 재고 수량입니다.
+              </div>
             </>
           ),
         },

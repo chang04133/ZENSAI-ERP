@@ -14,7 +14,6 @@ const CODE_TYPES = [
   { key: 'ITEM', label: '아이템' },
   { key: 'COLOR', label: '색상' },
   { key: 'SIZE', label: '사이즈' },
-  { key: 'SHIPMENT_TYPE', label: '의뢰유형' },
   { key: 'FIT', label: '핏' },
   { key: 'SETTING', label: '시스템설정' },
 ];

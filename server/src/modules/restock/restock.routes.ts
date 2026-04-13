@@ -8,12 +8,13 @@ const router = Router();
 // Custom routes (before CRUD to avoid /:id catch)
 router.get('/generate-no', authMiddleware, restockController.generateNo);
 router.get('/suggestions', authMiddleware, restockController.getRestockSuggestions);
+router.get('/store-broken-sizes', authMiddleware, restockController.getStoreBrokenSizes);
 router.get('/progress-stats', authMiddleware, restockController.getProgressStats);
 router.put('/:id/receive', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), restockController.receive);
 
 // Base CRUD
 restockController.registerCrudRoutes(router, {
-  readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'],
+  readRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'],
   writeRoles: ['ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'],
   requiredFields: ['partner_code'],
   entityName: '재입고 의뢰',

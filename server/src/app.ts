@@ -37,6 +37,7 @@ import inboundRoutes from './modules/inbound/inbound.routes';
 import warehouseRoutes from './modules/warehouse/warehouse.routes';
 import crmRoutes from './modules/crm/crm.routes';
 import consentRoutes from './modules/crm/consent.routes';
+import outsourceRoutes from './modules/outsource/outsource.routes';
 
 const app = express();
 
@@ -126,6 +127,7 @@ app.use('/api/inbounds', inboundRoutes);
 app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/consent', consentRoutes);
+app.use('/api/outsource', outsourceRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

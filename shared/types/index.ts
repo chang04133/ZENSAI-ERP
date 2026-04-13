@@ -8,3 +8,6 @@ export * from './inventory';
 export * from './sales';
 export * from './restock';
 export * from './production';
+export * from './inbound';
+export * from './crm';
+export * from './outsource';

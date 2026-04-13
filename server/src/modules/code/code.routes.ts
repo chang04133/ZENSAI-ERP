@@ -22,6 +22,11 @@ router.get('/', authMiddleware, asyncHandler(async (_req, res) => {
 router.get('/:type', authMiddleware, asyncHandler(async (req, res) => {
   const type = (req.params.type as string).toUpperCase();
   if (!VALID_TYPES.includes(type)) { res.status(400).json({ success: false, error: '유효하지 않은 코드 타입입니다.' }); return; }
+  // SETTING 코드는 ADMIN/SYS_ADMIN만 조회 가능
+  if (type === 'SETTING' && !['ADMIN', 'SYS_ADMIN'].includes(req.user?.role || '')) {
+    res.status(403).json({ success: false, error: '시스템 설정 코드에 대한 접근 권한이 없습니다.' });
+    return;
+  }
   const pool = getPool();
   const result = await pool.query('SELECT * FROM master_codes WHERE code_type = $1 ORDER BY code_id', [type]);
   res.json({ success: true, data: result.rows });

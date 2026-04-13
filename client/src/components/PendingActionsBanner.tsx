@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Alert, Badge, Space } from 'antd';
 import {
-  ClockCircleOutlined, TruckOutlined, InboxOutlined, ReloadOutlined,
+  ClockCircleOutlined, TruckOutlined, InboxOutlined, RollbackOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../core/api.client';
@@ -12,7 +12,7 @@ export default function PendingActionsBanner() {
   const navigate = useNavigate();
   const user = useAuthStore((s) => s.user);
   const isStore = user?.role === ROLES.STORE_MANAGER || user?.role === ROLES.STORE_STAFF;
-  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.HQ_MANAGER;
+  const isAdmin = user?.role === ROLES.ADMIN || user?.role === ROLES.SYS_ADMIN || user?.role === ROLES.HQ_MANAGER;
   const [counts, setCounts] = useState<any>(null);
 
   useEffect(() => {
@@ -24,14 +24,13 @@ export default function PendingActionsBanner() {
         const pending = d.data.pendingApprovals || [];
         if (isStore) {
           setCounts({
-            shipmentsToProcess: pa.shipmentsToProcess?.length || 0,
+            shipmentsToShip: pa.shipmentsToShip?.length || 0,
             shipmentsToReceive: pa.shipmentsToReceive?.length || 0,
-            restockPending: pa.restockPending?.length || 0,
           });
         } else {
           setCounts({
             pendingApprovals: pending.length || 0,
-            pendingRestocks: pa.pendingRestocks?.length || 0,
+            pendingReturns: pa.pendingReturns?.length || 0,
             shippedAwaitingReceipt: pa.shippedAwaitingReceipt?.length || 0,
           });
         }
@@ -47,12 +46,11 @@ export default function PendingActionsBanner() {
   const items: Array<{ icon: React.ReactNode; label: string; count: number; path: string }> = [];
 
   if (isStore) {
-    if (counts.shipmentsToProcess > 0) items.push({ icon: <TruckOutlined />, label: '출고 처리', count: counts.shipmentsToProcess, path: '/shipment/process' });
+    if (counts.shipmentsToShip > 0) items.push({ icon: <TruckOutlined />, label: '출고 처리', count: counts.shipmentsToShip, path: '/shipment/dashboard' });
     if (counts.shipmentsToReceive > 0) items.push({ icon: <InboxOutlined />, label: '수령 확인', count: counts.shipmentsToReceive, path: '/shipment/process' });
-    if (counts.restockPending > 0) items.push({ icon: <ReloadOutlined />, label: '재입고 진행', count: counts.restockPending, path: '/restock/progress' });
   } else if (isAdmin) {
     if (counts.pendingApprovals > 0) items.push({ icon: <TruckOutlined />, label: '출고 승인', count: counts.pendingApprovals, path: '/shipment/request' });
-    if (counts.pendingRestocks > 0) items.push({ icon: <ReloadOutlined />, label: '재입고 승인', count: counts.pendingRestocks, path: '/restock/progress' });
+    if (counts.pendingReturns > 0) items.push({ icon: <RollbackOutlined />, label: '반품 승인', count: counts.pendingReturns, path: '/shipment/dashboard' });
     if (counts.shippedAwaitingReceipt > 0) items.push({ icon: <InboxOutlined />, label: '수령 대기', count: counts.shippedAwaitingReceipt, path: '/shipment/process' });
   }
 

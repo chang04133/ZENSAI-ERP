@@ -96,7 +96,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
   }
 
   /** 재입고 제안 목록 — 시스템 설정 기반 판매 분석, 판매율, 계절가중치 */
-  async getRestockSuggestions(): Promise<{ suggestions: any[]; salesPeriodDays: number }> {
+  async getRestockSuggestions(partnerCode?: string): Promise<{ suggestions: any[]; salesPeriodDays: number }> {
     // 설정값 로드
     const settingsResult = await this.pool.query(
       "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value IN ('PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD', 'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD', 'RESTOCK_EXCLUDE_AGE_DAYS')",
@@ -109,11 +109,20 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
     const brokenQtyThreshold = parseInt(settingsMap.BROKEN_SIZE_QTY_THRESHOLD || '2', 10);
     const excludeAgeDays = parseInt(settingsMap.RESTOCK_EXCLUDE_AGE_DAYS || '730', 10);
 
+    // 매장 필터: partnerCode가 있으면 해당 매장 재고/판매만 조회
+    const pf = !!partnerCode; // partner filter enabled
+    const salesPartnerFilter = pf ? 'AND s.partner_code = $2' : '';
+    const invPartnerFilter = pf ? 'WHERE partner_code = $2' : '';
+    const invJoinFilter = pf ? 'AND i.partner_code = $2' : '';
+    const invSubFilter = pf ? 'AND partner_code = $2' : '';
+    const restockPartnerFilter = pf ? 'AND rr.partner_code = $2' : '';
+
     const sql = `
       WITH current_season AS (
         SELECT CASE
-          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5,9,10,11) THEN 'SA'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (3,4,5) THEN 'SS'
           WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (6,7,8) THEN 'SM'
+          WHEN EXTRACT(MONTH FROM CURRENT_DATE) IN (9,10,11) THEN 'FW'
           ELSE 'WN'
         END AS season_code
       ),
@@ -130,12 +139,11 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
           p.season, p.category, p.sub_category, p.fit, p.length,
           CASE
-            WHEN p.season LIKE '%SA' THEN 'SA'
+            WHEN p.season LIKE '%SS' THEN 'SS'
             WHEN p.season LIKE '%SM' THEN 'SM'
+            WHEN p.season LIKE '%FW' THEN 'FW'
             WHEN p.season LIKE '%WN' THEN 'WN'
-            WHEN p.season LIKE '%SS' THEN 'SA'
-            WHEN p.season LIKE '%FW' THEN 'WN'
-            ELSE 'SA'
+            ELSE 'SS'
           END AS product_season,
           COALESCE(SUM(s.qty), 0)::int AS total_sold,
           ROUND(COALESCE(SUM(s.qty), 0)::numeric / $1::numeric, 2) AS avg_daily,
@@ -144,6 +152,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         JOIN products p ON pv.product_code = p.product_code
         JOIN sales s ON pv.variant_id = s.variant_id
           AND s.sale_date >= CURRENT_DATE - ($1 || ' days')::interval
+          ${salesPartnerFilter}
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
           AND p.created_at >= CURRENT_DATE - INTERVAL '365 days'
@@ -151,7 +160,7 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       ),
       current_stock AS (
         SELECT variant_id, COALESCE(SUM(qty), 0)::int AS total_stock
-        FROM inventory GROUP BY variant_id
+        FROM inventory ${invPartnerFilter} GROUP BY variant_id
       ),
       in_production AS (
         SELECT p.product_code,
@@ -169,16 +178,16 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         SELECT ri.variant_id, COALESCE(SUM(ri.request_qty - COALESCE(ri.received_qty, 0)), 0)::int AS pending_qty
         FROM restock_request_items ri
         JOIN restock_requests rr ON ri.request_id = rr.request_id
-        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED')
+        WHERE rr.status IN ('DRAFT', 'APPROVED', 'ORDERED') ${restockPartnerFilter}
         GROUP BY ri.variant_id
       ),
       zero_stock AS (
         SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
-               p.season, p.category, p.sub_category, p.fit, p.length, 'SA' AS product_season,
+               p.season, p.category, p.sub_category, p.fit, p.length, 'SS' AS product_season,
                0 AS total_sold, 0::numeric AS avg_daily, 0 AS predicted_30d
         FROM product_variants pv
         JOIN products p ON pv.product_code = p.product_code
-        LEFT JOIN inventory i ON pv.variant_id = i.variant_id
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id ${invJoinFilter}
         WHERE p.is_active = TRUE AND pv.is_active = TRUE AND p.sale_status = '판매중'
           AND COALESCE(pv.low_stock_alert, TRUE) = TRUE
           AND p.created_at >= CURRENT_DATE - INTERVAL '365 days'
@@ -196,10 +205,10 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
           AND p.season IS NOT NULL AND p.season ~ '^[0-9]{4}'
           AND (EXTRACT(YEAR FROM CURRENT_DATE) - LEFT(p.season, 4)::int) * 365 < ${excludeAgeDays}
           AND (SELECT COUNT(*) FROM product_variants pv2 WHERE pv2.product_code = p.product_code AND pv2.is_active = TRUE) >= ${brokenMinSizes}
-          AND COALESCE((SELECT SUM(qty) FROM inventory WHERE variant_id = pv.variant_id), 0) <= ${brokenQtyThreshold}
+          AND COALESCE((SELECT SUM(qty) FROM inventory WHERE variant_id = pv.variant_id ${invSubFilter}), 0) <= ${brokenQtyThreshold}
           AND EXISTS (
             SELECT 1 FROM product_variants pv3
-            LEFT JOIN inventory i3 ON pv3.variant_id = i3.variant_id
+            LEFT JOIN inventory i3 ON pv3.variant_id = i3.variant_id ${invJoinFilter.replace(/\bi\b/g, 'i3')}
             WHERE pv3.product_code = p.product_code AND pv3.is_active = TRUE AND pv3.variant_id != pv.variant_id
             GROUP BY pv3.variant_id HAVING COALESCE(SUM(i3.qty), 0) > ${brokenQtyThreshold}
           )
@@ -208,9 +217,9 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         SELECT pv.variant_id, p.product_code, p.product_name, pv.sku, pv.color, pv.size,
                p.season, p.category, p.sub_category, p.fit, p.length,
                CASE
-                 WHEN p.season LIKE '%SA' THEN 'SA' WHEN p.season LIKE '%SM' THEN 'SM'
-                 WHEN p.season LIKE '%WN' THEN 'WN' WHEN p.season LIKE '%SS' THEN 'SA'
-                 WHEN p.season LIKE '%FW' THEN 'WN' ELSE 'SA'
+                 WHEN p.season LIKE '%SS' THEN 'SS' WHEN p.season LIKE '%SM' THEN 'SM'
+                 WHEN p.season LIKE '%FW' THEN 'FW' WHEN p.season LIKE '%WN' THEN 'WN'
+                 ELSE 'SS'
                END AS product_season,
                0 AS total_sold, 0::numeric AS avg_daily, 0 AS predicted_30d
         FROM product_variants pv
@@ -314,7 +323,8 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
         END ASC,
         shortage_qty DESC
       LIMIT 200`;
-    const rows = (await this.pool.query(sql, [salesPeriodDays])).rows;
+    const params = pf ? [salesPeriodDays, partnerCode] : [salesPeriodDays];
+    const rows = (await this.pool.query(sql, params)).rows;
 
     // 비율 기반 상태 분류: 판매율 / 임계값
     const suggestions = rows.map((r: any) => {
@@ -326,6 +336,77 @@ export class RestockRepository extends BaseRepository<RestockRequest> {
       return { ...r, restock_status, is_broken_size: r.is_broken_size === true || r.is_broken_size === 't' };
     });
     return { suggestions, salesPeriodDays };
+  }
+
+  /** 매장별 사이즈 깨짐 품목 조회 */
+  async getStoreBrokenSizes(partnerCode: string) {
+    // 시스템 설정: 최소 사이즈 구성 수
+    const settingsResult = await this.pool.query(
+      "SELECT code_value, code_label FROM master_codes WHERE code_type = 'SETTING' AND code_value = 'BROKEN_SIZE_MIN_SIZES'",
+    );
+    const brokenMinSizes = parseInt(settingsResult.rows[0]?.code_label || '3', 10);
+
+    const sql = `
+      WITH store_variants AS (
+        SELECT pv.variant_id, pv.product_code, pv.color, pv.size, pv.sku,
+               p.product_name, p.category, p.season, p.base_price,
+               COALESCE(i.qty, 0)::int AS store_qty
+        FROM product_variants pv
+        JOIN products p ON pv.product_code = p.product_code
+        LEFT JOIN inventory i ON pv.variant_id = i.variant_id AND i.partner_code = $1
+        WHERE p.is_active = TRUE AND pv.is_active = TRUE
+          AND pv.size != 'FREE'
+      ),
+      product_color_stats AS (
+        SELECT product_code, color,
+          COUNT(*)::int AS total_sizes,
+          COUNT(*) FILTER (WHERE store_qty > 0)::int AS sizes_in_stock,
+          COUNT(*) FILTER (WHERE store_qty = 0)::int AS sizes_out
+        FROM store_variants
+        GROUP BY product_code, color
+        HAVING COUNT(*) >= $2
+      )
+      SELECT sv.variant_id, sv.product_code, sv.product_name, sv.category, sv.season,
+             sv.color, sv.size, sv.sku, sv.base_price, sv.store_qty,
+             pcs.total_sizes, pcs.sizes_in_stock, pcs.sizes_out,
+             COALESCE((SELECT SUM(qty) FROM inventory
+                       WHERE variant_id = sv.variant_id AND partner_code != $1), 0)::int AS other_stock
+      FROM store_variants sv
+      JOIN product_color_stats pcs ON sv.product_code = pcs.product_code AND sv.color = pcs.color
+      WHERE sv.store_qty = 0
+        AND pcs.sizes_in_stock > 0
+      ORDER BY sv.product_code, sv.color,
+        CASE sv.size WHEN 'XS' THEN 1 WHEN 'S' THEN 2 WHEN 'M' THEN 3 WHEN 'L' THEN 4 WHEN 'XL' THEN 5 WHEN 'XXL' THEN 6 ELSE 7 END`;
+    const rows = (await this.pool.query(sql, [partnerCode, brokenMinSizes])).rows;
+
+    // 품번+컬러별 그룹핑 (클라이언트 표시용)
+    const groupMap = new Map<string, any>();
+    for (const r of rows) {
+      const key = `${r.product_code}__${r.color}`;
+      if (!groupMap.has(key)) {
+        groupMap.set(key, {
+          product_code: r.product_code,
+          product_name: r.product_name,
+          category: r.category,
+          season: r.season,
+          color: r.color,
+          total_sizes: r.total_sizes,
+          sizes_in_stock: r.sizes_in_stock,
+          missing_sizes: [],
+          missing_variants: [],
+        });
+      }
+      const g = groupMap.get(key)!;
+      g.missing_sizes.push(r.size);
+      g.missing_variants.push({
+        variant_id: r.variant_id,
+        size: r.size,
+        sku: r.sku,
+        base_price: r.base_price,
+        other_stock: r.other_stock,
+      });
+    }
+    return Array.from(groupMap.values());
   }
 
   /** 진행중인 재입고 통계 */

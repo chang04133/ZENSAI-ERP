@@ -141,15 +141,16 @@ export class InventoryRepository extends BaseRepository<Inventory> {
     const lockKey = Buffer.from(`${partnerCode}:${variantId}`).reduce((h, b) => (h * 31 + b) | 0, 0);
     await client.query('SELECT pg_advisory_xact_lock($1)', [lockKey]);
 
-    // 재고 차감 시 음수 방지 (allowNegative=true이면 음수 허용 — 매출 등록용)
-    if (qtyChange < 0 && !options?.allowNegative) {
+    // 재고 차감 시 음수 방지
+    // allowNegative=true(예약판매 등)여도 -2까지만 허용 (sales.routes.ts와 동일 한도)
+    if (qtyChange < 0) {
       const cur = await client.query(
         'SELECT qty FROM inventory WHERE partner_code = $1 AND variant_id = $2',
         [partnerCode, variantId],
       );
       const currentQty = cur.rows[0] ? Number(cur.rows[0].qty) : 0;
-      if (currentQty + qtyChange < 0) {
-        // variant 정보 조회하여 에러 메시지에 포함
+      const minAllowed = options?.allowNegative ? -2 : 0;
+      if (currentQty + qtyChange < minAllowed) {
         const vInfo = await client.query(
           `SELECT pv.sku, p.product_name, pv.color, pv.size
            FROM product_variants pv JOIN products p ON pv.product_code = p.product_code
@@ -157,7 +158,7 @@ export class InventoryRepository extends BaseRepository<Inventory> {
         );
         const v = vInfo.rows[0];
         const desc = v ? `${v.product_name} (${v.color}/${v.size})` : `variant#${variantId}`;
-        throw new Error(`재고 부족: ${desc} — 현재 ${currentQty}개, 필요 ${Math.abs(qtyChange)}개`);
+        throw new Error(`재고 부족: ${desc} — 현재 ${currentQty}개, 필요 ${Math.abs(qtyChange)}개${options?.allowNegative ? ' (최소 -2까지 허용)' : ''}`);
       }
     }
 

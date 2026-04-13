@@ -68,7 +68,7 @@ router.get('/test-results', ...admin, asyncHandler(async (_req, res) => {
 }));
 
 // GET /api/system/e2e-results - E2E 테스트 결과 JSON 조회
-router.get('/e2e-results', asyncHandler(async (_req, res) => {
+router.get('/e2e-results', ...admin, asyncHandler(async (_req, res) => {
   const docsDir = resolveDocsDir();
   if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
   const filePath = path.join(docsDir, 'e2e-results.json');
@@ -83,7 +83,7 @@ router.get('/e2e-results', asyncHandler(async (_req, res) => {
 }));
 
 // GET /api/system/e2e-screenshots — E2E 스크린샷 이미지 서빙 (?path=relative/path.png)
-router.get('/e2e-screenshots', asyncHandler(async (req, res) => {
+router.get('/e2e-screenshots', ...admin, asyncHandler(async (req, res) => {
   const relPath = req.query.path as string;
   if (!relPath || !relPath.endsWith('.png') || relPath.includes('..')) {
     res.status(400).json({ success: false, error: '유효하지 않은 경로입니다.' });

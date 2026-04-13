@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Spin, Anchor, message, Input, Empty, Typography, Tabs, Tag } from 'antd';
 import { SearchOutlined, SyncOutlined } from '@ant-design/icons';
+import DOMPurify from 'dompurify';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
@@ -229,7 +230,7 @@ export default function SystemDocPage() {
   }, [activeFile, loadDoc]);
 
   const toc = useMemo(() => extractToc(markdown), [markdown]);
-  const htmlContent = useMemo(() => highlightSearch(markdownToHtml(markdown), search), [markdown, search]);
+  const htmlContent = useMemo(() => DOMPurify.sanitize(highlightSearch(markdownToHtml(markdown), search)), [markdown, search]);
 
   const anchorItems = useMemo(
     () => toc.filter(t => t.level === 2).map(t => {

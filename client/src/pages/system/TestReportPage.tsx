@@ -7,6 +7,7 @@ import {
   ReloadOutlined, WarningOutlined, OrderedListOutlined,
   CrownFilled, StarFilled, FireFilled, TrophyFilled,
 } from '@ant-design/icons';
+import DOMPurify from 'dompurify';
 import dayjs from 'dayjs';
 import PageHeader from '../../components/PageHeader';
 import { systemApi } from '../../modules/system/system.api';
@@ -1034,7 +1035,7 @@ export default function TestReportPage() {
                               {expanded && (
                                 <div
                                   className="quest-detail"
-                                  dangerouslySetInnerHTML={{ __html: markdownToHtml(item.body) }}
+                                  dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(markdownToHtml(item.body)) }}
                                 />
                               )}
                             </div>

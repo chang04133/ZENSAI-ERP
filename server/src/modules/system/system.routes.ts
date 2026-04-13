@@ -42,7 +42,11 @@ router.get('/docs/:filename', ...admin, asyncHandler(async (req, res) => {
   }
   const docsDir = resolveDocsDir();
   if (!docsDir) { res.status(404).json({ success: false, error: 'docs 폴더를 찾을 수 없습니다.' }); return; }
-  const filePath = path.join(docsDir, filename);
+  const filePath = path.resolve(path.join(docsDir, filename));
+  if (!filePath.startsWith(path.resolve(docsDir))) {
+    res.status(403).json({ success: false, error: '접근이 거부되었습니다.' });
+    return;
+  }
   if (!fs.existsSync(filePath)) {
     res.status(404).json({ success: false, error: '문서 파일을 찾을 수 없습니다.' });
     return;
@@ -185,10 +189,19 @@ router.post('/restore', ...admin, asyncHandler(async (req, res) => {
   res.json({ success: true });
 }));
 
+// 날짜 포맷 검증 헬퍼
+function isValidDate(d: unknown): d is string {
+  return typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && !isNaN(new Date(d + 'T00:00:00Z').getTime());
+}
+
 // GET /api/system/activity-logs - 활동 로그 조회
 router.get('/activity-logs', ...admin, asyncHandler(async (req, res) => {
   const pool = getPool();
   const { page = '1', limit = '50', user_id, method, path: pathFilter, start_date, end_date } = req.query;
+  if ((start_date && !isValidDate(start_date)) || (end_date && !isValidDate(end_date))) {
+    res.status(400).json({ success: false, error: '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)' });
+    return;
+  }
   const p = parseInt(page as string, 10);
   const l = Math.min(parseInt(limit as string, 10) || 50, 200);
   const offset = (p - 1) * l;
@@ -225,6 +238,10 @@ router.get('/activity-logs/users', ...admin, asyncHandler(async (_req, res) => {
 router.get('/store-activity-logs', ...adminHqStore, asyncHandler(async (req, res) => {
   const pool = getPool();
   const { page = '1', limit = '50', method, summary, start_date, end_date } = req.query;
+  if ((start_date && !isValidDate(start_date)) || (end_date && !isValidDate(end_date))) {
+    res.status(400).json({ success: false, error: '날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)' });
+    return;
+  }
   const p = parseInt(page as string, 10);
   const l = Math.min(parseInt(limit as string, 10) || 50, 200);
   const offset = (p - 1) * l;

@@ -52,6 +52,10 @@ export function CrmDashboard() {
   }, []);
 
   useEffect(() => {
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, []);
+
+  useEffect(() => {
     setLoading(true);
     Promise.all([
       crmApi.dashboard(),

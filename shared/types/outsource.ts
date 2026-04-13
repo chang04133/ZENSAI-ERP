@@ -1,5 +1,50 @@
 // ── 외주 운영 모듈 타입 ──
 
+export type OsBriefStatus = 'DRAFT' | 'DISTRIBUTED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type OsSubmissionStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+export interface OsBrief {
+  brief_id: number;
+  brief_no: string;
+  brief_title: string;
+  season?: string;
+  category?: string;
+  target_qty?: number;
+  budget_amount?: number;
+  deadline?: string;
+  description?: string;
+  attachments?: string;
+  status: OsBriefStatus;
+  assigned_to?: string;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OsDesignSubmission {
+  submission_id: number;
+  brief_id: number;
+  submission_no: string;
+  version: number;
+  material_research?: string;
+  design_mockup?: string;
+  work_order_draft?: string;
+  attachments?: string;
+  memo?: string;
+  status: OsSubmissionStatus;
+  submitted_by?: string;
+  submitted_at?: string;
+  reviewed_by?: string;
+  reviewed_at?: string;
+  review_deadline?: string;
+  reject_reason?: string;
+  created_at: string;
+  updated_at: string;
+  // JOIN
+  brief_title?: string;
+  brief_no?: string;
+}
+
 export type OsWoStatus = 'CONFIRMED' | 'IN_PRODUCTION' | 'QC_1ST' | 'QC_FINAL' | 'COMPLETED' | 'CANCELLED';
 export type OsSampleType = 'PROTO' | 'FITTING' | 'PP' | 'PRODUCTION';
 export type OsSampleStatus = 'PENDING' | 'IN_PROGRESS' | 'APPROVED' | 'REJECTED';
@@ -117,4 +162,51 @@ export interface OsPayment {
   // JOIN
   wo_no?: string;
   brief_title?: string;
+}
+
+// ── 사이즈팩 ──
+export type OsSizePackStatus = 'DRAFT' | 'SAVED' | 'CONVERTED';
+
+export interface OsSizePack {
+  pack_id: number;
+  product_code: string;
+  season?: string;
+  category?: string;
+  qty_xs: number;
+  qty_s: number;
+  qty_m: number;
+  qty_l: number;
+  qty_xl: number;
+  qty_xxl: number;
+  qty_free: number;
+  total_qty: number;
+  unit_cost: number;
+  memo?: string;
+  status: OsSizePackStatus;
+  brief_id?: number;
+  created_by?: string;
+  created_at: string;
+  updated_at: string;
+  // JOIN
+  product_name?: string;
+  brief_no?: string;
+}
+
+export interface SizeBreakdown {
+  size: string;
+  qty: number;
+  amount: number;
+  pct: number;
+}
+
+export interface BestSellerProduct {
+  product_code: string;
+  product_name: string;
+  category: string;
+  season: string;
+  base_price: number;
+  total_qty: number;
+  total_amount: number;
+  size_breakdown: SizeBreakdown[];
+  size_pack?: OsSizePack | null;
 }

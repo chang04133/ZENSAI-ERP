@@ -110,7 +110,8 @@ export class InventoryRepository extends BaseRepository<Inventory> {
 
     // 합계
     const sumSql = `SELECT COALESCE(SUM(i.qty), 0)::int AS sum_qty ${baseSql}`;
-    const sumQty = parseInt((await this.pool.query(sumSql, params)).rows[0].sum_qty, 10);
+    const sumResult = await this.pool.query(sumSql, params);
+    const sumQty = sumResult.rows[0] ? parseInt(sumResult.rows[0].sum_qty, 10) || 0 : 0;
 
     const orderMap: Record<string, string> = { qty: 'i.qty', product_name: 'p.product_name', category: 'p.category', season: 'p.season', sku: 'pv.sku' };
     const orderCol = orderMap[sort_field] || null;

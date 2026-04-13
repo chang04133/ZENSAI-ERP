@@ -164,7 +164,7 @@ export default function ProductionPlanPage() {
         setYearOptions(yearCodes.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
         const seasonCodes = (codes.SEASON || []).filter((c: any) => c.is_active);
         setSeasonOptions(seasonCodes.map((c: any) => ({ label: c.code_label || c.code_value, value: c.code_value })));
-      } catch (e: any) { console.error('코드 로드 실패:', e); }
+      } catch { /* 코드 로드 실패 무시 */ }
     })();
     (async () => {
       try {

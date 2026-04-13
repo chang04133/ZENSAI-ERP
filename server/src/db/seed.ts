@@ -23,7 +23,7 @@ export async function seedDefaults(pool: Pool): Promise<void> {
          VALUES ($1, $2, NULL, $3, $4)`,
         ['admin', '시스템관리자', adminRole.rows[0].group_id, hash]
       );
-      console.log('기본 admin 계정 생성 완료 (admin / admin1234!)');
+      console.log('기본 admin 계정 생성 완료');
     }
   }
 

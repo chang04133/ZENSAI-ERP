@@ -84,11 +84,16 @@ const ConsentPage = lazy(() => import('../pages/ConsentPage'));
 
 // Outsource
 const OutsourceDashboardPage = lazy(() => import('../pages/outsource/OutsourceDashboardPage'));
+const BriefManagePage = lazy(() => import('../pages/outsource/BriefManagePage'));
+const DesignReviewPage = lazy(() => import('../pages/outsource/DesignReviewPage'));
 const WorkOrderPage = lazy(() => import('../pages/outsource/WorkOrderPage'));
 const SampleVendorPage = lazy(() => import('../pages/outsource/SampleVendorPage'));
 const QcInspectionPage = lazy(() => import('../pages/outsource/QcInspectionPage'));
 const FinalSelectPage = lazy(() => import('../pages/outsource/FinalSelectPage'));
 const OsPaymentPage = lazy(() => import('../pages/outsource/OsPaymentPage'));
+
+// MD Analytics
+const MdAnalyticsPage = lazy(() => import('../pages/md/MdAnalyticsPage'));
 
 // CRM
 const CrmPage = lazy(() => import('../pages/crm/CrmPage'));
@@ -111,14 +116,16 @@ export interface AppRoute {
 }
 
 const ALL = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER, ROLES.STORE_STAFF];
+const ALL_WITH_OS = [...ALL, ROLES.OUTSOURCE_DESIGNER];
 const ADMIN_ONLY = [ROLES.ADMIN];
 const ADMIN_SYS = [ROLES.ADMIN, ROLES.SYS_ADMIN];
 const ADMIN_HQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER];
 const ADMIN_HQ_STORE = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER];
+const OUTSOURCE_ROLES = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.OUTSOURCE_DESIGNER];
 
 export const appRoutes: AppRoute[] = [
   // Dashboard
-  { path: '/', element: <DashboardPage />, roles: ALL },
+  { path: '/', element: <DashboardPage />, roles: ALL_WITH_OS },
 
   // Partners
   { path: '/partners', element: <PartnerListPage />, roles: ADMIN_HQ_STORE },
@@ -152,7 +159,7 @@ export const appRoutes: AppRoute[] = [
   // Inventory
   { path: '/inventory/status', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/store', element: <StoreInventoryPage />, roles: ADMIN_HQ_STORE },
-  { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
+  { path: '/inventory/adjust', element: <InventoryStatusPage />, roles: ADMIN_HQ },
   { path: '/inventory/restock', element: <InventoryStatusPage />, roles: ADMIN_HQ_STORE },
   { path: '/inventory/loss', element: <LossManagePage />, roles: ADMIN_HQ },
   { path: '/inventory/transactions', element: <InventoryTransactionLogPage />, roles: ADMIN_ONLY },
@@ -179,13 +186,18 @@ export const appRoutes: AppRoute[] = [
   { path: '/production/materials', element: <MaterialManagePage />, roles: ADMIN_ONLY },
   { path: '/production/payments', element: <ProductionPaymentPage />, roles: ADMIN_ONLY },
 
-  // Outsource (ADMIN + HQ)
-  { path: '/outsource', element: <OutsourceDashboardPage />, roles: ADMIN_HQ },
-  { path: '/outsource/work-orders', element: <WorkOrderPage />, roles: ADMIN_HQ },
-  { path: '/outsource/samples', element: <SampleVendorPage />, roles: ADMIN_HQ },
-  { path: '/outsource/qc', element: <QcInspectionPage />, roles: ADMIN_HQ },
-  { path: '/outsource/final-select', element: <FinalSelectPage />, roles: ADMIN_HQ },
-  { path: '/outsource/payments', element: <OsPaymentPage />, roles: ADMIN_HQ },
+  // Outsource (ADMIN + HQ + 외주디자이너)
+  { path: '/outsource', element: <OutsourceDashboardPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/briefs', element: <BriefManagePage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/design-review', element: <DesignReviewPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/work-orders', element: <WorkOrderPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/samples', element: <SampleVendorPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/qc', element: <QcInspectionPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/final-select', element: <FinalSelectPage />, roles: OUTSOURCE_ROLES },
+  { path: '/outsource/payments', element: <OsPaymentPage />, roles: OUTSOURCE_ROLES },
+
+  // MD Analytics
+  { path: '/md/analytics', element: <MdAnalyticsPage />, roles: ADMIN_HQ },
 
   // Barcode (매장매니저 이하)
   { path: '/barcode', element: <BarcodeDashboardPage />, roles: ALL },

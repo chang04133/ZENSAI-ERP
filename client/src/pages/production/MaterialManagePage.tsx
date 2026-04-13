@@ -40,7 +40,7 @@ export default function MaterialManagePage() {
     try {
       const sm = await materialApi.summary();
       setSummary(sm);
-    } catch (e: any) { console.error('생산라벨 부가정보 로드 실패:', e); }
+    } catch { /* 생산라벨 부가정보 로드 실패 무시 */ }
   };
 
   useEffect(() => { load(); }, [load]);

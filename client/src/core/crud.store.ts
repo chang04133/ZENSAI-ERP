@@ -5,6 +5,7 @@ export interface CrudState<T> {
   data: T[];
   total: number;
   loading: boolean;
+  error: string | null;
   detail: T | null;
   fetchList: (params?: Record<string, string>) => Promise<void>;
   fetchDetail: (id: string | number) => Promise<void>;
@@ -19,23 +20,28 @@ export function createCrudStore<T>(api: CrudApi<T>) {
     data: [],
     total: 0,
     loading: false,
+    error: null,
     detail: null,
 
     fetchList: async (params?) => {
-      set({ loading: true });
+      set({ loading: true, error: null });
       try {
         const result = await api.list(params);
         set({ data: result.data, total: result.total });
+      } catch (e: any) {
+        set({ error: e?.message || '데이터 조회 실패' });
       } finally {
         set({ loading: false });
       }
     },
 
     fetchDetail: async (id) => {
-      set({ loading: true });
+      set({ loading: true, error: null });
       try {
         const item = await api.get(id);
         set({ detail: item });
+      } catch (e: any) {
+        set({ error: e?.message || '상세 조회 실패' });
       } finally {
         set({ loading: false });
       }

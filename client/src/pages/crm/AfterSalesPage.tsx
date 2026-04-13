@@ -74,7 +74,7 @@ export default function AfterSalesPage() {
           label: `${c.customer_name} (${c.phone || '-'})`,
           value: c.customer_id,
         })));
-      } catch (e: any) { console.warn('고객 검색 실패:', e.message); }
+      } catch { /* 고객 검색 실패 무시 */ }
       finally { setCustomerSearching(false); }
     }, 300);
   };

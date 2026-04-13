@@ -269,6 +269,13 @@ class ShipmentService extends BaseService<ShipmentRequest> {
         const items = await client.query(
           'SELECT variant_id, shipped_qty, received_qty FROM shipment_request_items WHERE request_id = $1', [id],
         );
+        // RECEIVED/DISCREPANCY 상태였으면 LOSS 트랜잭션 기록도 정리
+        if (oldStatus === 'RECEIVED' || oldStatus === 'DISCREPANCY') {
+          await client.query(
+            `DELETE FROM inventory_transactions WHERE tx_type = 'LOSS' AND ref_id = $1`,
+            [id],
+          );
+        }
         // RECEIVED 또는 DISCREPANCY 상태였으면 to_partner에서 received_qty 차감
         if ((oldStatus === 'RECEIVED' || oldStatus === 'DISCREPANCY') && current.to_partner) {
           for (const item of items.rows) {

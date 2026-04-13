@@ -110,7 +110,7 @@ router.post('/login', async (req, res) => {
       },
     });
   } catch (error: any) {
-    console.error('로그인 오류:', error);
+    console.error('로그인 오류:', (error as Error).message);
     res.status(500).json({ success: false, error: '로그인 처리 중 오류가 발생했습니다.' });
   }
 });
@@ -160,7 +160,7 @@ router.post('/refresh', async (req, res) => {
       data: { accessToken: newAccessToken, refreshToken: newRefreshToken },
     });
   } catch (error) {
-    console.error('토큰 갱신 오류:', error);
+    console.error('토큰 갱신 오류:', (error as Error).message);
     res.status(500).json({ success: false, error: '토큰 갱신 중 오류가 발생했습니다.' });
   }
 });
@@ -171,7 +171,7 @@ router.post('/logout', authMiddleware, async (req, res) => {
     await deleteUserRefreshTokens(req.user!.userId);
     res.json({ success: true });
   } catch (error) {
-    console.error('로그아웃 오류:', error);
+    console.error('로그아웃 오류:', (error as Error).message);
     res.status(500).json({ success: false, error: '로그아웃 처리 중 오류가 발생했습니다.' });
   }
 });

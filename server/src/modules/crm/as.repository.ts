@@ -55,12 +55,15 @@ class AsRepository {
 
   async getStats(partnerCode?: string) {
     const params: any[] = [];
-    let pcFilter = '';
-    const openFilter = "status IN ('접수','진행')";
-    if (partnerCode) { params.push(partnerCode); pcFilter = `partner_code = $1 AND `; }
+    const clauses: string[] = [];
+    if (partnerCode) { params.push(partnerCode); clauses.push(`partner_code = $1`); }
+    const where = clauses.length ? 'WHERE ' + clauses.join(' AND ') : '';
+    const openWhere = clauses.length
+      ? `WHERE ${clauses.join(' AND ')} AND status IN ('접수','진행')`
+      : `WHERE status IN ('접수','진행')`;
     const [byStatus, byTypeOpen] = await Promise.all([
-      this.pool.query(`SELECT status, COUNT(*)::int AS count FROM after_sales_services ${pcFilter ? 'WHERE ' + pcFilter.slice(0, -5) : ''} GROUP BY status`, params),
-      this.pool.query(`SELECT service_type, COUNT(*)::int AS count FROM after_sales_services WHERE ${pcFilter}${openFilter} GROUP BY service_type`, params),
+      this.pool.query(`SELECT status, COUNT(*)::int AS count FROM after_sales_services ${where} GROUP BY status`, params),
+      this.pool.query(`SELECT service_type, COUNT(*)::int AS count FROM after_sales_services ${openWhere} GROUP BY service_type`, params),
     ]);
     const openCount = byStatus.rows.filter((r: any) => r.status === '접수' || r.status === '진행').reduce((sum: number, r: any) => sum + r.count, 0);
     return { byStatus: byStatus.rows, byType: byTypeOpen.rows, openCount };

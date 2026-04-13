@@ -17,7 +17,7 @@ const recentBatchMap = new Map<string, number>();
 /** sale_number 생성: INSERT → sale_id로 번호 부여 후 UPDATE */
 async function assignSaleNumber(client: any, saleId: number, saleDate: string): Promise<string> {
   const dateStr = saleDate.replace(/-/g, '').slice(0, 8);
-  const saleNumber = `S${dateStr}-${String(saleId).padStart(4, '0')}`;
+  const saleNumber = `S${dateStr}-${String(saleId).padStart(5, '0')}`;
   await client.query('UPDATE sales SET sale_number = $1 WHERE sale_id = $2', [saleNumber, saleId]);
   return saleNumber;
 }

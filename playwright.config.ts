@@ -28,7 +28,7 @@ export default defineConfig({
     {
       name: 'store-manager',
       dependencies: ['setup'],
-      testIgnore: /(T-outsource|U-permissions|V-event-price|V-sell-through)\.spec\.ts/,
+      testIgnore: /(T-outsource|U-permissions|V-event-price|V-sell-through|W-md-analytics)\.spec\.ts/,
       use: {
         baseURL: 'http://localhost:5174',
         storageState: 'e2e/.auth/store-manager.json',
@@ -43,7 +43,7 @@ export default defineConfig({
     {
       name: 'admin',
       dependencies: ['admin-setup'],
-      testMatch: /(T-outsource|U-permissions|V-event-price|V-sell-through)\.spec\.ts/,
+      testMatch: /(T-outsource|U-permissions|V-event-price|V-sell-through|W-md-analytics)\.spec\.ts/,
       use: {
         baseURL: 'http://localhost:5172',
         storageState: 'e2e/.auth/admin.json',

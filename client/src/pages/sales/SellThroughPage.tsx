@@ -92,7 +92,7 @@ function DailyTrendChart({ current, previous }: { current: any[]; previous: any[
   );
 }
 
-export default function SellThroughPage() {
+export default function SellThroughPage({ embedded }: { embedded?: boolean }) {
   const { formatCode } = useCodeLabels();
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(30, 'day'), dayjs()]);
   const [categoryFilter, setCategoryFilter] = useState<string[]>([]);
@@ -274,7 +274,7 @@ export default function SellThroughPage() {
 
   return (
     <div>
-      <PageHeader title="판매율 분석" />
+      {!embedded && <PageHeader title="판매율 분석" />}
 
       {/* ── 필터 바 ── */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>

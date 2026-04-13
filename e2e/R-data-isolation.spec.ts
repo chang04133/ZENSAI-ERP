@@ -8,7 +8,7 @@ test.describe('R. 데이터 격리 (보안)', () => {
     // API를 직접 호출하여 매출 데이터를 가져옴
     // gangnam 계정 (STORE_MANAGER, partner_code: SF002 성수직매장)
     const salesResponse = await page.evaluate(async () => {
-      const token = localStorage.getItem('access_token');
+      const token = localStorage.getItem('zensai_access_token');
       const res = await fetch('/api/sales?limit=50&page=1', {
         headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {},
       });
@@ -85,7 +85,7 @@ test.describe('R. 데이터 격리 (보안)', () => {
     // API를 직접 호출하여 CRM 고객 데이터를 가져옴
     // gangnam 계정 (STORE_MANAGER, partner_code: SF002 성수직매장)
     const crmResponse = await page.evaluate(async () => {
-      const token = localStorage.getItem('access_token');
+      const token = localStorage.getItem('zensai_access_token');
       const res = await fetch('/api/crm?limit=50&page=1', {
         headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {},
       });
@@ -139,7 +139,7 @@ test.describe('R. 데이터 격리 (보안)', () => {
 
       for (const url of endpoints) {
         try {
-          const token = localStorage.getItem('access_token');
+          const token = localStorage.getItem('zensai_access_token');
           const res = await fetch(url, {
             headers: token ? { Authorization: `Bearer ${token}` } : {},
           });

@@ -12,7 +12,7 @@ import { navigateTo } from './helpers';
  */
 
 function getAuthToken(page: any): Promise<string> {
-  return page.evaluate(() => localStorage.getItem('token') || '');
+  return page.evaluate(() => localStorage.getItem('zensai_access_token') || '');
 }
 
 test.describe('V. 판매율 분석', () => {

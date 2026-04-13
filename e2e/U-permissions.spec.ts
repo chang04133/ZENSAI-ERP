@@ -21,9 +21,12 @@ async function getGangnamToken(): Promise<string> {
   const res = await fetch(`${API}/api/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ user_id: 'gangnam', password: 'test1234!' }),
+    body: JSON.stringify({ user_id: 'gangnam', password: '1234' }),
   });
   const json = await res.json();
+  if (!json.success || !json.data) {
+    throw new Error(`gangnam login failed: ${json.error || JSON.stringify(json)}`);
+  }
   return json.data.accessToken;
 }
 

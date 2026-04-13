@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, InputNumber, Button, message, Descriptions, Spin, Tag, Row, Col } from 'antd';
-import { SettingOutlined, ExperimentOutlined, ScissorOutlined, WarningOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import { SettingOutlined, ExperimentOutlined, ScissorOutlined, WarningOutlined, ThunderboltOutlined, FundProjectionScreenOutlined } from '@ant-design/icons';
 import PageHeader from '../../components/PageHeader';
 import { apiFetch } from '../../core/api.client';
 
@@ -33,6 +33,12 @@ export default function SystemSettingsPage() {
   // 악성재고 설정
   const [deadStockMinAge, setDeadStockMinAge] = useState(1);
 
+  // MD 분석 설정
+  const [mdAbcA, setMdAbcA] = useState(70);
+  const [mdAbcB, setMdAbcB] = useState(90);
+  const [mdSlowMover, setMdSlowMover] = useState(50);
+  const [mdFastMover, setMdFastMover] = useState(200);
+  const [mdMarkdownDays, setMdMarkdownDays] = useState(14);
 
   const currentSeason = getCurrentSeason();
 
@@ -50,6 +56,11 @@ export default function SystemSettingsPage() {
         setBrokenMinSizes(parseInt(data.data.BROKEN_SIZE_MIN_SIZES || '3', 10));
         setBrokenQtyThreshold(parseInt(data.data.BROKEN_SIZE_QTY_THRESHOLD || '2', 10));
         setDeadStockMinAge(parseInt(data.data.DEAD_STOCK_DEFAULT_MIN_AGE_YEARS || '1', 10));
+        setMdAbcA(parseInt(data.data.MD_ABC_A_THRESHOLD || '70', 10));
+        setMdAbcB(parseInt(data.data.MD_ABC_B_THRESHOLD || '90', 10));
+        setMdSlowMover(parseInt(data.data.MD_SLOW_MOVER_THRESHOLD || '50', 10));
+        setMdFastMover(parseInt(data.data.MD_FAST_MOVER_THRESHOLD || '200', 10));
+        setMdMarkdownDays(parseInt(data.data.MD_MARKDOWN_COMPARE_DAYS || '14', 10));
         const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
@@ -81,6 +92,11 @@ export default function SystemSettingsPage() {
         BROKEN_SIZE_MIN_SIZES: String(brokenMinSizes),
         BROKEN_SIZE_QTY_THRESHOLD: String(brokenQtyThreshold),
         DEAD_STOCK_DEFAULT_MIN_AGE_YEARS: String(deadStockMinAge),
+        MD_ABC_A_THRESHOLD: String(mdAbcA),
+        MD_ABC_B_THRESHOLD: String(mdAbcB),
+        MD_SLOW_MOVER_THRESHOLD: String(mdSlowMover),
+        MD_FAST_MOVER_THRESHOLD: String(mdFastMover),
+        MD_MARKDOWN_COMPARE_DAYS: String(mdMarkdownDays),
         ...Object.fromEntries(
           Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
@@ -382,6 +398,87 @@ export default function SystemSettingsPage() {
         </div>
       </Card>
 
+      <Card
+        title={<span><FundProjectionScreenOutlined style={{ marginRight: 8 }} />MD 분석 설정</span>}
+        style={{ borderRadius: 10, marginBottom: 16 }}
+      >
+        <div style={{ marginBottom: 12, fontSize: 13, color: '#666' }}>
+          MD 분석(ABC 분석, 재고회전율, 마크다운 효과) 계산에 사용되는 기준값을 설정합니다.
+        </div>
+
+        <Descriptions column={1} bordered size="middle">
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>ABC A등급 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={10} max={95}
+                value={mdAbcA}
+                onChange={(v) => v !== null && setMdAbcA(v)}
+                addonAfter="%"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>누적매출 상위 {mdAbcA}% 이내 = A등급</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>ABC B등급 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={mdAbcA + 1} max={99}
+                value={mdAbcB}
+                onChange={(v) => v !== null && setMdAbcB(v)}
+                addonAfter="%"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>누적매출 {mdAbcA + 1}~{mdAbcB}% = B등급, 나머지 = C등급</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>슬로우무버 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={1} max={100}
+                value={mdSlowMover}
+                onChange={(v) => v !== null && setMdSlowMover(v)}
+                addonAfter="÷100"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>회전율 {(mdSlowMover / 100).toFixed(2)} 미만 = 슬로우무버</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>패스트무버 기준</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={mdSlowMover + 1} max={1000}
+                value={mdFastMover}
+                onChange={(v) => v !== null && setMdFastMover(v)}
+                addonAfter="÷100"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>회전율 {(mdFastMover / 100).toFixed(2)} 이상 = 패스트무버</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>마크다운 비교기간</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={3} max={90}
+                value={mdMarkdownDays}
+                onChange={(v) => v !== null && setMdMarkdownDays(v)}
+                addonAfter="일"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>마크다운 전후 {mdMarkdownDays}일간 판매속도 비교</span>
+            </div>
+          </Descriptions.Item>
+        </Descriptions>
+
+        <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
+          <div><strong>ABC 분석</strong>: 매출 상위 누적 {mdAbcA}% → <Tag color="green">A</Tag>, {mdAbcA + 1}~{mdAbcB}% → <Tag color="blue">B</Tag>, 나머지 → <Tag color="red">C</Tag></div>
+          <div style={{ marginTop: 4 }}>
+            <strong>재고회전율</strong>: 회전율 {'<'} {(mdSlowMover / 100).toFixed(2)} → <Tag color="red">슬로우무버</Tag>, 회전율 {'≥'} {(mdFastMover / 100).toFixed(2)} → <Tag color="green">패스트무버</Tag>
+          </div>
+          <div style={{ marginTop: 4 }}>
+            <strong>마크다운</strong>: 할인 적용 전후 각 {mdMarkdownDays}일의 판매속도를 비교하여 효과 측정
+          </div>
+        </div>
+      </Card>
 
       </Col>
       </Row>

@@ -10,7 +10,7 @@ let _cachedAuth: { token: string; partnerCode: string } | null = null;
 async function getAuthInfo(page: import('@playwright/test').Page): Promise<{ token: string; partnerCode: string }> {
   if (_cachedAuth) return _cachedAuth;
   const loginRes = await page.request.post('http://localhost:3001/api/auth/login', {
-    data: { user_id: 'gangnam', password: 'test1234!' },
+    data: { user_id: 'gangnam', password: '1234' },
   });
   const loginData = await loginRes.json();
   if (!loginData.success) throw new Error('Auth token fetch failed');

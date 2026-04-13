@@ -563,7 +563,7 @@ test.describe('V. 행사관리 (Event Price)', () => {
       // 매출 등록 (gangnam/SF002 매장으로)
       // gangnam 계정 토큰 필요
       const gangnamLogin = await page.request.post('http://localhost:3001/api/auth/login', {
-        data: { user_id: 'gangnam', password: 'test1234!' },
+        data: { user_id: 'gangnam', password: '1234' },
       });
       const gangnamData = await gangnamLogin.json();
       if (!gangnamData.success) { test.skip(); return; }

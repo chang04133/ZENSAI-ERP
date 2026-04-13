@@ -9,13 +9,15 @@ export interface MenuItem {
 }
 
 const ALL = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER, ROLES.STORE_STAFF];
+const ALL_WITH_OS = [...ALL, ROLES.OUTSOURCE_DESIGNER];
 const ADMIN_ONLY = [ROLES.ADMIN];
 const ADMIN_SYS = [ROLES.ADMIN, ROLES.SYS_ADMIN];
 const ADMIN_HQ = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER];
 const ADMIN_HQ_STORE = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.STORE_MANAGER];
+const OUTSOURCE_ROLES = [ROLES.ADMIN, ROLES.SYS_ADMIN, ROLES.HQ_MANAGER, ROLES.OUTSOURCE_DESIGNER];
 
 export const menuItems: MenuItem[] = [
-  { key: '/', label: '대시보드', icon: 'DashboardOutlined', roles: ALL },
+  { key: '/', label: '대시보드', icon: 'DashboardOutlined', roles: ALL_WITH_OS },
   { key: '/notices', label: '공지사항', icon: 'NotificationOutlined', roles: ALL },
   { key: '/barcode', label: '바코드 관리', icon: 'BarcodeOutlined', roles: ALL },
   {
@@ -47,14 +49,16 @@ export const menuItems: MenuItem[] = [
     ],
   },
   {
-    key: 'sub-outsource', label: '외주관리', icon: 'ClusterOutlined', roles: ADMIN_HQ,
+    key: 'sub-outsource', label: '외주관리', icon: 'ClusterOutlined', roles: OUTSOURCE_ROLES,
     children: [
-      { key: '/outsource', label: '외주 대시보드', icon: 'DashboardOutlined', roles: ADMIN_HQ },
-      { key: '/outsource/work-orders', label: '작업지시서', icon: 'ToolOutlined', roles: ADMIN_HQ },
-      { key: '/outsource/samples', label: '샘플/업체관리', icon: 'ExperimentOutlined', roles: ADMIN_HQ },
-      { key: '/outsource/qc', label: '1차 QC 검수', icon: 'SafetyCertificateOutlined', roles: ADMIN_HQ },
-      { key: '/outsource/final-select', label: '최종 셀렉', icon: 'CheckSquareOutlined', roles: ADMIN_HQ },
-      { key: '/outsource/payments', label: '결제 관리', icon: 'DollarOutlined', roles: ADMIN_HQ },
+      { key: '/outsource', label: '외주 대시보드', icon: 'DashboardOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/briefs', label: '브리프 관리', icon: 'FileTextOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/design-review', label: '디자인 심사', icon: 'PictureOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/work-orders', label: '작업지시서', icon: 'ToolOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/samples', label: '샘플/업체관리', icon: 'ExperimentOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/qc', label: '1차 QC 검수', icon: 'SafetyCertificateOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/final-select', label: '최종 셀렉', icon: 'CheckSquareOutlined', roles: OUTSOURCE_ROLES },
+      { key: '/outsource/payments', label: '결제 관리', icon: 'DollarOutlined', roles: OUTSOURCE_ROLES },
     ],
   },
   {
@@ -79,14 +83,13 @@ export const menuItems: MenuItem[] = [
     key: '/sales', label: '판매관리', icon: 'LineChartOutlined', roles: ALL,
     children: [
       { key: '/sales/dashboard', label: '종합매출현황', icon: 'DashboardOutlined', roles: ADMIN_HQ_STORE },
-      { key: '/sales/analytics', label: '판매분석', icon: 'PieChartOutlined', roles: ADMIN_HQ },
-      { key: '/sales/sell-through', label: '판매율 분석', icon: 'RiseOutlined', roles: ADMIN_HQ },
       { key: '/sales/entry', label: '매출관리', icon: 'PlusCircleOutlined', roles: ALL },
       { key: '/sales/returns', label: '고객반품관리', icon: 'RollbackOutlined', roles: ADMIN_HQ_STORE },
       { key: '/sales/preorders', label: '예약판매', icon: 'ClockCircleOutlined', roles: ADMIN_HQ },
     ],
   },
 
+  { key: '/md/analytics', label: 'MD 분석', icon: 'FundProjectionScreenOutlined', roles: ADMIN_HQ },
   {
     key: 'sub-crm', label: '고객관리', icon: 'TeamOutlined', roles: ADMIN_HQ_STORE,
     children: [

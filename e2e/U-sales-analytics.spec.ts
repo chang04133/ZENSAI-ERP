@@ -9,7 +9,7 @@ import { navigateTo, waitForTable } from './helpers';
  */
 
 function getAuthToken(page: any): Promise<string> {
-  return page.evaluate(() => localStorage.getItem('token') || '');
+  return page.evaluate(() => localStorage.getItem('zensai_access_token') || '');
 }
 
 test.describe('U. 판매분석 (기간별 현황)', () => {

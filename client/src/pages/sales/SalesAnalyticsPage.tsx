@@ -114,10 +114,10 @@ export function capArr(arr: any[], max: number, labelKey: string, sumKeys: strin
 /* ═══════════════════════════════════════════
    메인 컴포넌트: 판매분석
    ═══════════════════════════════════════════ */
-export default function SalesAnalyticsPage() {
+export default function SalesAnalyticsPage({ embedded }: { embedded?: boolean }) {
   return (
     <div>
-      <PageHeader title="판매분석" />
+      {!embedded && <PageHeader title="판매분석" />}
       <Tabs
         defaultActiveKey="period"
         type="card"

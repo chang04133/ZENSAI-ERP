@@ -301,6 +301,9 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD',
     'DEAD_STOCK_DEFAULT_MIN_AGE_YEARS',
     'RESTOCK_EXCLUDE_AGE_DAYS',
+    'MD_ABC_A_THRESHOLD', 'MD_ABC_B_THRESHOLD',
+    'MD_SLOW_MOVER_THRESHOLD', 'MD_FAST_MOVER_THRESHOLD',
+    'MD_MARKDOWN_COMPARE_DAYS',
   ];
 
   const client = await pool.connect();

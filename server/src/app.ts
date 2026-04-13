@@ -38,6 +38,7 @@ import warehouseRoutes from './modules/warehouse/warehouse.routes';
 import crmRoutes from './modules/crm/crm.routes';
 import consentRoutes from './modules/crm/consent.routes';
 import outsourceRoutes from './modules/outsource/outsource.routes';
+import mdAnalyticsRoutes from './modules/md/md-analytics.routes';
 
 const app = express();
 
@@ -90,6 +91,7 @@ app.use('/api/auth/refresh', refreshLimiter);
 // Uploads: static file serving
 const uploadsDir = path.join(__dirname, '../../uploads/products');
 fs.mkdirSync(uploadsDir, { recursive: true });
+fs.mkdirSync(path.join(__dirname, '../../uploads/outsource'), { recursive: true });
 app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
 
 // Activity logging
@@ -128,6 +130,7 @@ app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/crm', crmRoutes);
 app.use('/api/consent', consentRoutes);
 app.use('/api/outsource', outsourceRoutes);
+app.use('/api/md', mdAnalyticsRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

@@ -9,11 +9,23 @@ let _cachedAuth: { token: string; partnerCode: string } | null = null;
 
 async function getAuthInfo(page: import('@playwright/test').Page): Promise<{ token: string; partnerCode: string }> {
   if (_cachedAuth) return _cachedAuth;
+
+  // auth.setup이 저장한 localStorage 토큰 재사용 (추가 로그인 불필요)
+  const stored = await page.evaluate(() => localStorage.getItem('zensai_access_token'));
+  if (stored) {
+    try {
+      const payload = JSON.parse(atob(stored.split('.')[1]));
+      _cachedAuth = { token: stored, partnerCode: payload.partnerCode || '' };
+      return _cachedAuth;
+    } catch { /* JWT 파싱 실패 시 아래 로그인 폴백 */ }
+  }
+
+  // 폴백: 직접 로그인
   const loginRes = await page.request.post('http://localhost:3001/api/auth/login', {
     data: { user_id: 'gangnam', password: '1234' },
   });
   const loginData = await loginRes.json();
-  if (!loginData.success) throw new Error('Auth token fetch failed');
+  if (!loginData.success) throw new Error(`Auth failed: ${loginData.error || JSON.stringify(loginData)}`);
   _cachedAuth = {
     token: loginData.data.accessToken,
     partnerCode: loginData.data.user?.partnerCode || '',

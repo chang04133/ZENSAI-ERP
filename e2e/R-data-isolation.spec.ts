@@ -9,14 +9,15 @@ test.describe('R. 데이터 격리 (보안)', () => {
     // gangnam 계정 (STORE_MANAGER, partner_code: SF002 성수직매장)
     const salesResponse = await page.evaluate(async () => {
       const token = localStorage.getItem('zensai_access_token');
+      if (!token) return { success: false, error: 'No token in localStorage' };
       const res = await fetch('/api/sales?limit=50&page=1', {
-        headers: token ? { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } : {},
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       });
       return res.json();
     });
 
     // API 호출이 성공해야 함
-    expect(salesResponse.success).toBeTruthy();
+    expect(salesResponse.success, `Sales API failed: ${salesResponse.error || JSON.stringify(salesResponse)}`).toBeTruthy();
 
     const salesData = salesResponse.data?.data || salesResponse.data || [];
 

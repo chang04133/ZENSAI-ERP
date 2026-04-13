@@ -7,6 +7,7 @@ import {
   EyeOutlined, HistoryOutlined, EditOutlined, PlusOutlined,
   UploadOutlined, DeleteOutlined, FileOutlined, FilePdfOutlined,
   FileExcelOutlined, FileWordOutlined, FileZipOutlined, PaperClipOutlined,
+  PictureOutlined,
 } from '@ant-design/icons';
 import { outsourceApi } from '../../modules/outsource/outsource.api';
 import type { OsWorkOrder, OsWorkOrderVersion } from '../../../../shared/types/outsource';
@@ -110,9 +111,6 @@ export default function WorkOrderPage() {
     editForm.setFieldsValue({
       spec_data: JSON.stringify({}),
       change_summary: '',
-      target_qty: wo.target_qty,
-      unit_cost: wo.unit_cost,
-      total_amount: wo.total_amount,
       memo: wo.memo,
     });
     loadFiles(wo.wo_id);
@@ -139,11 +137,13 @@ export default function WorkOrderPage() {
       if (values.spec_data) {
         try { values.spec_data = JSON.parse(values.spec_data); } catch { delete values.spec_data; }
       }
-      await outsourceApi.createWorkOrder(values);
-      message.success('작업지시서가 등록되었습니다. 착수금(P1) 결제가 자동 생성됩니다.');
+      const res = await outsourceApi.createWorkOrder(values);
+      message.success('작업지시서가 등록되었습니다.');
       setCreateModal(false);
       createForm.resetFields();
       load();
+      // 생성 후 상세 모달 열기 → 이미지 업로드 가능
+      if (res?.wo_id) openDetail(res.wo_id);
     } catch (e: any) { if (e.message) message.error(e.message); }
   };
 
@@ -169,7 +169,7 @@ export default function WorkOrderPage() {
   // ── 파일 섹션 컴포넌트 ──
   const FileSection = ({ woId, readOnly = false }: { woId: number; readOnly?: boolean }) => (
     <Card
-      title={<span><PaperClipOutlined style={{ marginRight: 6 }} />첨부파일</span>}
+      title={<span><PaperClipOutlined style={{ marginRight: 6 }} />첨부파일 / 이미지</span>}
       size="small"
       style={{ marginTop: 12, borderRadius: 8 }}
       extra={!readOnly && (
@@ -179,14 +179,14 @@ export default function WorkOrderPage() {
           accept=".jpg,.jpeg,.png,.webp,.gif,.pdf,.xlsx,.xls,.doc,.docx,.zip"
           multiple
         >
-          <Button size="small" icon={<UploadOutlined />} loading={uploading}>파일 추가</Button>
+          <Button size="small" icon={<UploadOutlined />} loading={uploading}>파일/이미지 추가</Button>
         </Upload>
       )}
     >
       {filesLoading ? (
         <div style={{ textAlign: 'center', padding: 20 }}><Spin size="small" /></div>
       ) : woFiles.length === 0 ? (
-        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="첨부파일 없음" style={{ margin: '12px 0' }} />
+        <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description={readOnly ? '첨부파일 없음' : '이미지나 파일을 업로드하세요'} style={{ margin: '12px 0' }} />
       ) : (
         <>
           {/* 이미지 미리보기 */}
@@ -243,8 +243,6 @@ export default function WorkOrderPage() {
       render: (s: string) => <Tag color={STATUS_MAP[s]?.color}>{STATUS_MAP[s]?.label || s}</Tag>,
     },
     { title: '거래처', dataIndex: 'partner_name', width: 120, render: (v: string) => v || '-' },
-    { title: '목표수량', dataIndex: 'target_qty', width: 90, align: 'right' as const, render: (v: number) => v?.toLocaleString() || '-' },
-    { title: '총액', dataIndex: 'total_amount', width: 110, align: 'right' as const, render: (v: number) => v ? `${Number(v).toLocaleString()}원` : '-' },
     { title: '버전', dataIndex: 'current_version', width: 60, align: 'center' as const, render: (v: number) => `v${v}` },
     { title: '생성일', dataIndex: 'created_at', width: 110, render: (v: string) => dayjs(v).format('YYYY-MM-DD') },
     {
@@ -254,7 +252,10 @@ export default function WorkOrderPage() {
           <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(r.wo_id)}>상세</Button>
           <Button size="small" icon={<HistoryOutlined />} onClick={() => openVersions(r.wo_id)}>이력</Button>
           {!['COMPLETED', 'CANCELLED'].includes(r.status) && (
-            <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>수정</Button>
+            <>
+              <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>수정</Button>
+              <Button size="small" icon={<PictureOutlined />} onClick={() => openDetail(r.wo_id)}>이미지</Button>
+            </>
           )}
         </Space>
       ),
@@ -293,8 +294,6 @@ export default function WorkOrderPage() {
               <Descriptions.Item label="상태"><Tag color={STATUS_MAP[detailModal.status]?.color}>{STATUS_MAP[detailModal.status]?.label}</Tag></Descriptions.Item>
               <Descriptions.Item label="브리프">{detailModal.brief_title}</Descriptions.Item>
               <Descriptions.Item label="거래처">{detailModal.partner_name || '-'}</Descriptions.Item>
-              <Descriptions.Item label="목표수량">{detailModal.target_qty?.toLocaleString() || '-'}</Descriptions.Item>
-              <Descriptions.Item label="총액">{detailModal.total_amount ? `${Number(detailModal.total_amount).toLocaleString()}원` : '-'}</Descriptions.Item>
               <Descriptions.Item label="버전">v{detailModal.current_version}</Descriptions.Item>
               <Descriptions.Item label="메모">{detailModal.memo || '-'}</Descriptions.Item>
             </Descriptions>
@@ -321,7 +320,7 @@ export default function WorkOrderPage() {
                 />
               </Card>
             )}
-            {/* 첨부파일 (상세에서는 업로드+삭제 가능) */}
+            {/* 첨부파일/이미지 */}
             <FileSection woId={detailModal.wo_id} readOnly={['COMPLETED', 'CANCELLED'].includes(detailModal.status)} />
           </>
         )}
@@ -350,15 +349,6 @@ export default function WorkOrderPage() {
           <Form.Item name="partner_code" label="거래처 코드">
             <Input placeholder="예: SF001" />
           </Form.Item>
-          <Form.Item name="target_qty" label="목표수량" rules={[{ required: true }]}>
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="unit_cost" label="단가">
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="total_amount" label="총액" rules={[{ required: true }]}>
-            <Input type="number" placeholder="P1(30%) + P2(40%) + P3(30%) 자동 분배" />
-          </Form.Item>
           <Form.Item name="spec_data" label="스펙 데이터 (JSON)">
             <Input.TextArea rows={3} placeholder='{"fabric": "코튼", "color": ["블랙"]}' />
           </Form.Item>
@@ -366,6 +356,10 @@ export default function WorkOrderPage() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+        <div style={{ background: '#f6f8fa', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: '#666' }}>
+          <PictureOutlined style={{ marginRight: 6 }} />
+          등록 후 상세화면에서 이미지/파일을 첨부할 수 있습니다.
+        </div>
       </Modal>
 
       {/* 수정 모달 */}
@@ -384,20 +378,11 @@ export default function WorkOrderPage() {
           <Form.Item name="change_summary" label="변경 사항 요약">
             <Input />
           </Form.Item>
-          <Form.Item name="target_qty" label="목표수량">
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="unit_cost" label="단가">
-            <Input type="number" />
-          </Form.Item>
-          <Form.Item name="total_amount" label="총액">
-            <Input type="number" />
-          </Form.Item>
           <Form.Item name="memo" label="메모">
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
-        {/* 수정 모달에서도 파일 관리 가능 */}
+        {/* 수정 모달에서도 파일/이미지 관리 가능 */}
         {editModal && <FileSection woId={editModal} />}
       </Modal>
 

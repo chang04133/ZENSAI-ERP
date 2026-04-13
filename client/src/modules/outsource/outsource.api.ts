@@ -41,6 +41,18 @@ export const outsourceApi = {
     fetchJson<OsDesignSubmission>(`${BASE}/submissions`, { method: 'POST', body: JSON.stringify(body) }),
   reviewSubmission: (id: number, result: 'APPROVED' | 'REJECTED', rejectReason?: string) =>
     fetchJson(`${BASE}/submissions/${id}/review`, { method: 'PUT', body: JSON.stringify({ result, reject_reason: rejectReason }) }),
+  uploadSubmissionFiles: async (submissionId: number, files: File[]) => {
+    const formData = new FormData();
+    files.forEach(f => formData.append('files', f));
+    const res = await apiFetch(`${BASE}/submissions/${submissionId}/files`, { method: 'POST', body: formData });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error);
+    return data.data as { filename: string; originalName: string; size: number; url: string }[];
+  },
+  listSubmissionFiles: (submissionId: number) =>
+    fetchJson<{ filename: string; url: string; size: number; isImage: boolean; uploadedAt: string }[]>(
+      `${BASE}/submissions/${submissionId}/files`,
+    ),
 
   // 작업지시서
   listWorkOrders: (params?: Record<string, string>) => {

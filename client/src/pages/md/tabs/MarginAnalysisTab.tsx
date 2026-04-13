@@ -59,8 +59,18 @@ export default function MarginAnalysisTab() {
         return e > 0 ? <Tag color="red">-{e.toFixed(1)}%p</Tag> : <Tag color="green">+{Math.abs(e).toFixed(1)}%p</Tag>;
       },
     },
+    ...((s?.distribution_fee_pct || 0) > 0 || (s?.manager_fee_pct || 0) > 0 ? [
+      {
+        title: '순마진', dataIndex: 'net_margin_pct', width: 90, align: 'center' as const,
+        render: (v: number) => <span style={{ color: marginColor(v), fontWeight: 700 }}>{v}%</span>,
+        sorter: (a: any, b: any) => a.net_margin_pct - b.net_margin_pct,
+      },
+    ] : []),
     { title: '매출', dataIndex: 'total_revenue', width: 120, align: 'right' as const, render: (v: number) => fmt(v), sorter: (a: any, b: any) => a.total_revenue - b.total_revenue },
     { title: '이익', dataIndex: 'total_profit', width: 120, align: 'right' as const, render: (v: number) => <span style={{ color: v >= 0 ? '#52c41a' : '#ff4d4f', fontWeight: 600 }}>{fmt(v)}</span>, sorter: (a: any, b: any) => a.total_profit - b.total_profit, defaultSortOrder: 'descend' as const },
+    ...((s?.distribution_fee_pct || 0) > 0 || (s?.manager_fee_pct || 0) > 0 ? [
+      { title: '순이익', dataIndex: 'net_profit', width: 120, align: 'right' as const, render: (v: number) => <span style={{ color: v >= 0 ? '#13c2c2' : '#ff4d4f', fontWeight: 600 }}>{fmt(v)}</span>, sorter: (a: any, b: any) => a.net_profit - b.net_profit },
+    ] : []),
     { title: '수량', dataIndex: 'qty', width: 70, align: 'right' as const, render: (v: number) => fmt(v) },
   ];
 
@@ -79,11 +89,20 @@ export default function MarginAnalysisTab() {
       </div>
 
       {s && (
+        <>
+        {(s.distribution_fee_pct > 0 || s.manager_fee_pct > 0) && (
+          <div style={{ marginBottom: 12, padding: '8px 14px', background: '#f0f5ff', borderRadius: 8, border: '1px solid #d6e4ff', fontSize: 13 }}>
+            <DollarOutlined style={{ marginRight: 6, color: '#1890ff' }} />
+            적용 수수료: 유통 <b>{s.distribution_fee_pct}%</b> + 매니저 <b>{s.manager_fee_pct}%</b> = 총 <b>{s.distribution_fee_pct + s.manager_fee_pct}%</b>
+          </div>
+        )}
         <Row gutter={12} style={{ marginBottom: 16 }}>
           {[
             { label: '총 이익', value: `${fmt(s.total_profit)}원`, color: '#52c41a' },
+            ...((s.distribution_fee_pct > 0 || s.manager_fee_pct > 0) ? [{ label: '총 순이익', value: `${fmt(s.total_net_profit)}원`, color: '#13c2c2' }] : []),
             { label: '평균 기본마진', value: `${s.avg_base_margin}%`, color: '#1890ff' },
             { label: '평균 실제마진', value: `${s.avg_actual_margin}%`, color: '#722ed1' },
+            ...((s.distribution_fee_pct > 0 || s.manager_fee_pct > 0) ? [{ label: '평균 순마진', value: `${s.avg_net_margin}%`, color: '#eb2f96' }] : []),
             { label: '마진 침식', value: `${(s.avg_base_margin - s.avg_actual_margin).toFixed(1)}%p`, color: '#ff4d4f' },
           ].map((c, i) => (
             <Col xs={12} sm={6} key={i}>
@@ -94,6 +113,7 @@ export default function MarginAnalysisTab() {
             </Col>
           ))}
         </Row>
+        </>
       )}
 
       {s && (
@@ -116,7 +136,7 @@ export default function MarginAnalysisTab() {
       )}
 
       <Table dataSource={data?.items || []} columns={columns} rowKey="key" loading={loading} size="small"
-        scroll={{ x: 1100, y: 'calc(100vh - 480px)' }} pagination={{ pageSize: 50, showTotal: t => `총 ${t}건` }} />
+        scroll={{ x: 1300, y: 'calc(100vh - 480px)' }} pagination={{ pageSize: 50, showTotal: t => `총 ${t}건` }} />
     </div>
   );
 }

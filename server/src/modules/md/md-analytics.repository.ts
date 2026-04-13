@@ -11,6 +11,8 @@ interface MdSettings {
   slowMover: number; // 슬로우무버 회전율 기준 (기본 0.5)
   fastMover: number; // 패스트무버 회전율 기준 (기본 2.0)
   markdownDays: number; // 마크다운 비교 기간 (기본 14일)
+  distributionFeePct: number; // 유통 수수료율 % (기본 0)
+  managerFeePct: number;      // 매니저 수수료율 % (기본 0)
 }
 
 class MdAnalyticsRepository {
@@ -29,6 +31,8 @@ class MdAnalyticsRepository {
       slowMover: (parseInt(map.MD_SLOW_MOVER_THRESHOLD || '50', 10) || 50) / 100,
       fastMover: (parseInt(map.MD_FAST_MOVER_THRESHOLD || '200', 10) || 200) / 100,
       markdownDays: parseInt(map.MD_MARKDOWN_COMPARE_DAYS || '14', 10) || 14,
+      distributionFeePct: parseInt(map.MD_DISTRIBUTION_FEE_PCT || '0', 10) || 0,
+      managerFeePct: parseInt(map.MD_MANAGER_FEE_PCT || '0', 10) || 0,
     };
   }
 
@@ -110,6 +114,9 @@ class MdAnalyticsRepository {
 
   // ─── 2. 마진 분석 ───
   async marginAnalysis(dateFrom: string, dateTo: string, partnerCode?: string, category?: string, groupBy = 'product'): Promise<MarginAnalysisResult> {
+    const settings = await this.loadMdSettings();
+    const distPct = settings.distributionFeePct;
+    const mgrPct = settings.managerFeePct;
     const params: any[] = [dateFrom, dateTo];
     let idx = 3;
     let pcFilter = '';
@@ -149,11 +156,29 @@ class MdAnalyticsRepository {
       GROUP BY ${groupByCols}
       ORDER BY total_profit DESC`;
 
-    const items = (await this.pool.query(sql, params)).rows;
+    const rawItems = (await this.pool.query(sql, params)).rows;
 
-    const totalRevenue = items.reduce((s, r) => s + Number(r.total_revenue), 0);
-    const totalCost = items.reduce((s, r) => s + Number(r.total_cost), 0);
-    const totalProfit = items.reduce((s, r) => s + Number(r.total_profit), 0);
+    // 수수료 반영하여 순마진/순이익 계산
+    const items = rawItems.map((r: any) => {
+      const revenue = Number(r.total_revenue);
+      const cost = Number(r.total_cost);
+      const profit = Number(r.total_profit);
+      const actualMargin = Number(r.actual_margin_pct) || 0;
+      const netMarginPct = Math.round((actualMargin - distPct - mgrPct) * 10) / 10;
+      const netProfit = Math.round(profit - revenue * distPct / 100 - revenue * mgrPct / 100);
+      return {
+        ...r,
+        distribution_fee_pct: distPct,
+        manager_fee_pct: mgrPct,
+        net_margin_pct: netMarginPct,
+        net_profit: netProfit,
+      };
+    });
+
+    const totalRevenue = items.reduce((s: number, r: any) => s + Number(r.total_revenue), 0);
+    const totalCost = items.reduce((s: number, r: any) => s + Number(r.total_cost), 0);
+    const totalProfit = items.reduce((s: number, r: any) => s + Number(r.total_profit), 0);
+    const totalNetProfit = items.reduce((s: number, r: any) => s + Number(r.net_profit), 0);
 
     // 마진 분포
     const ranges = ['0~20%', '20~40%', '40~60%', '60~80%', '80%+'];
@@ -167,61 +192,61 @@ class MdAnalyticsRepository {
       else dist[4]++;
     }
 
+    const avgNetMargin = items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.net_margin_pct || 0), 0) / items.length * 10) / 10 : 0;
+
     return {
       items,
       summary: {
         total_revenue: totalRevenue,
         total_cost: totalCost,
         total_profit: totalProfit,
-        avg_base_margin: items.length ? Math.round(items.reduce((s, r) => s + Number(r.base_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
-        avg_actual_margin: items.length ? Math.round(items.reduce((s, r) => s + Number(r.actual_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
+        total_net_profit: totalNetProfit,
+        avg_base_margin: items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.base_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
+        avg_actual_margin: items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.actual_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
+        avg_net_margin: avgNetMargin,
+        distribution_fee_pct: distPct,
+        manager_fee_pct: mgrPct,
         margin_distribution: ranges.map((range, i) => ({ range, count: dist[i] })),
       },
     };
   }
 
-  // ─── 3. 재고 회전율 ───
-  async inventoryTurnover(dateFrom: string, dateTo: string, partnerCode?: string, category?: string, groupBy = 'product'): Promise<InventoryTurnoverResult & { thresholds?: { slow: number; fast: number } }> {
+  // ─── 3. 완판율 분석 (입고 대비 판매율) ───
+  async inventoryTurnover(dateFrom: string, dateTo: string, partnerCode?: string, category?: string, _groupBy = 'product'): Promise<InventoryTurnoverResult & { thresholds?: { slow: number; fast: number } }> {
     const params: any[] = [dateFrom, dateTo];
     let idx = 3;
     let pcSalesFilter = '';
     let pcInvFilter = '';
+    let pcInboundFilter = '';
     let catFilter = '';
-    if (partnerCode) { params.push(partnerCode); pcSalesFilter = `AND s.partner_code = $${idx}`; pcInvFilter = `WHERE i.partner_code = $${idx}`; idx++; }
+    if (partnerCode) {
+      params.push(partnerCode);
+      pcSalesFilter = `AND s2.partner_code = $${idx}`;
+      pcInvFilter = `WHERE i.partner_code = $${idx}`;
+      pcInboundFilter = `AND ir.partner_code = $${idx}`;
+      idx++;
+    }
     if (category) { params.push(category); catFilter = `AND p.category = $${idx++}`; }
 
     const days = Math.max(1, Math.round((new Date(dateTo).getTime() - new Date(dateFrom).getTime()) / 86400000) + 1);
 
-    let groupSelect: string;
-    let groupByCols: string;
-    let soldGroupBy: string;
-    let invGroupBy: string;
-    if (groupBy === 'category') {
-      groupSelect = `COALESCE(p.category, '미분류') AS key, COALESCE(p.category, '미분류') AS label, NULL::text AS category`;
-      groupByCols = `COALESCE(p.category, '미분류')`;
-      soldGroupBy = `p2.category`;
-      invGroupBy = `p3.category`;
-    } else if (groupBy === 'store') {
-      groupSelect = `pt.partner_code AS key, pt.partner_name AS label, NULL::text AS category`;
-      groupByCols = `pt.partner_code, pt.partner_name`;
-      soldGroupBy = `s2.partner_code`;
-      invGroupBy = `i2.partner_code`;
-    } else {
-      groupSelect = `p.product_code AS key, p.product_name AS label, p.category`;
-      groupByCols = `p.product_code, p.product_name, p.category`;
-      soldGroupBy = `pv2.product_code`;
-      invGroupBy = `pv3.product_code`;
-    }
-
-    // 단순화: product 기준으로 통합 쿼리
     const sql = `
       WITH ${this.salesCte},
+      inbound_supply AS (
+        SELECT pv1.product_code,
+               SUM(ii.qty)::int AS total_inbound,
+               MIN(ir.inbound_date) AS first_inbound_date
+        FROM ${this.s}.inbound_items ii
+        JOIN ${this.s}.inbound_records ir ON ii.record_id = ir.record_id
+        JOIN ${this.s}.product_variants pv1 ON ii.variant_id = pv1.variant_id
+        WHERE ir.status = 'COMPLETED' ${pcInboundFilter}
+        GROUP BY pv1.product_code
+      ),
       sold AS (
         SELECT pv2.product_code, SUM(s2.qty)::int AS sold_qty
         FROM combined_sales s2
         JOIN ${this.s}.product_variants pv2 ON s2.variant_id = pv2.variant_id
-        WHERE s2.sale_date >= $1::date AND s2.sale_date <= $2::date
-          AND s2.sale_type NOT IN ('반품','수정') ${pcSalesFilter}
+        WHERE COALESCE(s2.sale_type,'정상') NOT IN ('반품','수정') ${pcSalesFilter}
         GROUP BY pv2.product_code
       ),
       current_inv AS (
@@ -232,62 +257,118 @@ class MdAnalyticsRepository {
         GROUP BY pv3.product_code
       )
       SELECT p.product_code AS key, p.product_name AS label, p.category, p.base_price,
+        COALESCE(ib.total_inbound, 0)::int AS total_inbound,
+        ib.first_inbound_date,
         COALESCE(sl.sold_qty, 0)::int AS sold_qty,
         COALESCE(ci.current_stock, 0)::int AS current_stock,
-        ROUND((COALESCE(ci.current_stock, 0) + COALESCE(sl.sold_qty, 0))::numeric / 2, 0)::int AS avg_inventory,
-        CASE WHEN (COALESCE(ci.current_stock, 0) + COALESCE(sl.sold_qty, 0)) > 0
-          THEN ROUND(COALESCE(sl.sold_qty, 0)::numeric / ((COALESCE(ci.current_stock, 0) + COALESCE(sl.sold_qty, 0))::numeric / 2) , 2)
-          ELSE 0 END::float AS turnover_rate
+        CASE WHEN COALESCE(ib.total_inbound, 0) > 0
+          THEN ROUND(COALESCE(sl.sold_qty, 0)::numeric / ib.total_inbound * 100, 1)
+          ELSE 0 END::float AS sell_through_rate
       FROM ${this.s}.products p
+      LEFT JOIN inbound_supply ib ON p.product_code = ib.product_code
       LEFT JOIN sold sl ON p.product_code = sl.product_code
       LEFT JOIN current_inv ci ON p.product_code = ci.product_code
-      WHERE (COALESCE(sl.sold_qty, 0) > 0 OR COALESCE(ci.current_stock, 0) > 0)
+      WHERE COALESCE(ib.total_inbound, 0) > 0
         ${catFilter}
-      ORDER BY turnover_rate ASC`;
+      ORDER BY sell_through_rate DESC`;
 
-    const rows = (await this.pool.query(sql, params)).rows.map((r: any) => ({
-      ...r,
-      sold_qty: Number(r.sold_qty),
-      current_stock: Number(r.current_stock),
-      avg_inventory: Number(r.avg_inventory),
-      turnover_rate: Number(r.turnover_rate),
-      dio: Number(r.turnover_rate) > 0 ? Math.round(days / Number(r.turnover_rate)) : 9999,
-    }));
+    const now = new Date();
+    const rows = (await this.pool.query(sql, params)).rows.map((r: any) => {
+      const totalInbound = Number(r.total_inbound) || 0;
+      const soldQty = Number(r.sold_qty) || 0;
+      const currentStock = Number(r.current_stock) || 0;
+      const sellThrough = Number(r.sell_through_rate) || 0;
+
+      // 완판예상일: 현재 일평균판매 기준 잔여재고 소진
+      const firstDate = r.first_inbound_date ? new Date(r.first_inbound_date) : null;
+      const elapsedDays = firstDate ? Math.max(1, Math.round((now.getTime() - firstDate.getTime()) / 86400000)) : days;
+      const dailySales = soldQty > 0 ? soldQty / elapsedDays : 0;
+      const daysToSellout = currentStock > 0 && dailySales > 0
+        ? Math.round(currentStock / dailySales)
+        : currentStock === 0 ? 0 : 9999;
+
+      return {
+        ...r,
+        total_inbound: totalInbound,
+        sold_qty: soldQty,
+        current_stock: currentStock,
+        sell_through_rate: sellThrough,
+        days_to_sellout: daysToSellout,
+        // 하위호환
+        avg_inventory: totalInbound,
+        turnover_rate: sellThrough,
+        dio: daysToSellout,
+      };
+    });
 
     const settings = await this.loadMdSettings();
-    const withTurnover = rows.filter(r => r.avg_inventory > 0);
-    const avgTurnover = withTurnover.length ? Math.round(withTurnover.reduce((s, r) => s + r.turnover_rate, 0) / withTurnover.length * 100) / 100 : 0;
-    const avgDio = avgTurnover > 0 ? Math.round(days / avgTurnover) : 9999;
-    const slowMovers = rows.filter(r => r.turnover_rate < settings.slowMover && r.current_stock > 0);
-    const fastMovers = rows.filter(r => r.turnover_rate >= settings.fastMover);
+    // 완판 기준: slowMover 임계값을 % 기준으로 재해석 (기본 0.5 → 50% 미만)
+    const slowThresholdPct = settings.slowMover * 100; // 50
+    const fastThresholdPct = settings.fastMover * 100;  // 200 → 실용적으로 80% 이상 사용
+
+    const withData = rows.filter(r => r.total_inbound > 0);
+    const avgSellThrough = withData.length
+      ? Math.round(withData.reduce((s, r) => s + r.sell_through_rate, 0) / withData.length * 10) / 10
+      : 0;
+    const soldOutCount = rows.filter(r => r.sell_through_rate >= 95 && r.current_stock <= 0).length;
+    const slowMovers = rows.filter(r => r.sell_through_rate < slowThresholdPct && r.current_stock > 0);
+    const fastMovers = rows.filter(r => r.sell_through_rate >= 80);
 
     return {
       items: rows,
       summary: {
-        avg_turnover: avgTurnover,
-        avg_dio: avgDio,
+        avg_sell_through: avgSellThrough,
+        sold_out_count: soldOutCount,
         slow_movers_count: slowMovers.length,
         fast_movers_count: fastMovers.length,
+        total_inbound: withData.reduce((s, r) => s + r.total_inbound, 0),
+        total_sold: withData.reduce((s, r) => s + r.sold_qty, 0),
+        // 하위호환
+        avg_turnover: avgSellThrough,
+        avg_dio: 0,
       },
       slow_movers: slowMovers.slice(0, 20).map(r => ({
         product_code: r.key, product_name: r.label, category: r.category || '',
-        turnover_rate: r.turnover_rate, current_stock: r.current_stock,
+        sell_through_rate: r.sell_through_rate, current_stock: r.current_stock,
         stock_value: r.current_stock * (Number(r.base_price) || 0),
+        turnover_rate: r.sell_through_rate,
       })),
       thresholds: { slow: settings.slowMover, fast: settings.fastMover },
     };
   }
 
   // ─── 4. 시즌 성과 ───
+
+  /** 숫자 연도 → products.year 문자코드 변환 (master_codes YEAR) */
+  private async yearToCode(numericYear: number): Promise<string | null> {
+    const res = await this.pool.query(
+      `SELECT code_value FROM ${this.s}.master_codes WHERE code_type = 'YEAR' AND code_label = $1 AND is_active = TRUE LIMIT 1`,
+      [String(numericYear)],
+    );
+    return res.rows[0]?.code_value || null;
+  }
+
   async seasonPerformance(year?: number): Promise<SeasonPerformanceResult> {
     const currentYear = year || new Date().getFullYear();
-    const yearStr = String(currentYear);
-    const prevYearStr = String(currentYear - 1);
 
-    const buildSeasonData = async (yr: string): Promise<any[]> => {
-      // 시즌 설정
-      const configSql = `SELECT * FROM ${this.s}.season_configs WHERE year = $1 ORDER BY season_code`;
-      const configs = (await this.pool.query(configSql, [yr])).rows;
+    // 연도 숫자 → 문자코드 변환 (H=2026, G=2025 등)
+    const [yearCode, prevYearCode] = await Promise.all([
+      this.yearToCode(currentYear),
+      this.yearToCode(currentYear - 1),
+    ]);
+
+    const SEASON_NAMES: Record<string, string> = { SS: '봄', SM: '여름', FW: '가을', WN: '겨울' };
+    const SEASON_ORDER = ['SS', 'SM', 'FW', 'WN'];
+
+    const buildSeasonData = async (yCode: string | null): Promise<any[]> => {
+      if (!yCode) return [];
+
+      // 시즌 설정 — season_configs에 year 칼럼 없으므로 전체 조회 후 매칭
+      let configs: any[] = [];
+      try {
+        const configRes = await this.pool.query(`SELECT * FROM ${this.s}.season_configs ORDER BY season_code`);
+        configs = configRes.rows;
+      } catch { /* season_configs가 없거나 비어있으면 무시 */ }
 
       // 실적
       const actualSql = `
@@ -301,7 +382,7 @@ class MdAnalyticsRepository {
         JOIN ${this.s}.products p ON pv.product_code = p.product_code
         WHERE p.year = $1 AND s.sale_type NOT IN ('반품','수정')
         GROUP BY p.season`;
-      const actuals = (await this.pool.query(actualSql, [yr])).rows;
+      const actuals = (await this.pool.query(actualSql, [yCode])).rows;
 
       // 잔여재고
       const stockSql = `
@@ -312,7 +393,7 @@ class MdAnalyticsRepository {
         JOIN ${this.s}.products p ON pv.product_code = p.product_code
         WHERE p.year = $1
         GROUP BY p.season`;
-      const stocks = (await this.pool.query(stockSql, [yr])).rows;
+      const stocks = (await this.pool.query(stockSql, [yCode])).rows;
 
       // 매핑
       const actualMap: Record<string, any> = {};
@@ -320,8 +401,13 @@ class MdAnalyticsRepository {
       const stockMap: Record<string, any> = {};
       for (const s of stocks) stockMap[s.season] = s;
 
-      // config가 없어도 실적 기준으로 시즌 생성
-      const seasonCodes = [...new Set([...configs.map((c: any) => c.season_code), ...actuals.map((a: any) => a.season)])];
+      // config + 실적 기준으로 시즌 생성
+      const seasonCodes = [...new Set([
+        ...configs.map((c: any) => c.season_code),
+        ...actuals.map((a: any) => a.season),
+        ...SEASON_ORDER,  // 4시즌 기본 포함
+      ])].filter(c => SEASON_ORDER.includes(c))
+        .sort((a, b) => SEASON_ORDER.indexOf(a) - SEASON_ORDER.indexOf(b));
 
       return seasonCodes.map(code => {
         const cfg = configs.find((c: any) => c.season_code === code);
@@ -333,7 +419,7 @@ class MdAnalyticsRepository {
         const actualRevenue = Number(act.actual_revenue || 0);
         return {
           season_code: code,
-          season_name: cfg?.season_name || code,
+          season_name: cfg?.season_name || SEASON_NAMES[code] || code,
           status: cfg?.status || 'N/A',
           target_styles: cfg?.target_styles || 0,
           target_qty: targetQty,
@@ -350,8 +436,8 @@ class MdAnalyticsRepository {
     };
 
     const [seasons, prevSeasons] = await Promise.all([
-      buildSeasonData(yearStr),
-      buildSeasonData(prevYearStr),
+      buildSeasonData(yearCode),
+      buildSeasonData(prevYearCode),
     ]);
 
     return { seasons, prev_seasons: prevSeasons };

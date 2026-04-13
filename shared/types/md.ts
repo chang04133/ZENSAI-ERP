@@ -31,6 +31,10 @@ export interface MarginItem {
   avg_selling_price: number;
   base_margin_pct: number;
   actual_margin_pct: number;
+  distribution_fee_pct: number;
+  manager_fee_pct: number;
+  net_margin_pct: number;
+  net_profit: number;
   total_revenue: number;
   total_cost: number;
   total_profit: number;
@@ -41,8 +45,12 @@ export interface MarginSummary {
   total_revenue: number;
   total_cost: number;
   total_profit: number;
+  total_net_profit: number;
   avg_base_margin: number;
   avg_actual_margin: number;
+  avg_net_margin: number;
+  distribution_fee_pct: number;
+  manager_fee_pct: number;
   margin_distribution: Array<{ range: string; count: number }>;
 }
 
@@ -51,29 +59,39 @@ export interface MarginAnalysisResult {
   summary: MarginSummary;
 }
 
-// ── Inventory Turnover ──
+// ── 완판율 분석 (Sell-Through) ──
 export interface TurnoverItem {
   key: string;
   label: string;
   category?: string;
+  total_inbound: number;
   sold_qty: number;
+  current_stock: number;
+  sell_through_rate: number;
+  days_to_sellout: number;
+  first_inbound_date?: string;
+  // 하위호환
   avg_inventory: number;
   turnover_rate: number;
   dio: number;
-  current_stock: number;
 }
 
 export interface TurnoverSummary {
-  avg_turnover: number;
-  avg_dio: number;
+  avg_sell_through: number;
+  sold_out_count: number;
   slow_movers_count: number;
   fast_movers_count: number;
+  total_inbound: number;
+  total_sold: number;
+  // 하위호환
+  avg_turnover: number;
+  avg_dio: number;
 }
 
 export interface InventoryTurnoverResult {
   items: TurnoverItem[];
   summary: TurnoverSummary;
-  slow_movers: Array<{ product_code: string; product_name: string; category: string; turnover_rate: number; current_stock: number; stock_value: number }>;
+  slow_movers: Array<{ product_code: string; product_name: string; category: string; sell_through_rate: number; current_stock: number; stock_value: number; turnover_rate: number }>;
   thresholds?: { slow: number; fast: number };
 }
 

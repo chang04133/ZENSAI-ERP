@@ -304,6 +304,7 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'MD_ABC_A_THRESHOLD', 'MD_ABC_B_THRESHOLD',
     'MD_SLOW_MOVER_THRESHOLD', 'MD_FAST_MOVER_THRESHOLD',
     'MD_MARKDOWN_COMPARE_DAYS',
+    'MD_DISTRIBUTION_FEE_PCT', 'MD_MANAGER_FEE_PCT',
   ];
 
   const client = await pool.connect();

@@ -19,12 +19,14 @@ fs.mkdirSync(uploadsDir, { recursive: true });
 const fileStorage = multer.diskStorage({
   destination: (_req, _file, cb) => cb(null, uploadsDir),
   filename: (req, file, cb) => {
-    const woId = req.params.id || 'unknown';
+    const prefix = req.baseUrl?.includes('submissions') || req.path?.includes('submissions')
+      ? `ds${req.params.id || 'unknown'}`
+      : `wo${req.params.id || 'unknown'}`;
     const ext = path.extname(file.originalname).toLowerCase();
     const baseName = path.basename(file.originalname, ext)
       .replace(/[^a-zA-Z0-9가-힣_\-]/g, '_')
       .substring(0, 50);
-    cb(null, `wo${woId}_${Date.now()}_${baseName}${ext}`);
+    cb(null, `${prefix}_${Date.now()}_${baseName}${ext}`);
   },
 });
 
@@ -53,6 +55,49 @@ router.put('/briefs/:id/distribute', ...adminAuth, c.distributeBrief);
 router.get('/submissions', ...hqAuth, c.listSubmissions);
 router.post('/submissions', ...hqAuth, c.createSubmission);
 router.put('/submissions/:id/review', ...adminAuth, c.reviewSubmission);
+
+// 디자인 시안 파일 업로드
+router.post('/submissions/:id/files', ...hqAuth, fileUpload.array('files', 10), asyncHandler(async (req: Request, res: Response) => {
+  const files = req.files as Express.Multer.File[];
+  if (!files || files.length === 0) {
+    res.status(400).json({ success: false, error: '파일이 첨부되지 않았습니다.' });
+    return;
+  }
+  const result = files.map(f => ({
+    filename: f.filename,
+    originalName: f.originalname,
+    size: f.size,
+    url: `/uploads/outsource/${f.filename}`,
+  }));
+  res.json({ success: true, data: result });
+}));
+
+// 디자인 시안 파일 목록
+router.get('/submissions/:id/files', ...hqAuth, asyncHandler(async (req: Request, res: Response) => {
+  const dsId = req.params.id;
+  const prefix = `ds${dsId}_`;
+  try {
+    const allFiles = fs.readdirSync(uploadsDir);
+    const dsFiles = allFiles
+      .filter(f => f.startsWith(prefix))
+      .map(f => {
+        const stat = fs.statSync(path.join(uploadsDir, f));
+        const ext = path.extname(f).toLowerCase();
+        const isImage = ['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext);
+        return {
+          filename: f,
+          url: `/uploads/outsource/${f}`,
+          size: stat.size,
+          isImage,
+          uploadedAt: stat.mtime.toISOString(),
+        };
+      })
+      .sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime());
+    res.json({ success: true, data: dsFiles });
+  } catch {
+    res.json({ success: true, data: [] });
+  }
+}));
 
 // 작업지시서
 router.get('/work-orders', ...hqAuth, c.listWorkOrders);

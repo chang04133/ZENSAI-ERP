@@ -41,7 +41,7 @@ export default function SizeColorTrendsTab() {
 
   const bySize = data?.by_size || [];
   const byColor = data?.by_color || [];
-  const maxSizeSold = Math.max(...bySize.map(s => s.sold_pct), 1);
+  const maxSizePct = Math.max(...bySize.map(s => s.sold_pct), ...bySize.map(s => s.inbound_pct), 1);
   const maxColorSold = Math.max(...byColor.map(c => c.sold_qty), 1);
 
   const sizeColumns: any[] = [
@@ -97,10 +97,10 @@ export default function SizeColorTrendsTab() {
           {bySize.map((s, i) => (
             <div key={s.size} style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 2 }}>{s.sold_pct}%</div>
-              <div style={{ display: 'flex', gap: 2, justifyContent: 'center', alignItems: 'flex-end', height: 80 }}>
-                <div style={{ width: 16, height: Math.max(s.sold_pct / maxSizeSold * 70, 4), background: '#6366f1', borderRadius: 3 }}
+              <div style={{ display: 'flex', gap: 2, justifyContent: 'center', alignItems: 'flex-end', height: 80, overflow: 'hidden' }}>
+                <div style={{ width: 16, height: Math.max(s.sold_pct / maxSizePct * 70, 4), background: '#6366f1', borderRadius: 3 }}
                   title={`판매: ${s.sold_pct}%`} />
-                <div style={{ width: 16, height: Math.max(s.inbound_pct / maxSizeSold * 70, 4), background: '#e8e8e8', borderRadius: 3 }}
+                <div style={{ width: 16, height: Math.max(s.inbound_pct / maxSizePct * 70, 4), background: '#e8e8e8', borderRadius: 3 }}
                   title={`입고: ${s.inbound_pct}%`} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, marginTop: 4 }}>{s.size}</div>

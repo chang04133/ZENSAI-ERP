@@ -39,6 +39,8 @@ export default function SystemSettingsPage() {
   const [mdSlowMover, setMdSlowMover] = useState(50);
   const [mdFastMover, setMdFastMover] = useState(200);
   const [mdMarkdownDays, setMdMarkdownDays] = useState(14);
+  const [mdDistFee, setMdDistFee] = useState(0);
+  const [mdMgrFee, setMdMgrFee] = useState(0);
 
   const currentSeason = getCurrentSeason();
 
@@ -61,6 +63,8 @@ export default function SystemSettingsPage() {
         setMdSlowMover(parseInt(data.data.MD_SLOW_MOVER_THRESHOLD || '50', 10));
         setMdFastMover(parseInt(data.data.MD_FAST_MOVER_THRESHOLD || '200', 10));
         setMdMarkdownDays(parseInt(data.data.MD_MARKDOWN_COMPARE_DAYS || '14', 10));
+        setMdDistFee(parseInt(data.data.MD_DISTRIBUTION_FEE_PCT || '0', 10));
+        setMdMgrFee(parseInt(data.data.MD_MANAGER_FEE_PCT || '0', 10));
         const w: Record<string, number> = {};
         for (const ps of SEASONS) {
           for (const cs of SEASONS) {
@@ -97,6 +101,8 @@ export default function SystemSettingsPage() {
         MD_SLOW_MOVER_THRESHOLD: String(mdSlowMover),
         MD_FAST_MOVER_THRESHOLD: String(mdFastMover),
         MD_MARKDOWN_COMPARE_DAYS: String(mdMarkdownDays),
+        MD_DISTRIBUTION_FEE_PCT: String(mdDistFee),
+        MD_MANAGER_FEE_PCT: String(mdMgrFee),
         ...Object.fromEntries(
           Object.entries(weights).map(([k, v]) => [k, String(v)]),
         ),
@@ -467,6 +473,30 @@ export default function SystemSettingsPage() {
               <span style={{ color: '#888', fontSize: 13 }}>마크다운 전후 {mdMarkdownDays}일간 판매속도 비교</span>
             </div>
           </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>유통 수수료율</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={50}
+                value={mdDistFee}
+                onChange={(v) => v !== null && setMdDistFee(v)}
+                addonAfter="%"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>마진분석 시 매출에서 차감할 유통 수수료</span>
+            </div>
+          </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>매니저 수수료율</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={0} max={50}
+                value={mdMgrFee}
+                onChange={(v) => v !== null && setMdMgrFee(v)}
+                addonAfter="%"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>마진분석 시 매출에서 차감할 매니저 수수료</span>
+            </div>
+          </Descriptions.Item>
         </Descriptions>
 
         <div style={{ marginTop: 12, padding: '10px 12px', background: '#f8f9fb', borderRadius: 6, fontSize: 12, color: '#888' }}>
@@ -477,6 +507,11 @@ export default function SystemSettingsPage() {
           <div style={{ marginTop: 4 }}>
             <strong>마크다운</strong>: 할인 적용 전후 각 {mdMarkdownDays}일의 판매속도를 비교하여 효과 측정
           </div>
+          {(mdDistFee > 0 || mdMgrFee > 0) && (
+            <div style={{ marginTop: 4 }}>
+              <strong>순마진</strong>: 실제마진 - 유통 {mdDistFee}% - 매니저 {mdMgrFee}% = 총 수수료 {mdDistFee + mdMgrFee}% 차감
+            </div>
+          )}
         </div>
       </Card>
 

@@ -239,14 +239,14 @@ class MdAnalyticsRepository {
         FROM ${this.s}.inbound_items ii
         JOIN ${this.s}.inbound_records ir ON ii.record_id = ir.record_id
         JOIN ${this.s}.product_variants pv1 ON ii.variant_id = pv1.variant_id
-        WHERE ir.status = 'COMPLETED' ${pcInboundFilter}
+        WHERE ir.status = 'COMPLETED' AND ir.inbound_date >= NOW() - INTERVAL '2 years' ${pcInboundFilter}
         GROUP BY pv1.product_code
       ),
       sold AS (
         SELECT pv2.product_code, SUM(s2.qty)::int AS sold_qty
         FROM combined_sales s2
         JOIN ${this.s}.product_variants pv2 ON s2.variant_id = pv2.variant_id
-        WHERE COALESCE(s2.sale_type,'정상') NOT IN ('반품','수정') ${pcSalesFilter}
+        WHERE COALESCE(s2.sale_type,'정상') NOT IN ('반품','수정') AND s2.sale_date >= NOW() - INTERVAL '2 years' ${pcSalesFilter}
         GROUP BY pv2.product_code
       ),
       current_inv AS (

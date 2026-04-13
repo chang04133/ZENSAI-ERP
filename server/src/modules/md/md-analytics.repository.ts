@@ -357,20 +357,29 @@ class MdAnalyticsRepository {
       this.yearToCode(currentYear - 1),
     ]);
 
-    const SEASON_NAMES: Record<string, string> = { SS: '봄', SM: '여름', FW: '가을', WN: '겨울' };
-    const SEASON_ORDER = ['SS', 'SM', 'FW', 'WN'];
+    // 시즌 이름 매핑: 숫자 시즌 기본명 + master_codes SEASON
+    const seasonNameMap: Record<string, string> = {
+      '1': '1차', '2': '2차', '3': '3차', '4': '4차',
+      SS: '봄', SM: '여름', FW: '가을', WN: '겨울',
+    };
+    try {
+      const mcRes = await this.pool.query(
+        `SELECT code_value, code_label FROM ${this.s}.master_codes WHERE code_type = 'SEASON' AND is_active = TRUE`,
+      );
+      for (const r of mcRes.rows) seasonNameMap[r.code_value] = r.code_label;
+    } catch { /* ignore */ }
 
     const buildSeasonData = async (yCode: string | null): Promise<any[]> => {
       if (!yCode) return [];
 
-      // 시즌 설정 — season_configs에 year 칼럼 없으므로 전체 조회 후 매칭
+      // 시즌 설정
       let configs: any[] = [];
       try {
         const configRes = await this.pool.query(`SELECT * FROM ${this.s}.season_configs ORDER BY season_code`);
         configs = configRes.rows;
       } catch { /* season_configs가 없거나 비어있으면 무시 */ }
 
-      // 실적
+      // 실적 (season이 null인 상품 제외)
       const actualSql = `
         WITH ${this.salesCte}
         SELECT p.season,
@@ -380,7 +389,7 @@ class MdAnalyticsRepository {
         FROM combined_sales s
         JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
         JOIN ${this.s}.products p ON pv.product_code = p.product_code
-        WHERE p.year = $1 AND s.sale_type NOT IN ('반품','수정')
+        WHERE p.year = $1 AND p.season IS NOT NULL AND s.sale_type NOT IN ('반품','수정')
         GROUP BY p.season`;
       const actuals = (await this.pool.query(actualSql, [yCode])).rows;
 
@@ -391,7 +400,7 @@ class MdAnalyticsRepository {
         FROM ${this.s}.inventory i
         JOIN ${this.s}.product_variants pv ON i.variant_id = pv.variant_id
         JOIN ${this.s}.products p ON pv.product_code = p.product_code
-        WHERE p.year = $1
+        WHERE p.year = $1 AND p.season IS NOT NULL
         GROUP BY p.season`;
       const stocks = (await this.pool.query(stockSql, [yCode])).rows;
 
@@ -401,13 +410,11 @@ class MdAnalyticsRepository {
       const stockMap: Record<string, any> = {};
       for (const s of stocks) stockMap[s.season] = s;
 
-      // config + 실적 기준으로 시즌 생성
+      // 실적 + 재고에서 나온 시즌코드 합산 (실제 데이터 기반)
       const seasonCodes = [...new Set([
-        ...configs.map((c: any) => c.season_code),
         ...actuals.map((a: any) => a.season),
-        ...SEASON_ORDER,  // 4시즌 기본 포함
-      ])].filter(c => SEASON_ORDER.includes(c))
-        .sort((a, b) => SEASON_ORDER.indexOf(a) - SEASON_ORDER.indexOf(b));
+        ...stocks.map((s: any) => s.season),
+      ])].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
 
       return seasonCodes.map(code => {
         const cfg = configs.find((c: any) => c.season_code === code);
@@ -419,7 +426,7 @@ class MdAnalyticsRepository {
         const actualRevenue = Number(act.actual_revenue || 0);
         return {
           season_code: code,
-          season_name: cfg?.season_name || SEASON_NAMES[code] || code,
+          season_name: cfg?.season_name || seasonNameMap[code] || `시즌${code}`,
           status: cfg?.status || 'N/A',
           target_styles: cfg?.target_styles || 0,
           target_qty: targetQty,

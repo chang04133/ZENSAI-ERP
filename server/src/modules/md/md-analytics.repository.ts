@@ -624,6 +624,21 @@ class MdAnalyticsRepository {
       GROUP BY p.category, pv.color
       ORDER BY p.category, sold_qty DESC`;
 
+    // 카테고리별 총 디자인수 대비 판매수량
+    const catSummarySql = `
+      WITH ${this.salesCte}
+      SELECT p.category,
+             COUNT(DISTINCT p.product_code)::int AS design_count,
+             COALESCE(SUM(s.qty), 0)::int AS sold_qty
+      FROM ${this.s}.products p
+      LEFT JOIN ${this.s}.product_variants pv ON pv.product_code = p.product_code
+      LEFT JOIN combined_sales s ON s.variant_id = pv.variant_id
+        AND s.sale_date >= $1::date AND s.sale_date <= $2::date
+        AND s.sale_type NOT IN ('반품','수정') ${pcFilter}
+      WHERE p.category IS NOT NULL AND p.category != '' ${catFilter}
+      GROUP BY p.category
+      ORDER BY sold_qty DESC`;
+
     // 스타일별 사이즈 분포 (판매 상위 50개)
     const styleSizeSql = `
       WITH ${this.salesCte},
@@ -646,12 +661,13 @@ class MdAnalyticsRepository {
       GROUP BY st.product_code, st.product_name, st.category, st.total_qty, pv.size
       ORDER BY st.total_qty DESC, ${sizeOrder}`;
 
-    const [sizeSales, sizeInbound, colorSales, catSize, catColor, styleSize] = await Promise.all([
+    const [sizeSales, sizeInbound, colorSales, catSize, catColor, catSummary, styleSize] = await Promise.all([
       this.pool.query(sizeSalesSql, params),
       this.pool.query(sizeInboundSql, params),
       this.pool.query(colorSalesSql, params),
       this.pool.query(catSizeSql, params),
       this.pool.query(catColorSql, params),
+      this.pool.query(catSummarySql, params),
       this.pool.query(styleSizeSql, params),
     ]);
 
@@ -702,7 +718,14 @@ class MdAnalyticsRepository {
     const all_sizes = sizeOrderArr.filter(s => allSizesSet.has(s)).concat([...allSizesSet].filter(s => !sizeOrderArr.includes(s)));
     const by_style = Object.values(styleMap);
 
-    return { by_size, by_color, by_category_size, by_category_color, by_style, all_sizes };
+    const by_category_summary = catSummary.rows.map((r: any) => ({
+      category: r.category,
+      design_count: Number(r.design_count),
+      sold_qty: Number(r.sold_qty),
+      avg_qty_per_design: Number(r.design_count) > 0 ? Math.round(Number(r.sold_qty) / Number(r.design_count) * 10) / 10 : 0,
+    }));
+
+    return { by_size, by_color, by_category_size, by_category_color, by_category_summary, by_style, all_sizes };
   }
 
   // ─── 6. 마크다운 효과 분석 (대조군 비교 + 일별 추이 + 가변 기간) ───

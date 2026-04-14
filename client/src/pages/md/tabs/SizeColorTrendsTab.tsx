@@ -42,6 +42,7 @@ export default function SizeColorTrendsTab() {
 
   const bySize = data?.by_size || [];
   const byColor = data?.by_color || [];
+  const byCatSummary = data?.by_category_summary || [];
   const byStyle = data?.by_style || [];
   const allSizes = data?.all_sizes || [];
   const maxSizePct = Math.max(...bySize.map(s => s.sold_pct), ...bySize.map(s => s.inbound_pct), 1);
@@ -175,6 +176,41 @@ export default function SizeColorTrendsTab() {
           </Card>
         </Col>
       </Row>
+
+      {/* 카테고리별 디자인수 대비 판매수량 */}
+      {byCatSummary.length > 0 && (
+        <Card size="small" title="카테고리별 총 디자인수 대비 판매수량" style={{ marginBottom: 16 }}>
+          <Table
+            dataSource={byCatSummary}
+            rowKey="category"
+            size="small"
+            pagination={false}
+            scroll={{ x: 500 }}
+            columns={[
+              { title: '카테고리', dataIndex: 'category', width: 120, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
+              { title: '디자인수', dataIndex: 'design_count', width: 100, align: 'right' as const, render: (v: number) => `${fmt(v)}개` },
+              { title: '판매수량', dataIndex: 'sold_qty', width: 100, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>{fmt(v)}개</span> },
+              {
+                title: '디자인당 판매', dataIndex: 'avg_qty_per_design', width: 120, align: 'right' as const,
+                defaultSortOrder: 'descend' as const,
+                sorter: (a: any, b: any) => a.avg_qty_per_design - b.avg_qty_per_design,
+                render: (v: number) => <span style={{ fontWeight: 700, color: v >= 10 ? '#389e0d' : v >= 5 ? '#1890ff' : '#999' }}>{v}개</span>,
+              },
+              {
+                title: '비율', key: 'bar', width: 180,
+                render: (_: any, r: any) => {
+                  const maxQty = Math.max(...byCatSummary.map(c => c.sold_qty), 1);
+                  return (
+                    <div style={{ height: 14, background: '#f0f0f0', borderRadius: 7, overflow: 'hidden' }}>
+                      <div style={{ width: `${r.sold_qty / maxQty * 100}%`, height: '100%', background: '#6366f1', borderRadius: 7, minWidth: r.sold_qty > 0 ? 4 : 0 }} />
+                    </div>
+                  );
+                },
+              },
+            ]}
+          />
+        </Card>
+      )}
 
       {/* 스타일별 사이즈 분포 */}
       {byStyle.length > 0 && (

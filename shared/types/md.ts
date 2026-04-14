@@ -93,6 +93,7 @@ export interface SizeColorTrendsResult {
   by_color: Array<{ color: string; sold_qty: number; sold_pct: number; rank: number }>;
   by_category_size: Array<{ category: string; size: string; sold_qty: number; sold_pct: number }>;
   by_category_color: Array<{ category: string; color: string; sold_qty: number; sold_pct: number }>;
+  by_category_summary: Array<{ category: string; design_count: number; sold_qty: number; avg_qty_per_design: number }>;
   by_style: Array<{ product_code: string; product_name: string; category: string; total_qty: number; sizes: Record<string, number> }>;
   all_sizes: string[];
 }

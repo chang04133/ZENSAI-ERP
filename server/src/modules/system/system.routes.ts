@@ -293,9 +293,6 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
   const updates = req.body as Record<string, string>;
   const allowed = [
     'LOW_STOCK_THRESHOLD', 'MEDIUM_STOCK_THRESHOLD',
-    'SEASON_WEIGHT_SA_SA', 'SEASON_WEIGHT_SA_SM', 'SEASON_WEIGHT_SA_WN',
-    'SEASON_WEIGHT_SM_SA', 'SEASON_WEIGHT_SM_SM', 'SEASON_WEIGHT_SM_WN',
-    'SEASON_WEIGHT_WN_SA', 'SEASON_WEIGHT_WN_SM', 'SEASON_WEIGHT_WN_WN',
     'PRODUCTION_SALES_PERIOD_DAYS', 'PRODUCTION_SELL_THROUGH_THRESHOLD',
     'AUTO_PROD_SALES_PERIOD_DAYS',
     'BROKEN_SIZE_MIN_SIZES', 'BROKEN_SIZE_QTY_THRESHOLD',
@@ -305,13 +302,16 @@ router.put('/settings', ...admin, asyncHandler(async (req, res) => {
     'MD_SLOW_MOVER_THRESHOLD', 'MD_FAST_MOVER_THRESHOLD',
     'MD_MARKDOWN_COMPARE_DAYS',
     'MD_DISTRIBUTION_FEE_PCT', 'MD_MANAGER_FEE_PCT',
+    'MD_COST_MULTIPLIER',
+    'MD_STORE_FIT_METRIC', 'MD_STORE_FIT_STRONG_PCT', 'MD_STORE_FIT_WEAK_PCT', 'MD_STORE_FIT_TOP_COUNT', 'MD_STORE_FIT_EXCLUDE_PARTNERS',
   ];
+  const isSeasonWeight = (key: string) => /^SEASON_WEIGHT_(SS|SM|FW|WN)_(SS|SM|FW|WN)$/.test(key);
 
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     for (const [key, value] of Object.entries(updates)) {
-      if (!allowed.includes(key)) continue;
+      if (!allowed.includes(key) && !isSeasonWeight(key)) continue;
 
       let saveVal: string;
       if (key.startsWith('SEASON_WEIGHT_')) {

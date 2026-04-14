@@ -38,8 +38,8 @@ const imageUpload = multer({
   },
 });
 
-// 바코드 대시보드 (STORE_STAFF 제외)
-router.get('/barcode-dashboard', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), asyncHandler(async (req, res) => {
+// 바코드 대시보드 (전체 매장 역할 포함)
+router.get('/barcode-dashboard', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER', 'STORE_STAFF'), asyncHandler(async (req, res) => {
   const pool = getPool();
   const role = req.user?.role;
   const pc = req.user?.partnerCode;
@@ -149,7 +149,7 @@ router.post('/:code/image', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'H
 
 // 행사 상품
 router.get('/events', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), productController.listEventProducts);
-router.get('/events/recommendations', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER'), productController.eventRecommendations);
+router.get('/events/recommendations', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN', 'HQ_MANAGER', 'STORE_MANAGER'), productController.eventRecommendations);
 router.put('/events/bulk', ...eventWrite, productController.bulkUpdateEventPrices);
 router.put('/events/bulk-dates', ...eventWrite, productController.bulkUpdateEventDates);
 

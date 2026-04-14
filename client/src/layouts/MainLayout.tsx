@@ -3,6 +3,7 @@ import { Layout, Menu, Dropdown, Button, Tabs, theme } from 'antd';
 import * as Icons from '@ant-design/icons';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../modules/auth/auth.store';
+import FaqChatBot from '../components/FaqChatBot';
 import { menuItems, MenuItem } from '../routes/menu';
 import { useTabStore, findMenuLabel } from '../stores/tab.store';
 import { ROLES } from '../../../shared/constants/roles';
@@ -184,6 +185,7 @@ export default function MainLayout() {
           <Outlet />
         </Content>
       </Layout>
+      <FaqChatBot />
     </Layout>
   );
 }

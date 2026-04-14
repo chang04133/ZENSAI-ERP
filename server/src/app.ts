@@ -39,6 +39,8 @@ import crmRoutes from './modules/crm/crm.routes';
 import consentRoutes from './modules/crm/consent.routes';
 import outsourceRoutes from './modules/outsource/outsource.routes';
 import mdAnalyticsRoutes from './modules/md/md-analytics.routes';
+import markdownRoutes from './modules/md/markdown.routes';
+import vmdRoutes from './modules/vmd/vmd.routes';
 
 const app = express();
 
@@ -131,6 +133,8 @@ app.use('/api/crm', crmRoutes);
 app.use('/api/consent', consentRoutes);
 app.use('/api/outsource', outsourceRoutes);
 app.use('/api/md', mdAnalyticsRoutes);
+app.use('/api/markdown-schedules', markdownRoutes);  // 마크다운 스케줄 CRUD
+app.use('/api/vmd', vmdRoutes);
 // Production: serve static files
 if (config.nodeEnv === 'production') {
   const clientPath = path.join(__dirname, '../../../../dist-client');

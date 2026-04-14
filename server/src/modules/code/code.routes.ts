@@ -6,7 +6,7 @@ import { asyncHandler } from '../../core/async-handler';
 import { audit } from '../../core/audit';
 
 const router = Router();
-const VALID_TYPES = ['CATEGORY', 'BRAND', 'YEAR', 'SEASON', 'ITEM', 'COLOR', 'SIZE', 'SHIPMENT_TYPE', 'FIT', 'LENGTH', 'SETTING'];
+const VALID_TYPES = ['CATEGORY', 'BRAND', 'YEAR', 'SEASON', 'ITEM', 'COLOR', 'SIZE', 'SHIPMENT_TYPE', 'FIT', 'LENGTH', 'SETTING', 'DISPLAY_ZONE'];
 
 router.get('/', authMiddleware, asyncHandler(async (_req, res) => {
   const pool = getPool();

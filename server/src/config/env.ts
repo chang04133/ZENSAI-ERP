@@ -1,7 +1,15 @@
 import dotenv from 'dotenv';
 import path from 'path';
 
-dotenv.config({ path: path.resolve(__dirname, '../../../.env') });
+const root = path.resolve(__dirname, '../../..');
+
+// 1) .env 로드 (공통 설정: PORT, JWT_SECRET 등)
+dotenv.config({ path: path.join(root, '.env') });
+
+// 2) 환경별 오버라이드: .env.development 또는 .env.production
+//    같은 키가 있으면 환경별 파일이 우선
+const envFile = process.env.NODE_ENV === 'production' ? '.env.production' : '.env.development';
+dotenv.config({ path: path.join(root, envFile), override: true });
 
 function requireEnv(key: string): string {
   const value = process.env[key];
@@ -19,5 +27,5 @@ export const config = {
   jwtRefreshExpiryDays: parseInt(process.env.JWT_REFRESH_EXPIRY_DAYS || '7', 10),
   nodeEnv: process.env.NODE_ENV || 'development',
   clientUrl: process.env.CLIENT_URL || 'http://localhost:5173',
-  corsOrigins: process.env.CORS_ORIGINS || '',  // 프로덕션: 쉼표 구분 허용 도메인
+  corsOrigins: process.env.CORS_ORIGINS || '',
 };

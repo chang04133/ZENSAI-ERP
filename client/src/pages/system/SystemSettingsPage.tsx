@@ -39,6 +39,7 @@ export default function SystemSettingsPage() {
   const [mdSlowMover, setMdSlowMover] = useState(50);
   const [mdFastMover, setMdFastMover] = useState(200);
   const [mdMarkdownDays, setMdMarkdownDays] = useState(14);
+  const [mdCostMul, setMdCostMul] = useState(35);
   const [mdDistFee, setMdDistFee] = useState(0);
   const [mdMgrFee, setMdMgrFee] = useState(0);
 
@@ -63,6 +64,7 @@ export default function SystemSettingsPage() {
         setMdSlowMover(parseInt(data.data.MD_SLOW_MOVER_THRESHOLD || '50', 10));
         setMdFastMover(parseInt(data.data.MD_FAST_MOVER_THRESHOLD || '200', 10));
         setMdMarkdownDays(parseInt(data.data.MD_MARKDOWN_COMPARE_DAYS || '14', 10));
+        setMdCostMul(parseInt(data.data.MD_COST_MULTIPLIER || '35', 10));
         setMdDistFee(parseInt(data.data.MD_DISTRIBUTION_FEE_PCT || '0', 10));
         setMdMgrFee(parseInt(data.data.MD_MANAGER_FEE_PCT || '0', 10));
         const w: Record<string, number> = {};
@@ -101,6 +103,7 @@ export default function SystemSettingsPage() {
         MD_SLOW_MOVER_THRESHOLD: String(mdSlowMover),
         MD_FAST_MOVER_THRESHOLD: String(mdFastMover),
         MD_MARKDOWN_COMPARE_DAYS: String(mdMarkdownDays),
+        MD_COST_MULTIPLIER: String(mdCostMul),
         MD_DISTRIBUTION_FEE_PCT: String(mdDistFee),
         MD_MANAGER_FEE_PCT: String(mdMgrFee),
         ...Object.fromEntries(
@@ -473,6 +476,20 @@ export default function SystemSettingsPage() {
               <span style={{ color: '#888', fontSize: 13 }}>마크다운 전후 {mdMarkdownDays}일간 판매속도 비교</span>
             </div>
           </Descriptions.Item>
+          <Descriptions.Item label={<span style={{ fontWeight: 600 }}>원가 배수</span>}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <InputNumber
+                min={10} max={100}
+                value={mdCostMul}
+                onChange={(v) => v !== null && setMdCostMul(v)}
+                formatter={v => `${(Number(v) / 10).toFixed(1)}`}
+                parser={v => Math.round(parseFloat(v || '3.5') * 10)}
+                addonAfter="배"
+                style={{ width: 140 }}
+              />
+              <span style={{ color: '#888', fontSize: 13 }}>마진분석 시 DB원가 × {(mdCostMul / 10).toFixed(1)}배 = 실제원가</span>
+            </div>
+          </Descriptions.Item>
           <Descriptions.Item label={<span style={{ fontWeight: 600 }}>유통 수수료율</span>}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <InputNumber
@@ -506,6 +523,9 @@ export default function SystemSettingsPage() {
           </div>
           <div style={{ marginTop: 4 }}>
             <strong>마크다운</strong>: 할인 적용 전후 각 {mdMarkdownDays}일의 판매속도를 비교하여 효과 측정
+          </div>
+          <div style={{ marginTop: 4 }}>
+            <strong>원가 배수</strong>: DB 원가 × {(mdCostMul / 10).toFixed(1)}배로 실제 원가 산출 (원부자재 → 완제품 환산)
           </div>
           {(mdDistFee > 0 || mdMgrFee > 0) && (
             <div style={{ marginTop: 4 }}>

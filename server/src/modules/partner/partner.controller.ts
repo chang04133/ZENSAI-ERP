@@ -31,14 +31,13 @@ class PartnerController extends BaseController<Partner> {
 
     const { page, limit, search, scope, is_active, ...otherFilters } = req.query;
 
-    // scope=transfer: 창고 거래처만 반환 (STORE_MANAGER는 기본창고만)
+    // scope=transfer: 창고 거래처만 반환 (수평이동 대상 전체 창고)
     if (scope === 'transfer') {
       const pool = getPool();
-      const storeOnly = role === 'STORE_MANAGER';
       const result = await pool.query(`
         SELECT p.* FROM partners p
         INNER JOIN warehouses w ON p.partner_code = w.warehouse_code AND w.is_active = TRUE
-        WHERE p.is_active = TRUE ${storeOnly ? 'AND w.is_default = TRUE' : ''}
+        WHERE p.is_active = TRUE
         ORDER BY w.is_default DESC, p.partner_name
       `);
       res.json({ success: true, data: { data: result.rows, total: result.rows.length, page: 1, limit: result.rows.length, totalPages: 1 } });

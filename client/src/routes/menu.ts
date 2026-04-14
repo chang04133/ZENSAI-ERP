@@ -89,7 +89,14 @@ export const menuItems: MenuItem[] = [
     ],
   },
 
-  { key: '/md/analytics', label: 'MD 분석', icon: 'FundProjectionScreenOutlined', roles: ADMIN_HQ },
+  {
+    key: 'sub-md', label: 'MD 관리', icon: 'FundProjectionScreenOutlined', roles: ADMIN_HQ_STORE,
+    children: [
+      { key: '/md/analytics', label: 'MD 분석', icon: 'LineChartOutlined', roles: ADMIN_HQ },
+      { key: '/md/schedules', label: '마크다운 스케줄', icon: 'ScheduleOutlined', roles: ADMIN_HQ },
+      { key: '/vmd', label: 'VMD 진열관리', icon: 'AppstoreOutlined', roles: ADMIN_HQ_STORE },
+    ],
+  },
   {
     key: 'sub-crm', label: '고객관리', icon: 'TeamOutlined', roles: ADMIN_HQ_STORE,
     children: [

@@ -94,6 +94,10 @@ const OsPaymentPage = lazy(() => import('../pages/outsource/OsPaymentPage'));
 
 // MD Analytics
 const MdAnalyticsPage = lazy(() => import('../pages/md/MdAnalyticsPage'));
+const MarkdownSchedulePage = lazy(() => import('../pages/md/MarkdownSchedulePage'));
+
+// VMD
+const VmdManagePage = lazy(() => import('../pages/vmd/VmdManagePage'));
 
 // CRM
 const CrmPage = lazy(() => import('../pages/crm/CrmPage'));
@@ -198,6 +202,10 @@ export const appRoutes: AppRoute[] = [
 
   // MD Analytics
   { path: '/md/analytics', element: <MdAnalyticsPage />, roles: ADMIN_HQ },
+  { path: '/md/schedules', element: <MarkdownSchedulePage />, roles: ADMIN_HQ },
+
+  // VMD
+  { path: '/vmd', element: <VmdManagePage />, roles: ADMIN_HQ_STORE },
 
   // Barcode (매장매니저 이하)
   { path: '/barcode', element: <BarcodeDashboardPage />, roles: ALL },

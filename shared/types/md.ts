@@ -1,12 +1,11 @@
-// ── ABC Analysis ──
+// ── ABC Analysis (글로벌 누적매출 기반) ──
 export interface AbcItem {
   key: string;
   label: string;
-  category?: string;
-  season?: string;
+  category: string;
   total_price: number;
   qty: number;
-  cumulative_pct: number;
+  cumulative_pct: number;     // 누적 매출 비중%
   grade: 'A' | 'B' | 'C';
 }
 
@@ -33,6 +32,8 @@ export interface MarginItem {
   actual_margin_pct: number;
   distribution_fee_pct: number;
   manager_fee_pct: number;
+  distribution_fee_amount: number;
+  manager_fee_amount: number;
   net_margin_pct: number;
   net_profit: number;
   total_revenue: number;
@@ -51,6 +52,9 @@ export interface MarginSummary {
   avg_net_margin: number;
   distribution_fee_pct: number;
   manager_fee_pct: number;
+  total_distribution_fee: number;
+  total_manager_fee: number;
+  cost_multiplier?: number;
   margin_distribution: Array<{ range: string; count: number }>;
 }
 
@@ -59,41 +63,6 @@ export interface MarginAnalysisResult {
   summary: MarginSummary;
 }
 
-// ── 완판율 분석 (Sell-Through) ──
-export interface TurnoverItem {
-  key: string;
-  label: string;
-  category?: string;
-  total_inbound: number;
-  sold_qty: number;
-  current_stock: number;
-  sell_through_rate: number;
-  days_to_sellout: number;
-  first_inbound_date?: string;
-  // 하위호환
-  avg_inventory: number;
-  turnover_rate: number;
-  dio: number;
-}
-
-export interface TurnoverSummary {
-  avg_sell_through: number;
-  sold_out_count: number;
-  slow_movers_count: number;
-  fast_movers_count: number;
-  total_inbound: number;
-  total_sold: number;
-  // 하위호환
-  avg_turnover: number;
-  avg_dio: number;
-}
-
-export interface InventoryTurnoverResult {
-  items: TurnoverItem[];
-  summary: TurnoverSummary;
-  slow_movers: Array<{ product_code: string; product_name: string; category: string; sell_through_rate: number; current_stock: number; stock_value: number; turnover_rate: number }>;
-  thresholds?: { slow: number; fast: number };
-}
 
 // ── Season Performance ──
 export interface SeasonRow {
@@ -115,6 +84,7 @@ export interface SeasonRow {
 export interface SeasonPerformanceResult {
   seasons: SeasonRow[];
   prev_seasons: SeasonRow[];
+  compare_seasons?: Record<number, SeasonRow[]>;  // year → SeasonRow[]
 }
 
 // ── Size/Color Trends ──
@@ -123,6 +93,8 @@ export interface SizeColorTrendsResult {
   by_color: Array<{ color: string; sold_qty: number; sold_pct: number; rank: number }>;
   by_category_size: Array<{ category: string; size: string; sold_qty: number; sold_pct: number }>;
   by_category_color: Array<{ category: string; color: string; sold_qty: number; sold_pct: number }>;
+  by_style: Array<{ product_code: string; product_name: string; category: string; total_qty: number; sizes: Record<string, number> }>;
+  all_sizes: string[];
 }
 
 // ── Markdown Effectiveness ──
@@ -142,11 +114,95 @@ export interface MarkdownScheduleAnalysis {
   post_revenue: number;
   additional_revenue: number;
   affected_products: number;
+  // 대조군 비교
+  control_pre_velocity: number;
+  control_post_velocity: number;
+  control_velocity_change_pct: number;
+  net_effect_pct: number;
+  // 재고 소진
+  stock_at_markdown: number;        // 마크다운 시점 추정 재고
+  stock_remaining: number;          // 현재 잔여 재고
+  clearance_rate: number;           // 소진율 %
+  // 마진 회수
+  discount_loss: number;            // 할인 손실 = (정가-할인가) × 할인후 판매수량
+  marginal_profit: number;          // 추가 판매 이익 = (추가수량) × (할인가-원가)
+  net_markdown_value: number;       // 순 효과 = marginal_profit - discount_loss
+  // 상대 판매율 비교 (비할인 상품 대비)
+  relative_velocity_index: number;  // 상대 판매속도 지수 (0=동일, +면 할인효과, -면 역효과)
+  control_sell_through: number;     // 대조군 판매소진율 %
+  sell_through_gap: number;         // 소진율 격차 pp (target - control)
+}
+
+export interface MarkdownDailyTrend {
+  date: string;
+  qty: number;
+  revenue: number;
+  control_qty: number;
+  control_revenue: number;
+  is_post: boolean;
 }
 
 export interface MarkdownEffectivenessResult {
   schedules: MarkdownScheduleAnalysis[];
-  by_round: Array<{ markdown_round: number; avg_velocity_change: number; total_additional_revenue: number; schedule_count: number }>;
+  by_round: Array<{ markdown_round: number; avg_velocity_change: number; avg_net_effect: number; total_additional_revenue: number; schedule_count: number }>;
+  compare_days: number;
+  daily_trend?: MarkdownDailyTrend[];     // 특정 스케줄 선택 시
+}
+
+// ── Style Productivity (스타일 생산성) ──
+export interface StyleProductivityRow {
+  category: string;
+  style_count: number;
+  total_qty: number;
+  total_revenue: number;
+  qty_per_style: number;
+  revenue_per_style: number;
+}
+
+export interface StyleProductivityMonthly {
+  month: string;          // YYYY-MM
+  style_count: number;
+  total_qty: number;
+  total_revenue: number;
+  qty_per_style: number;
+  revenue_per_style: number;
+}
+
+export interface StyleProductivityResult {
+  by_category: StyleProductivityRow[];
+  monthly: StyleProductivityMonthly[];
+  by_category_monthly: Array<StyleProductivityMonthly & { category: string }>;
+  compare_years?: Record<number, {
+    by_category: StyleProductivityRow[];
+    monthly: StyleProductivityMonthly[];
+  }>;
+}
+
+// ── Markdown Schedule Management ──
+export interface MarkdownSchedule {
+  schedule_id: number;
+  schedule_name: string;
+  season_code: string;
+  markdown_round: number;
+  discount_rate: number;
+  start_date: string;
+  end_date: string | null;
+  status: 'DRAFT' | 'APPLIED' | 'REVERTED';
+  applied_at: string | null;
+  reverted_at: string | null;
+  created_by: string;
+  created_at: string;
+  items?: MarkdownItemRow[];
+  item_count?: number;
+}
+
+export interface MarkdownItemRow {
+  item_id: number;
+  product_code: string;
+  product_name?: string;
+  original_price: number;
+  markdown_price: number;
+  status: string;
 }
 
 // ── Store-Product Fit ──

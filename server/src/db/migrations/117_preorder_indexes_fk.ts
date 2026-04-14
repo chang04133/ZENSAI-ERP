@@ -32,7 +32,7 @@ const migration: Migration = {
 
     // 자주 사용하는 복합 인덱스: inventory, shipment, sales
     await client.query(`CREATE INDEX IF NOT EXISTS idx_inventory_partner_variant ON inventory (partner_code, variant_id) WHERE qty > 0`);
-    await client.query(`CREATE INDEX IF NOT EXISTS idx_shipments_status_date ON shipments (status, created_at DESC)`);
+    await client.query(`CREATE INDEX IF NOT EXISTS idx_shipments_status_date ON shipment_requests (status, created_at DESC)`);
     await client.query(`CREATE INDEX IF NOT EXISTS idx_sales_partner_date ON sales (partner_code, sale_date DESC)`);
   },
 };

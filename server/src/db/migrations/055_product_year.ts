@@ -1,7 +1,7 @@
 import { Migration } from './runner';
 
 const migration: Migration = {
-  version: 55,
+  version: 42,
   name: 'product_year',
   up: async (db) => {
     // year 컬럼 추가

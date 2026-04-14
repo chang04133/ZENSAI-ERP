@@ -28,7 +28,7 @@ export default defineConfig({
     {
       name: 'store-manager',
       dependencies: ['setup'],
-      testIgnore: /(T-outsource|U-permissions|V-event-price|V-sell-through|W-md-analytics)\.spec\.ts/,
+      testIgnore: /(T-outsource|U-permissions|V-event-price|V-sell-through|W-md-analytics|X-hq-manager|Y-cross-store)\.spec\.ts/,
       use: {
         baseURL: 'http://localhost:5174',
         storageState: 'e2e/.auth/store-manager.json',
@@ -49,6 +49,36 @@ export default defineConfig({
         storageState: 'e2e/.auth/admin.json',
       },
     },
+
+    // ── 본사관리자 (hq_mgr) ──
+    {
+      name: 'hq-setup',
+      testMatch: /auth-hq\.setup\.ts/,
+    },
+    {
+      name: 'hq-manager',
+      dependencies: ['hq-setup'],
+      testMatch: /X-hq-manager\.spec\.ts/,
+      use: {
+        baseURL: 'http://localhost:5173',
+        storageState: 'e2e/.auth/hq-manager.json',
+      },
+    },
+
+    // ── 두 번째 매장 (daegu — 크로스스토어 격리) ──
+    {
+      name: 'staff-setup',
+      testMatch: /auth-staff\.setup\.ts/,
+    },
+    {
+      name: 'second-store',
+      dependencies: ['staff-setup'],
+      testMatch: /Y-cross-store\.spec\.ts/,
+      use: {
+        baseURL: 'http://localhost:5175',
+        storageState: 'e2e/.auth/second-store.json',
+      },
+    },
   ],
 
   webServer: [
@@ -67,6 +97,18 @@ export default defineConfig({
     {
       command: 'npm run dev:master',
       port: 5172,
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+    {
+      command: 'npm run dev:client',
+      port: 5173,
+      reuseExistingServer: true,
+      timeout: 30_000,
+    },
+    {
+      command: 'npm run dev:staff',
+      port: 5175,
       reuseExistingServer: true,
       timeout: 30_000,
     },

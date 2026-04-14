@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Table, Card, Row, Col, Select, DatePicker, Button, Tag, message } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
@@ -10,12 +10,13 @@ import type { SizeColorTrendsResult } from '../../../../../shared/types/md';
 const { RangePicker } = DatePicker;
 const fmt = (v: number) => v?.toLocaleString() ?? '0';
 
-const BAR_COLORS = ['#6366f1', '#818cf8', '#a78bfa', '#c4b5fd', '#ddd6fe', '#ede9fe', '#f5f3ff'];
 const COLOR_PALETTE: Record<string, string> = {
   블랙: '#222', 화이트: '#ddd', 네이비: '#001f5c', 그레이: '#888', 베이지: '#d4b896',
   카키: '#6b6b40', 브라운: '#8B4513', 레드: '#dc2626', 블루: '#2563eb', 그린: '#16a34a',
   핑크: '#ec4899', 옐로우: '#eab308', 라벤더: '#a78bfa', 오렌지: '#f97316', 아이보리: '#f5f0e1',
 };
+
+const SIZE_BAR_COLORS = ['#6366f1', '#818cf8', '#a78bfa', '#c4b5fd', '#93c5fd', '#86efac', '#fcd34d'];
 
 export default function SizeColorTrendsTab() {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(90, 'day'), dayjs()]);
@@ -41,6 +42,8 @@ export default function SizeColorTrendsTab() {
 
   const bySize = data?.by_size || [];
   const byColor = data?.by_color || [];
+  const byStyle = data?.by_style || [];
+  const allSizes = data?.all_sizes || [];
   const maxSizePct = Math.max(...bySize.map(s => s.sold_pct), ...bySize.map(s => s.inbound_pct), 1);
   const maxColorSold = Math.max(...byColor.map(c => c.sold_qty), 1);
 
@@ -81,6 +84,50 @@ export default function SizeColorTrendsTab() {
     },
   ];
 
+  // 스타일별 사이즈 분포 컬럼
+  const styleCatFilters = useMemo(() =>
+    [...new Set(byStyle.map(s => s.category))].map(c => ({ text: c, value: c })),
+  [byStyle]);
+
+  const styleColumns: any[] = [
+    {
+      title: '상품', key: 'product', width: 200, ellipsis: true, fixed: 'left' as const,
+      render: (_: any, r: any) => (
+        <div>
+          <div style={{ fontWeight: 600, fontSize: 12 }}>{r.product_name}</div>
+          <div style={{ fontSize: 10, color: '#999' }}>{r.product_code}</div>
+        </div>
+      ),
+    },
+    {
+      title: '카테고리', dataIndex: 'category', width: 80,
+      filters: styleCatFilters,
+      onFilter: (v: any, r: any) => r.category === v,
+    },
+    {
+      title: '총 수량', dataIndex: 'total_qty', width: 80, align: 'right' as const,
+      defaultSortOrder: 'descend' as const,
+      render: (v: number) => <span style={{ fontWeight: 600 }}>{fmt(v)}</span>,
+      sorter: (a: any, b: any) => a.total_qty - b.total_qty,
+    },
+    ...allSizes.map((size, si) => ({
+      title: size, dataIndex: ['sizes', size], width: 65, align: 'center' as const,
+      render: (v: number, r: any) => {
+        if (!v) return <span style={{ color: '#ddd' }}>-</span>;
+        const pct = Math.round(v / r.total_qty * 100);
+        return (
+          <div title={`${v}개 (${pct}%)`}>
+            <div style={{ fontSize: 12, fontWeight: 500 }}>{v}</div>
+            <div style={{ height: 3, background: '#f0f0f0', borderRadius: 2, marginTop: 1 }}>
+              <div style={{ width: `${pct}%`, height: '100%', background: SIZE_BAR_COLORS[si % SIZE_BAR_COLORS.length], borderRadius: 2 }} />
+            </div>
+          </div>
+        );
+      },
+      sorter: (a: any, b: any) => (a.sizes?.[size] || 0) - (b.sizes?.[size] || 0),
+    })),
+  ];
+
   return (
     <div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 16, alignItems: 'flex-end' }}>
@@ -94,7 +141,7 @@ export default function SizeColorTrendsTab() {
       {/* 사이즈 분포 차트 */}
       <Card size="small" title="사이즈별 판매 vs 입고 비중" style={{ marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 130, padding: '0 8px' }}>
-          {bySize.map((s, i) => (
+          {bySize.map(s => (
             <div key={s.size} style={{ flex: 1, textAlign: 'center' }}>
               <div style={{ fontSize: 10, fontWeight: 600, marginBottom: 2 }}>{s.sold_pct}%</div>
               <div style={{ display: 'flex', gap: 2, justifyContent: 'center', alignItems: 'flex-end', height: 80, overflow: 'hidden' }}>
@@ -117,15 +164,27 @@ export default function SizeColorTrendsTab() {
       <Row gutter={16}>
         <Col xs={24} md={12}>
           <Card size="small" title="사이즈별 상세" style={{ marginBottom: 16 }}>
-            <Table dataSource={bySize} columns={sizeColumns} rowKey="size" size="small" pagination={false} scroll={{ x: 500 }} />
+            <Table dataSource={bySize} columns={sizeColumns} rowKey="size" size="small" pagination={false}
+              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 500 }} />
           </Card>
         </Col>
         <Col xs={24} md={12}>
           <Card size="small" title="컬러 인기 순위 TOP 20" style={{ marginBottom: 16 }}>
-            <Table dataSource={byColor} columns={colorColumns} rowKey="color" size="small" pagination={false} scroll={{ x: 500, y: 400 }} />
+            <Table dataSource={byColor} columns={colorColumns} rowKey="color" size="small" pagination={false}
+              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 500, y: 400 }} />
           </Card>
         </Col>
       </Row>
+
+      {/* 스타일별 사이즈 분포 */}
+      {byStyle.length > 0 && (
+        <Card size="small" title={`스타일별 사이즈 분포 (판매 TOP ${byStyle.length})`} style={{ marginBottom: 16 }}>
+          <Table dataSource={byStyle} columns={styleColumns} rowKey="product_code" size="small"
+            locale={{ emptyText: '조회된 데이터가 없습니다' }}
+            scroll={{ x: 400 + allSizes.length * 65, y: 500 }}
+            pagination={{ pageSize: 30, showTotal: t => `총 ${t}건` }} />
+        </Card>
+      )}
     </div>
   );
 }

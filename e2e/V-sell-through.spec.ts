@@ -84,12 +84,20 @@ test.describe('V. 판매율 분석', () => {
   test('V-3. API ↔ UI 값 일치 — 총 판매수량', async ({ page }) => {
     const token = await getAuthToken(page);
 
+    // UI 기본 기간: 최근 30일 (dayjs().subtract(30,'day') ~ dayjs())
     const now = new Date();
     const to = now.toISOString().slice(0, 10);
     const from = new Date(now.getTime() - 30 * 86400000).toISOString().slice(0, 10);
 
+    // UI 로드 대기 후 RangePicker에서 실제 날짜 읽기
+    const inputs = page.locator('.ant-picker-range input');
+    const uiFrom = await inputs.nth(0).inputValue();
+    const uiTo = await inputs.nth(1).inputValue();
+    const qFrom = uiFrom || from;
+    const qTo = uiTo || to;
+
     const apiRes = await page.request.get(
-      `http://localhost:3001/api/sales/sell-through?date_from=${from}&date_to=${to}`,
+      `http://localhost:3001/api/sales/sell-through?date_from=${qFrom}&date_to=${qTo}`,
       { headers: { Authorization: `Bearer ${token}` } },
     );
     const apiData = await apiRes.json();

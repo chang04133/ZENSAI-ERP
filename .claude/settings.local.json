@@ -306,7 +306,23 @@
       "Bash(npx playwright install chromium)",
       "Bash(npx playwright test:*)",
       "Bash(powershell -command \"Get-Process -Id 285080 | Select-Object ProcessName,Id\")",
-      "Bash(powershell -command \"Stop-Process -Id 285080 -Force\")"
+      "Bash(powershell -command \"Stop-Process -Id 285080 -Force\")",
+      "Bash(DATABASE_URL=\"postgresql://zensai_erp_database_user:aFWKCqJ6CIqYpNw9n7LbWUkX6tPLYuJv@dpg-d6t97ai4d50c73c5jr50-a.singapore-postgres.render.com/zensai_erp_database\" JWT_SECRET=dummy npx tsx -e:*)",
+      "Bash(git checkout:*)",
+      "Bash(cmd.exe /c \"taskkill /F /PID 573328\")",
+      "Bash(cmd.exe //c \"taskkill /F /T /PID 573328\")",
+      "Bash(/c/Windows/System32/taskkill.exe:*)",
+      "Bash(npx --yes kill-port:*)",
+      "Bash(taskkill.exe:*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJwYXJ0bmVyQ29kZSI6bnVsbCwicGFydG5lck5hbWUiOm51bGwsImlhdCI6MTc3NjEwMzU2MCwiZXhwIjoxNzc2MTEwNzYwfQ.zD6FI9Pe56XP-nNuyKKZnxwUysAnXHIcYyJjp0LTAjw\")",
+      "Bash(powershell.exe -NoProfile -Command \"Stop-Process -Id 622076 -Force\")",
+      "Bash(cat:*)",
+      "Bash(powershell.exe -NoProfile -Command:*)",
+      "Bash(psql:*)",
+      "Bash(\"/c/Program Files/PostgreSQL/17/bin/psql\" -U postgres -d zensai_erp_dev -c \"DROP SCHEMA IF EXISTS zensai CASCADE; DROP TABLE IF EXISTS _migrations CASCADE;\")",
+      "Bash(PGPASSWORD=postgres \"/c/Program Files/PostgreSQL/17/bin/psql\":*)",
+      "Bash(TOKEN=\"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOiJhZG1pbiIsInVzZXJOYW1lIjoiYWRtaW4iLCJyb2xlIjoiQURNSU4iLCJwYXJ0bmVyQ29kZSI6bnVsbCwicGFydG5lck5hbWUiOm51bGwsImlhdCI6MTc3NjEzNTA1MSwiZXhwIjoxNzc2MjIxNDUxfQ._1TJ1GB2j-esltXR8GGUQXsJA_LkSfkHzBVzqBHwY-g\")",
+      "Bash(DATABASE_URL=\"postgresql://user:pass@remote-server.com/prod_db\" timeout 5 npx tsx:*)"
     ]
   }
 }

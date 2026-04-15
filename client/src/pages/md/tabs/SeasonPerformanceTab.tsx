@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Table, Card, Row, Col, Select, Button, Progress, Tag, Modal, InputNumber, message } from 'antd';
 import { SearchOutlined, SettingOutlined, SwapOutlined } from '@ant-design/icons';
 import { mdApi } from '../../../modules/md/md.api';
-import type { SeasonPerformanceResult, SeasonRow } from '../../../../../shared/types/md';
+import type { SeasonPerformanceResult, SeasonRow, SeasonCategoryRow } from '../../../../../shared/types/md';
 
 const fmt = (v: number) => (v != null && !isNaN(v)) ? v.toLocaleString() : '0';
 const currentYear = new Date().getFullYear();
@@ -53,6 +53,9 @@ export default function SeasonPerformanceTab() {
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<SeasonPerformanceResult | null>(null);
 
+  // 카테고리별 성과
+  const [catData, setCatData] = useState<Record<number, SeasonCategoryRow[]>>({});
+
   // 목표 설정 모달
   const [modalOpen, setModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -60,7 +63,15 @@ export default function SeasonPerformanceTab() {
 
   const load = async () => {
     setLoading(true);
-    try { setData(await mdApi.seasonPerformance(year, compareYears, monthFrom, monthTo)); }
+    try {
+      const allYears = [year, ...compareYears.filter(y => y !== year)];
+      const [perfData, catResult] = await Promise.all([
+        mdApi.seasonPerformance(year, compareYears, monthFrom, monthTo),
+        mdApi.seasonCategory(allYears, monthFrom, monthTo),
+      ]);
+      setData(perfData);
+      setCatData(catResult);
+    }
     catch (e: any) { message.error(e.message); }
     finally { setLoading(false); }
   };
@@ -307,6 +318,84 @@ export default function SeasonPerformanceTab() {
         locale={{ emptyText: '해당 연도의 시즌 데이터가 없습니다' }}
         scroll={{ x: 1100 + compareYears.length * 130, y: 'calc(100vh - 540px)' }} pagination={false}
         onRow={r => r.season_code === '전체' ? { style: { background: '#fafafa', borderTop: '2px solid #d9d9d9' } } : {}} />
+
+      {/* 카테고리별 연도 비교 */}
+      {(() => {
+        const curCats = catData[year] || [];
+        const cmpYrs = compareYears.filter(cy => catData[cy]?.length);
+        if (!curCats.length || !cmpYrs.length) return null;
+
+        // 카테고리별 합산 (시즌 구분 없이 연도 전체)
+        const aggregate = (rows: SeasonCategoryRow[]) => {
+          const map: Record<string, { revenue: number; sold_qty: number; style_count: number }> = {};
+          for (const r of rows) {
+            if (!map[r.category]) map[r.category] = { revenue: 0, sold_qty: 0, style_count: 0 };
+            map[r.category].revenue += r.revenue;
+            map[r.category].sold_qty += r.sold_qty;
+            map[r.category].style_count += r.style_count;
+          }
+          return map;
+        };
+
+        const curAgg = aggregate(curCats);
+        const cmpAggs = Object.fromEntries(cmpYrs.map(cy => [cy, aggregate(catData[cy] || [])]));
+        const categories = [...new Set([...Object.keys(curAgg), ...cmpYrs.flatMap(cy => Object.keys(cmpAggs[cy]))])].sort();
+
+        const catColumns: any[] = [
+          { title: '카테고리', dataIndex: 'category', width: 100, fixed: 'left' as const, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
+          { title: `${year}년 매출`, dataIndex: 'cur_revenue', width: 120, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 700 }}>{fmt(v)}원</span> },
+          { title: `${year}년 수량`, dataIndex: 'cur_qty', width: 90, align: 'right' as const, render: (v: number) => fmt(v) },
+          { title: `${year}년 스타일`, dataIndex: 'cur_styles', width: 80, align: 'right' as const, render: (v: number) => fmt(v) },
+          ...cmpYrs.flatMap((cy, ci) => [
+            {
+              title: `${cy}년 매출`, key: `rev_${cy}`, width: 120, align: 'right' as const,
+              render: (_: any, r: any) => <span style={{ color: CMP_COLORS[ci % CMP_COLORS.length] }}>{fmt(r[`rev_${cy}`] || 0)}원</span>,
+            },
+            {
+              title: `증감률`, key: `chg_${cy}`, width: 100, align: 'center' as const,
+              render: (_: any, r: any) => {
+                const prev = r[`rev_${cy}`] || 0;
+                const cur = r.cur_revenue || 0;
+                if (!prev) return <span style={{ color: '#ccc' }}>-</span>;
+                const pct = Math.round((cur - prev) / prev * 1000) / 10;
+                return <Tag color={pct >= 0 ? 'green' : 'red'} style={{ margin: 0, fontWeight: 600 }}>{pct >= 0 ? '+' : ''}{pct}%</Tag>;
+              },
+            },
+          ]),
+        ];
+
+        const catRows = categories.map(cat => {
+          const row: any = {
+            category: cat,
+            cur_revenue: curAgg[cat]?.revenue || 0,
+            cur_qty: curAgg[cat]?.sold_qty || 0,
+            cur_styles: curAgg[cat]?.style_count || 0,
+          };
+          for (const cy of cmpYrs) {
+            row[`rev_${cy}`] = cmpAggs[cy]?.[cat]?.revenue || 0;
+          }
+          return row;
+        });
+
+        // 합계 행
+        const totalRow: any = { category: '합계', cur_revenue: 0, cur_qty: 0, cur_styles: 0 };
+        for (const r of catRows) { totalRow.cur_revenue += r.cur_revenue; totalRow.cur_qty += r.cur_qty; totalRow.cur_styles += r.cur_styles; }
+        for (const cy of cmpYrs) { totalRow[`rev_${cy}`] = catRows.reduce((s: number, r: any) => s + (r[`rev_${cy}`] || 0), 0); }
+
+        return (
+          <Card size="small" title={<>카테고리별 연도 비교 <span style={{ fontSize: 12, color: '#999', fontWeight: 400 }}>{monthFrom}~{monthTo}월 기준</span></>} style={{ marginBottom: 16 }}>
+            <Table
+              dataSource={[...catRows, totalRow]}
+              columns={catColumns}
+              rowKey="category"
+              size="small"
+              pagination={false}
+              scroll={{ x: 500 + cmpYrs.length * 220 }}
+              onRow={r => r.category === '합계' ? { style: { background: '#fafafa', borderTop: '2px solid #d9d9d9', fontWeight: 800 } } : {}}
+            />
+          </Card>
+        );
+      })()}
 
       {/* 시즌 목표 설정 모달 */}
       <Modal

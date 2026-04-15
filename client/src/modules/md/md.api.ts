@@ -29,6 +29,12 @@ seasonPerformance: async (year?: number, compareYears?: number[], monthFrom?: nu
     if (monthTo) p.set('month_to', String(monthTo));
     return parse(await apiFetch(`/api/md/season-performance?${p}`));
   },
+  seasonCategory: async (years: number[], monthFrom?: number, monthTo?: number) => {
+    const p = new URLSearchParams({ years: years.join(',') });
+    if (monthFrom) p.set('month_from', String(monthFrom));
+    if (monthTo) p.set('month_to', String(monthTo));
+    return parse(await apiFetch(`/api/md/season-category?${p}`));
+  },
   sizeColorTrends: async (dateFrom: string, dateTo: string, category?: string) => {
     const p = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
     if (category) p.set('category', category);
@@ -46,6 +52,12 @@ seasonPerformance: async (year?: number, compareYears?: number[], monthFrom?: nu
     if (metric) p.set('metric', metric);
     if (excludePartners?.length) p.set('exclude_partners', excludePartners.join(','));
     return parse(await apiFetch(`/api/md/store-product-fit?${p}`));
+  },
+  storeProductComparison: async (dateFrom: string, dateTo: string, metric?: string, strongPct?: number) => {
+    const p = new URLSearchParams({ date_from: dateFrom, date_to: dateTo });
+    if (metric) p.set('metric', metric);
+    if (strongPct) p.set('strong_pct', String(strongPct));
+    return parse(await apiFetch(`/api/md/store-product-comparison?${p}`));
   },
   storeProductRanking: async (dateFrom: string, dateTo: string, partnerCode: string, metric?: string) => {
     const p = new URLSearchParams({ date_from: dateFrom, date_to: dateTo, partner_code: partnerCode });

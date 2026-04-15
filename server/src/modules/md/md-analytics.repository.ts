@@ -3,7 +3,7 @@ import type {
   AbcAnalysisResult, MarginAnalysisResult,
   SeasonPerformanceResult, SizeColorTrendsResult,
   MarkdownEffectivenessResult, StoreProductFitResult,
-  StyleProductivityResult,
+  StyleProductivityResult, StoreProductComparisonResult,
 } from '../../../../shared/types/md';
 import type { VmdEffectResult } from '../../../../shared/types/vmd';
 
@@ -190,20 +190,20 @@ class MdAnalyticsRepository {
         GROUP BY ${groupByCols}
         ORDER BY total_profit DESC`;
     } else {
-      // 설정배수 모드: 원가 = 정가 / 배수 (기존 로직 그대로)
+      // 설정배수 모드: 원가 = 실제매출/배수 (실제 판매가 기준)
       const costMulIdx = idx++;
       params.push(settings.costMultiplier);
       sql = `
         WITH ${this.salesCte}
         SELECT ${groupKey},
-          ROUND(SUM(s.qty * p.base_price)::numeric / $${costMulIdx} / NULLIF(SUM(s.qty), 0))::int AS cost_price,
+          ROUND(SUM(s.total_price)::numeric / $${costMulIdx} / NULLIF(SUM(s.qty), 0))::int AS cost_price,
           ROUND(SUM(s.qty * p.base_price)::numeric / NULLIF(SUM(s.qty), 0))::int AS base_price,
           ROUND(SUM(s.total_price)::numeric / NULLIF(SUM(s.qty), 0))::int AS avg_selling_price,
           ROUND((1 - 1.0 / $${costMulIdx}) * 100, 1)::float AS base_margin_pct,
-          ROUND((1 - SUM(s.qty * p.base_price)::numeric / $${costMulIdx} / NULLIF(SUM(s.total_price), 0)) * 100, 1)::float AS actual_margin_pct,
+          ROUND((1 - 1.0 / $${costMulIdx}) * 100, 1)::float AS actual_margin_pct,
           SUM(s.total_price)::bigint AS total_revenue,
-          ROUND(SUM(s.qty * p.base_price)::numeric / $${costMulIdx})::bigint AS total_cost,
-          (SUM(s.total_price) - ROUND(SUM(s.qty * p.base_price)::numeric / $${costMulIdx}))::bigint AS total_profit,
+          ROUND(SUM(s.total_price)::numeric / $${costMulIdx})::bigint AS total_cost,
+          (SUM(s.total_price) - ROUND(SUM(s.total_price)::numeric / $${costMulIdx}))::bigint AS total_profit,
           SUM(s.qty)::int AS qty
         FROM combined_sales s
         JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
@@ -223,10 +223,12 @@ class MdAnalyticsRepository {
       const cost = Number(r.total_cost);
       const profit = Number(r.total_profit);
       const actualMargin = Number(r.actual_margin_pct) || 0;
-      const netMarginPct = Math.round((actualMargin - distPct - mgrPct) * 10) / 10;
-      const netProfit = Math.round(profit - revenue * distPct / 100 - revenue * mgrPct / 100);
-      const distFeeAmt = Math.round(revenue * distPct / 100);
-      const mgrFeeAmt = Math.round(revenue * mgrPct / 100);
+      const distFee = revenue * distPct / 100;
+      const mgrFee = revenue * mgrPct / 100;
+      const netProfit = Math.round(profit - distFee - mgrFee);
+      const netMarginPct = revenue > 0 ? Math.round(netProfit / revenue * 1000) / 10 : 0;
+      const distFeeAmt = Math.round(distFee);
+      const mgrFeeAmt = Math.round(mgrFee);
       return {
         ...r,
         distribution_fee_pct: distPct,
@@ -264,9 +266,9 @@ class MdAnalyticsRepository {
         total_cost: totalCost,
         total_profit: totalProfit,
         total_net_profit: totalNetProfit,
-        avg_base_margin: items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.base_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
-        avg_actual_margin: items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.actual_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
-        avg_net_margin: items.length ? Math.round(items.reduce((s: number, r: any) => s + Number(r.net_margin_pct || 0), 0) / items.length * 10) / 10 : 0,
+        avg_base_margin: totalRevenue > 0 ? Math.round((1 - totalCost / totalRevenue) * 1000) / 10 : 0,
+        avg_actual_margin: totalRevenue > 0 ? Math.round(totalProfit / totalRevenue * 1000) / 10 : 0,
+        avg_net_margin: totalRevenue > 0 ? Math.round(totalNetProfit / totalRevenue * 1000) / 10 : 0,
         distribution_fee_pct: distPct,
         manager_fee_pct: mgrPct,
         total_distribution_fee: totalDistFee,
@@ -405,21 +407,29 @@ class MdAnalyticsRepository {
 
   // ─── 4. 시즌 성과 ───
 
-  /** 숫자/레거시 시즌코드 → 표준 4시즌 정규화 SQL CASE */
+  /** 숫자/레거시/영문 시즌코드 → 표준 4시즌 정규화 SQL CASE */
   private get seasonNormCase() {
     return `CASE
-      WHEN p.season IN ('SS','1') THEN 'SS'
-      WHEN p.season IN ('SM','2') THEN 'SM'
-      WHEN p.season IN ('FW','3') THEN 'FW'
-      WHEN p.season IN ('WN','4') THEN 'WN'
+      WHEN p.season IN ('SS','1','SPRING') THEN 'SS'
+      WHEN p.season IN ('SM','2','SUMMER') THEN 'SM'
+      WHEN p.season IN ('FW','3','FALL','AUTUMN') THEN 'FW'
+      WHEN p.season IN ('WN','4','WINTER') THEN 'WN'
       ELSE p.season END`;
   }
 
-  /** 숫자 연도 → products.year 문자코드 변환 (master_codes YEAR) */
+  /** 숫자 연도 → products.year 값 (DB에 '2024' 형태로 저장될 수 있으므로 양쪽 모두 확인) */
   private async yearToCode(numericYear: number): Promise<string | null> {
+    const yearStr = String(numericYear);
+    // 먼저 직접 연도 문자열 존재 여부 확인
+    const direct = await this.pool.query(
+      `SELECT 1 FROM ${this.s}.products WHERE year = $1 LIMIT 1`,
+      [yearStr],
+    );
+    if (direct.rows.length > 0) return yearStr;
+    // fallback: master_codes 코드값 매핑 (레거시)
     const res = await this.pool.query(
       `SELECT code_value FROM ${this.s}.master_codes WHERE code_type = 'YEAR' AND code_label = $1 AND is_active = TRUE LIMIT 1`,
-      [String(numericYear)],
+      [yearStr],
     );
     return res.rows[0]?.code_value || null;
   }
@@ -468,7 +478,8 @@ class MdAnalyticsRepository {
         configs = configRes.rows;
       } catch { /* season_configs 없으면 무시 */ }
 
-      // 실적 — 시즌코드 정규화(1→SS, 2→SM 등) 후 집계
+      // 실적 — 시즌코드 정규화(1→SS, 2→SM 등) 후 집계, 판매연도도 상품연도와 일치시킴
+      const yearFilterIdx = 2 + monthParams.length;
       const actualSql = `
         WITH ${this.salesCte}
         SELECT ${this.seasonNormCase} AS norm_season,
@@ -478,9 +489,10 @@ class MdAnalyticsRepository {
         FROM combined_sales s
         JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
         JOIN ${this.s}.products p ON pv.product_code = p.product_code
-        WHERE p.year = $1 AND p.season IS NOT NULL AND s.sale_type NOT IN ('반품','수정') ${monthFilter}
+        WHERE p.year = $1 AND p.season IS NOT NULL AND s.sale_type NOT IN ('반품','수정')
+          AND EXTRACT(YEAR FROM s.sale_date) = $${yearFilterIdx} ${monthFilter}
         GROUP BY norm_season`;
-      const actuals = (await this.pool.query(actualSql, [yCode, ...monthParams])).rows;
+      const actuals = (await this.pool.query(actualSql, [yCode, ...monthParams, numYear])).rows;
 
       // 잔여재고 — 정규화
       const stockSql = `
@@ -548,6 +560,60 @@ class MdAnalyticsRepository {
     }
 
     return { seasons, prev_seasons: prevSeasons, compare_seasons };
+  }
+
+  // ─── 4-1. 시즌 × 카테고리별 성과 (연도 비교) ───
+  async seasonCategoryPerformance(years: number[], monthFrom?: number, monthTo?: number): Promise<Record<number, Array<{ category: string; season_code: string; style_count: number; sold_qty: number; revenue: number }>>> {
+    const result: Record<number, any[]> = {};
+
+    // 월 필터
+    const mFrom = monthFrom && monthFrom >= 1 && monthFrom <= 12 ? monthFrom : null;
+    const mTo = monthTo && monthTo >= 1 && monthTo <= 12 ? monthTo : null;
+    let monthFilter = '';
+    const monthParams: any[] = [];
+    if (mFrom && mTo) {
+      monthFilter = `AND EXTRACT(MONTH FROM s.sale_date) BETWEEN $2 AND $3`;
+      monthParams.push(mFrom, mTo);
+    } else if (mFrom) {
+      monthFilter = `AND EXTRACT(MONTH FROM s.sale_date) >= $2`;
+      monthParams.push(mFrom);
+    } else if (mTo) {
+      monthFilter = `AND EXTRACT(MONTH FROM s.sale_date) <= $2`;
+      monthParams.push(mTo);
+    }
+
+    for (const yr of years) {
+      const yCode = await this.yearToCode(yr);
+      if (!yCode) { result[yr] = []; continue; }
+
+      const catYearIdx = 2 + monthParams.length;
+      const sql = `
+        WITH ${this.salesCte}
+        SELECT COALESCE(p.category, '미분류') AS category,
+          ${this.seasonNormCase} AS season_code,
+          COUNT(DISTINCT p.product_code)::int AS style_count,
+          SUM(s.qty)::int AS sold_qty,
+          SUM(s.total_price)::bigint AS revenue
+        FROM combined_sales s
+        JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
+        JOIN ${this.s}.products p ON pv.product_code = p.product_code
+        WHERE p.year = $1 AND p.season IS NOT NULL
+          AND s.sale_type NOT IN ('반품','수정')
+          AND EXTRACT(YEAR FROM s.sale_date) = $${catYearIdx} ${monthFilter}
+        GROUP BY category, season_code
+        ORDER BY revenue DESC`;
+
+      const rows = (await this.pool.query(sql, [yCode, ...monthParams, yr])).rows;
+      result[yr] = rows.map((r: any) => ({
+        category: r.category,
+        season_code: r.season_code,
+        style_count: Number(r.style_count),
+        sold_qty: Number(r.sold_qty),
+        revenue: Number(r.revenue),
+      }));
+    }
+
+    return result;
   }
 
   // ─── 5. 사이즈/컬러 트렌드 ───
@@ -624,52 +690,72 @@ class MdAnalyticsRepository {
       GROUP BY p.category, pv.color
       ORDER BY p.category, sold_qty DESC`;
 
-    // 카테고리별 총 디자인수 대비 판매수량
-    const catSummarySql = `
-      WITH ${this.salesCte}
-      SELECT p.category,
-             COUNT(DISTINCT p.product_code)::int AS design_count,
-             COALESCE(SUM(s.qty), 0)::int AS sold_qty
-      FROM ${this.s}.products p
-      LEFT JOIN ${this.s}.product_variants pv ON pv.product_code = p.product_code
-      LEFT JOIN combined_sales s ON s.variant_id = pv.variant_id
-        AND s.sale_date >= $1::date AND s.sale_date <= $2::date
-        AND s.sale_type NOT IN ('반품','수정') ${pcFilter}
-      WHERE p.category IS NOT NULL AND p.category != '' ${catFilter}
-      GROUP BY p.category
-      ORDER BY sold_qty DESC`;
+    // 전년·전전년 비교용 날짜 계산
+    const d1 = new Date(dateFrom), d2 = new Date(dateTo);
+    const prev1From = new Date(d1); prev1From.setFullYear(d1.getFullYear() - 1);
+    const prev1To = new Date(d2); prev1To.setFullYear(d2.getFullYear() - 1);
+    const prev2From = new Date(d1); prev2From.setFullYear(d1.getFullYear() - 2);
+    const prev2To = new Date(d2); prev2To.setFullYear(d2.getFullYear() - 2);
+    const toStr = (d: Date) => d.toISOString().slice(0, 10);
 
-    // 스타일별 사이즈 분포 (판매 상위 50개)
-    const styleSizeSql = `
-      WITH ${this.salesCte},
-      style_totals AS (
-        SELECT p.product_code, p.product_name, p.category, SUM(s.qty)::int AS total_qty
-        FROM combined_sales s
-        JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
-        JOIN ${this.s}.products p ON pv.product_code = p.product_code
-        WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
-          AND s.sale_type NOT IN ('반품','수정') ${pcFilter} ${catFilter}
-        GROUP BY p.product_code, p.product_name, p.category
-        ORDER BY total_qty DESC LIMIT 30
-      )
-      SELECT st.product_code, st.product_name, st.category, st.total_qty, pv.size, SUM(s.qty)::int AS size_qty
+    const prevParams = (from: Date, to: Date) => {
+      const pp: any[] = [toStr(from), toStr(to)];
+      if (partnerCode) pp.push(partnerCode);
+      if (category) pp.push(category);
+      return pp;
+    };
+    const p1Params = prevParams(prev1From, prev1To);
+    const p2Params = prevParams(prev2From, prev2To);
+
+    // 사이즈별 판매 (LIMIT 없으므로 재활용 가능)
+    const sizeSalesNoOrderSql = `
+      WITH ${this.salesCte}
+      SELECT pv.size, SUM(s.qty)::int AS sold_qty
       FROM combined_sales s
       JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
-      JOIN style_totals st ON pv.product_code = st.product_code
+      JOIN ${this.s}.products p ON pv.product_code = p.product_code
       WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
         AND s.sale_type NOT IN ('반품','수정') ${pcFilter} ${catFilter}
-      GROUP BY st.product_code, st.product_name, st.category, st.total_qty, pv.size
-      ORDER BY st.total_qty DESC, ${sizeOrder}`;
+      GROUP BY pv.size`;
 
-    const [sizeSales, sizeInbound, colorSales, catSize, catColor, catSummary, styleSize] = await Promise.all([
+    // 컬러별 판매 (비교용 — LIMIT 없음, 현재기간 TOP20 컬러만 필터)
+    const colorSalesAllSql = `
+      WITH ${this.salesCte}
+      SELECT pv.color, SUM(s.qty)::int AS sold_qty
+      FROM combined_sales s
+      JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
+      JOIN ${this.s}.products p ON pv.product_code = p.product_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
+        AND s.sale_type NOT IN ('반품','수정') ${pcFilter} ${catFilter}
+        AND pv.color IS NOT NULL AND pv.color != ''
+      GROUP BY pv.color`;
+
+    const [sizeSales, sizeInbound, colorSales, catSize, catColor, p1Size, p2Size, p1Color, p2Color] = await Promise.all([
       this.pool.query(sizeSalesSql, params),
       this.pool.query(sizeInboundSql, params),
       this.pool.query(colorSalesSql, params),
       this.pool.query(catSizeSql, params),
       this.pool.query(catColorSql, params),
-      this.pool.query(catSummarySql, params),
-      this.pool.query(styleSizeSql, params),
+      this.pool.query(sizeSalesNoOrderSql, p1Params),
+      this.pool.query(sizeSalesNoOrderSql, p2Params),
+      this.pool.query(colorSalesAllSql, p1Params),
+      this.pool.query(colorSalesAllSql, p2Params),
     ]);
+
+    // 전년·전전년 사이즈 매핑
+    const p1SizeMap: Record<string, number> = {};
+    for (const r of p1Size.rows) p1SizeMap[r.size] = Number(r.sold_qty);
+    const p2SizeMap: Record<string, number> = {};
+    for (const r of p2Size.rows) p2SizeMap[r.size] = Number(r.sold_qty);
+
+    // 전년·전전년 컬러 매핑
+    const p1ColorMap: Record<string, number> = {};
+    for (const r of p1Color.rows) p1ColorMap[r.color] = Number(r.sold_qty);
+    const p2ColorMap: Record<string, number> = {};
+    for (const r of p2Color.rows) p2ColorMap[r.color] = Number(r.sold_qty);
+
+    const calcGrowth = (cur: number, prev: number): number | null =>
+      prev > 0 ? Math.round((cur - prev) / prev * 1000) / 10 : null;
 
     const totalSizeSold = sizeSales.rows.reduce((s: number, r: any) => s + Number(r.sold_qty), 0) || 1;
     const totalInbound = sizeInbound.rows.reduce((s: number, r: any) => s + Number(r.inbound_qty), 0) || 1;
@@ -679,15 +765,21 @@ class MdAnalyticsRepository {
     for (const r of sizeInbound.rows) inboundMap[r.size] = Number(r.inbound_qty);
 
     const by_size = sizeSales.rows.map((r: any) => {
-      const soldPct = Math.round(Number(r.sold_qty) / totalSizeSold * 1000) / 10;
+      const qty = Number(r.sold_qty);
+      const soldPct = Math.round(qty / totalSizeSold * 1000) / 10;
       const iq = inboundMap[r.size] || 0;
       const inboundPct = Math.round(iq / totalInbound * 1000) / 10;
-      return { size: r.size, sold_qty: Number(r.sold_qty), sold_pct: soldPct, inbound_qty: iq, inbound_pct: inboundPct, gap: Math.round((soldPct - inboundPct) * 10) / 10 };
+      const prev1_qty = p1SizeMap[r.size] || 0;
+      const prev2_qty = p2SizeMap[r.size] || 0;
+      return { size: r.size, sold_qty: qty, sold_pct: soldPct, inbound_qty: iq, inbound_pct: inboundPct, gap: Math.round((soldPct - inboundPct) * 10) / 10, prev1_qty, prev2_qty, prev1_growth: calcGrowth(qty, prev1_qty), prev2_growth: calcGrowth(qty, prev2_qty) };
     });
 
-    const by_color = colorSales.rows.map((r: any, i: number) => ({
-      color: r.color, sold_qty: Number(r.sold_qty), sold_pct: Math.round(Number(r.sold_qty) / totalColorSold * 1000) / 10, rank: i + 1,
-    }));
+    const by_color = colorSales.rows.map((r: any, i: number) => {
+      const qty = Number(r.sold_qty);
+      const prev1_qty = p1ColorMap[r.color] || 0;
+      const prev2_qty = p2ColorMap[r.color] || 0;
+      return { color: r.color, sold_qty: qty, sold_pct: Math.round(qty / totalColorSold * 1000) / 10, rank: i + 1, prev1_qty, prev2_qty, prev1_growth: calcGrowth(qty, prev1_qty), prev2_growth: calcGrowth(qty, prev2_qty) };
+    });
 
     // 카테고리별 사이즈 비율
     const catSizeGroups: Record<string, number> = {};
@@ -704,28 +796,7 @@ class MdAnalyticsRepository {
       sold_pct: Math.round(Number(r.sold_qty) / (catColorGroups[r.category] || 1) * 1000) / 10,
     }));
 
-    // 스타일별 사이즈 분포 집계
-    const styleMap: Record<string, { product_code: string; product_name: string; category: string; total_qty: number; sizes: Record<string, number> }> = {};
-    const allSizesSet = new Set<string>();
-    for (const r of styleSize.rows) {
-      allSizesSet.add(r.size);
-      if (!styleMap[r.product_code]) {
-        styleMap[r.product_code] = { product_code: r.product_code, product_name: r.product_name, category: r.category, total_qty: Number(r.total_qty), sizes: {} };
-      }
-      styleMap[r.product_code].sizes[r.size] = Number(r.size_qty);
-    }
-    const sizeOrderArr = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'FREE'];
-    const all_sizes = sizeOrderArr.filter(s => allSizesSet.has(s)).concat([...allSizesSet].filter(s => !sizeOrderArr.includes(s)));
-    const by_style = Object.values(styleMap);
-
-    const by_category_summary = catSummary.rows.map((r: any) => ({
-      category: r.category,
-      design_count: Number(r.design_count),
-      sold_qty: Number(r.sold_qty),
-      avg_qty_per_design: Number(r.design_count) > 0 ? Math.round(Number(r.sold_qty) / Number(r.design_count) * 10) / 10 : 0,
-    }));
-
-    return { by_size, by_color, by_category_size, by_category_color, by_category_summary, by_style, all_sizes };
+    return { by_size, by_color, by_category_size, by_category_color };
   }
 
   // ─── 6. 마크다운 효과 분석 (대조군 비교 + 일별 추이 + 가변 기간) ───
@@ -1031,8 +1102,13 @@ class MdAnalyticsRepository {
       salesMap[r.partner_code][r.category] = { sold_qty: Number(r.sold_qty), revenue: Number(r.revenue) };
     }
 
-    // 전체 카테고리
-    const categories = [...new Set(salesRes.rows.map((r: any) => r.category))].filter(Boolean).sort();
+    // 전체 카테고리 (매출 합계 내림차순)
+    const catRevenue: Record<string, number> = {};
+    for (const r of salesRes.rows) {
+      if (r.category) catRevenue[r.category] = (catRevenue[r.category] || 0) + Number(r.revenue);
+    }
+    const categories = [...new Set(salesRes.rows.map((r: any) => r.category))].filter(Boolean)
+      .sort((a, b) => (catRevenue[b] || 0) - (catRevenue[a] || 0));
 
     // 카테고리별 평균
     const catAvg: Record<string, number[]> = {};
@@ -1119,6 +1195,141 @@ class MdAnalyticsRepository {
       revenue: Number(r.revenue),
       avg_price: Number(r.avg_price),
     }));
+  }
+
+  // ─── 7-2. 매장별 상품 자동 비교 인사이트 ───
+  async storeProductComparison(dateFrom: string, dateTo: string, metric: 'revenue' | 'qty' = 'qty', strongPct = 300): Promise<StoreProductComparisonResult> {
+    // 상품×매장 판매 매트릭스 한 번에 조회
+    const sql = `
+      WITH ${this.salesCte}
+      SELECT p.product_code, p.product_name, COALESCE(p.category, '미분류') AS category,
+        s.partner_code, pt.partner_name,
+        SUM(s.qty)::int AS qty,
+        SUM(s.total_price)::bigint AS revenue
+      FROM combined_sales s
+      JOIN ${this.s}.product_variants pv ON s.variant_id = pv.variant_id
+      JOIN ${this.s}.products p ON pv.product_code = p.product_code
+      JOIN ${this.s}.partners pt ON s.partner_code = pt.partner_code
+      WHERE s.sale_date >= $1::date AND s.sale_date <= $2::date
+        AND s.sale_type NOT IN ('반품','수정')
+        AND pt.is_active = TRUE
+      GROUP BY p.product_code, p.product_name, p.category, s.partner_code, pt.partner_name`;
+
+    const rows = (await this.pool.query(sql, [dateFrom, dateTo])).rows;
+
+    const val = (r: any) => metric === 'revenue' ? Number(r.revenue) : Number(r.qty);
+
+    // 상품별 집계
+    const prodMap: Record<string, {
+      product_code: string; product_name: string; category: string;
+      stores: Array<{ partner_code: string; partner_name: string; qty: number; revenue: number }>;
+      totalQty: number; totalRevenue: number;
+    }> = {};
+    const storeSet = new Set<string>();
+
+    for (const r of rows) {
+      storeSet.add(r.partner_code);
+      if (!prodMap[r.product_code]) {
+        prodMap[r.product_code] = {
+          product_code: r.product_code, product_name: r.product_name, category: r.category,
+          stores: [], totalQty: 0, totalRevenue: 0,
+        };
+      }
+      const p = prodMap[r.product_code];
+      p.stores.push({ partner_code: r.partner_code, partner_name: r.partner_name, qty: Number(r.qty), revenue: Number(r.revenue) });
+      p.totalQty += Number(r.qty);
+      p.totalRevenue += Number(r.revenue);
+    }
+
+    const totalStores = storeSet.size;
+    const products = Object.values(prodMap);
+
+    // ── 1. 매장 전용 히트상품 ──
+    const exclusive: any[] = [];
+    for (const p of products) {
+      if (p.stores.length < 2) continue;
+      const vals = p.stores.map(s => metric === 'revenue' ? s.revenue : s.qty);
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      if (avg < 1) continue;
+      const total = vals.reduce((a, b) => a + b, 0);
+
+      for (const s of p.stores) {
+        const v = metric === 'revenue' ? s.revenue : s.qty;
+        if (v >= avg * (strongPct / 100) && total >= 10) {
+          exclusive.push({
+            product_code: p.product_code, product_name: p.product_name, category: p.category,
+            partner_code: s.partner_code, partner_name: s.partner_name,
+            qty: s.qty, revenue: s.revenue,
+            avg_qty: Math.round(p.totalQty / p.stores.length),
+            avg_revenue: Math.round(p.totalRevenue / p.stores.length),
+            vs_avg_pct: Math.round((v / avg - 1) * 1000) / 10,
+            concentration_pct: Math.round(v / total * 1000) / 10,
+          });
+        }
+      }
+    }
+    exclusive.sort((a, b) => b.vs_avg_pct - a.vs_avg_pct);
+
+    // ── 2. 매장간 판매 격차 TOP ──
+    const gaps: any[] = [];
+    for (const p of products) {
+      if (p.stores.length < 2) continue;
+      const sorted = [...p.stores].sort((a, b) => val(b) - val(a));
+      const top = sorted[0];
+      const bottom = sorted[sorted.length - 1];
+      const topVal = val(top);
+      const bottomVal = val(bottom);
+      if (bottomVal < 1 || topVal < bottomVal * 5) continue;
+      gaps.push({
+        product_code: p.product_code, product_name: p.product_name, category: p.category,
+        top_store: top.partner_name, top_qty: top.qty, top_revenue: top.revenue,
+        bottom_store: bottom.partner_name, bottom_qty: bottom.qty, bottom_revenue: bottom.revenue,
+        gap_multiplier: Math.round(topVal / bottomVal * 10) / 10,
+        store_count: p.stores.length,
+      });
+    }
+    gaps.sort((a, b) => b.gap_multiplier - a.gap_multiplier);
+
+    // ── 3. 전사 베스트셀러 ──
+    // 매장별 순위 계산
+    const storeProducts: Record<string, Array<{ product_code: string; value: number }>> = {};
+    for (const r of rows) {
+      if (!storeProducts[r.partner_code]) storeProducts[r.partner_code] = [];
+      storeProducts[r.partner_code].push({ product_code: r.product_code, value: val(r) });
+    }
+    const rankMap: Record<string, Record<string, number>> = {}; // product_code → partner_code → rank
+    for (const [pc, items] of Object.entries(storeProducts)) {
+      items.sort((a, b) => b.value - a.value);
+      items.forEach((item, i) => {
+        if (!rankMap[item.product_code]) rankMap[item.product_code] = {};
+        rankMap[item.product_code][pc] = i + 1;
+      });
+    }
+
+    const universal: any[] = [];
+    for (const p of products) {
+      if (p.stores.length < 3) continue;
+      const ranks = Object.values(rankMap[p.product_code] || {});
+      if (!ranks.length) continue;
+      const avgRank = Math.round(ranks.reduce((a, b) => a + b, 0) / ranks.length * 10) / 10;
+      if (avgRank > 30) continue;
+      universal.push({
+        product_code: p.product_code, product_name: p.product_name, category: p.category,
+        total_qty: p.totalQty, total_revenue: p.totalRevenue,
+        store_count: p.stores.length,
+        avg_rank: avgRank,
+        top10_count: ranks.filter(r => r <= 10).length,
+      });
+    }
+    universal.sort((a, b) => a.avg_rank - b.avg_rank);
+
+    return {
+      exclusive_winners: exclusive.slice(0, 30),
+      sales_gaps: gaps.slice(0, 30),
+      universal_bestsellers: universal.slice(0, 30),
+      total_products: products.length,
+      total_stores: totalStores,
+    };
   }
 
   // ─── 8. 시즌 목표 설정 (CRUD) ───

@@ -1,10 +1,10 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { Table, Card, Row, Col, DatePicker, Button, Segmented, Tag, InputNumber, Select, Spin, message } from 'antd';
-import { SearchOutlined, SettingOutlined, SaveOutlined } from '@ant-design/icons';
+import { SearchOutlined, SettingOutlined, SaveOutlined, TrophyOutlined, SwapOutlined, StarOutlined } from '@ant-design/icons';
 import dayjs, { Dayjs } from 'dayjs';
 import { mdApi } from '../../../modules/md/md.api';
 import { datePresets } from '../../../utils/date-presets';
-import type { StoreProductFitResult } from '../../../../../shared/types/md';
+import type { StoreProductFitResult, StoreProductComparisonResult } from '../../../../../shared/types/md';
 
 const { RangePicker } = DatePicker;
 const fmt = (v: number) => v?.toLocaleString() ?? '0';
@@ -35,9 +35,9 @@ export default function StoreProductFitTab() {
   // 매장 목록 (제외 선택용)
   const [allPartners, setAllPartners] = useState<{ label: string; value: string }[]>([]);
 
-  // 매장별 상품 순위 (확장행)
-  const [rankingCache, setRankingCache] = useState<Record<string, any[]>>({});
-  const [rankingLoading, setRankingLoading] = useState<Record<string, boolean>>({});
+  // 자동 인사이트
+  const [comparison, setComparison] = useState<StoreProductComparisonResult | null>(null);
+  const [compLoading, setCompLoading] = useState(false);
 
   useEffect(() => {
     mdApi.getStoreFitSettings().then(s => {
@@ -47,7 +47,6 @@ export default function StoreProductFitTab() {
       setTopCount(s.top_count);
       setExcludePartners(s.exclude_partners || []);
     }).catch(() => {});
-    // 매장 목록 로드
     import('../../../modules/partner/partner.api').then(({ partnerApi }) => {
       partnerApi.list({ limit: '500' }).then((res: any) => {
         const items = res?.data || [];
@@ -62,12 +61,17 @@ export default function StoreProductFitTab() {
   const load = async (metricOverride?: string) => {
     const m = metricOverride ?? metric;
     setLoading(true);
+    setCompLoading(true);
     try {
-      setRankingCache({});
-      setData(await mdApi.storeProductFit(range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'), m, excludePartners));
+      const [fitData, compData] = await Promise.all([
+        mdApi.storeProductFit(range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'), m, excludePartners),
+        mdApi.storeProductComparison(range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'), m, strongPct),
+      ]);
+      setData(fitData);
+      setComparison(compData);
     }
     catch (e: any) { message.error(e.message); }
-    finally { setLoading(false); }
+    finally { setLoading(false); setCompLoading(false); }
   };
 
   const handleSave = async () => {
@@ -81,22 +85,11 @@ export default function StoreProductFitTab() {
 
   useEffect(() => { load(); }, []);
 
-  const loadRanking = useCallback(async (partnerCode: string) => {
-    if (rankingCache[partnerCode]) return;
-    setRankingLoading(prev => ({ ...prev, [partnerCode]: true }));
-    try {
-      const items = await mdApi.storeProductRanking(range[0].format('YYYY-MM-DD'), range[1].format('YYYY-MM-DD'), partnerCode, metric);
-      setRankingCache(prev => ({ ...prev, [partnerCode]: items }));
-    } catch { /* ignore */ }
-    finally { setRankingLoading(prev => ({ ...prev, [partnerCode]: false })); }
-  }, [range, metric, rankingCache]);
-
   const matrix = data?.matrix || [];
   const categories = data?.categories || [];
   const topCombs = data?.top_combinations || [];
   const storeSummary = data?.store_summary || [];
 
-  // 카테고리별 평균 (0 포함 전체 매장 기준)
   const catAvg: Record<string, number> = {};
   for (const cat of categories) {
     const vals = matrix.map(r => r.categories[cat]?.value || 0);
@@ -104,8 +97,8 @@ export default function StoreProductFitTab() {
   }
 
   const suffix = metric === 'revenue' ? '원' : '개';
+  const isRevenue = metric === 'revenue';
 
-  // 히트맵 테이블 컬럼
   const heatColumns: any[] = [
     { title: '매장', dataIndex: 'partner_name', width: 120, fixed: 'left' as const, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
     ...categories.map(cat => ({
@@ -139,6 +132,11 @@ export default function StoreProductFitTab() {
       sorter: (a: any, b: any) => a.overall - b.overall, defaultSortOrder: 'descend' as const,
     },
   ];
+
+  // 인사이트 데이터
+  const exc = comparison?.exclusive_winners || [];
+  const gaps = comparison?.sales_gaps || [];
+  const uni = comparison?.universal_bestsellers || [];
 
   return (
     <div>
@@ -219,33 +217,98 @@ export default function StoreProductFitTab() {
         </Card>
       )}
 
+      {/* 자동 인사이트: 매장별 상품 비교 */}
+      {compLoading ? (
+        <div style={{ textAlign: 'center', padding: 40 }}><Spin /> 상품 비교 분석 중...</div>
+      ) : (exc.length > 0 || gaps.length > 0 || uni.length > 0) && (
+        <Card size="small" style={{ marginBottom: 16 }}
+          title={<>상품별 매장 비교 인사이트 <span style={{ fontSize: 12, color: '#999', fontWeight: 400 }}>
+            {comparison?.total_products}개 상품 / {comparison?.total_stores}개 매장 자동 분석</span></>}>
+          <Row gutter={12}>
+            {/* 1. 매장 전용 히트상품 */}
+            <Col xs={24} md={8}>
+              <Card type="inner" size="small" style={{ marginBottom: 12 }}
+                title={<span style={{ fontSize: 13 }}><TrophyOutlined style={{ color: '#fa541c' }} /> 매장 전용 히트상품</span>}>
+                <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>특정 매장에서만 압도적 판매 (평균 {strongPct}%+)</div>
+                {!exc.length ? <div style={{ textAlign: 'center', padding: 16, color: '#ccc' }}>해당 없음</div> : (
+                  <Table dataSource={exc} rowKey={(r) => `${r.product_code}_${r.partner_code}`} size="small"
+                    pagination={false} scroll={{ y: 350 }}
+                    columns={[
+                      { title: '상품', dataIndex: 'product_name', ellipsis: true,
+                        render: (v: string, r: any) => <div>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{v}</div>
+                          <div style={{ fontSize: 10, color: '#999' }}>{r.category}</div>
+                        </div> },
+                      { title: '독점 매장', dataIndex: 'partner_name', width: 80,
+                        render: (v: string) => <Tag color="green" style={{ margin: 0, fontSize: 11 }}>{v}</Tag> },
+                      { title: isRevenue ? '매출' : '수량', width: 70, align: 'right' as const,
+                        render: (_: any, r: any) => <span style={{ fontWeight: 700 }}>{fmt(isRevenue ? r.revenue : r.qty)}</span> },
+                      { title: '평균 대비', dataIndex: 'vs_avg_pct', width: 75, align: 'right' as const,
+                        render: (v: number) => <span style={{ color: '#52c41a', fontWeight: 600 }}>+{v}%</span> },
+                    ]} />
+                )}
+              </Card>
+            </Col>
+
+            {/* 2. 판매 격차 TOP */}
+            <Col xs={24} md={8}>
+              <Card type="inner" size="small" style={{ marginBottom: 12 }}
+                title={<span style={{ fontSize: 13 }}><SwapOutlined style={{ color: '#1890ff' }} /> 매장간 판매 격차</span>}>
+                <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>같은 상품, 매장별 판매량 차이 (5배+)</div>
+                {!gaps.length ? <div style={{ textAlign: 'center', padding: 16, color: '#ccc' }}>해당 없음</div> : (
+                  <Table dataSource={gaps} rowKey="product_code" size="small"
+                    pagination={false} scroll={{ y: 350 }}
+                    columns={[
+                      { title: '상품', dataIndex: 'product_name', ellipsis: true,
+                        render: (v: string, r: any) => <div>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{v}</div>
+                          <div style={{ fontSize: 10, color: '#999' }}>{r.category}</div>
+                        </div> },
+                      { title: '비교', width: 100,
+                        render: (_: any, r: any) => <div style={{ fontSize: 11 }}>
+                          <div><Tag color="green" style={{ margin: 0 }}>{r.top_store}</Tag> {fmt(isRevenue ? r.top_revenue : r.top_qty)}</div>
+                          <div><Tag color="red" style={{ margin: 0 }}>{r.bottom_store}</Tag> {fmt(isRevenue ? r.bottom_revenue : r.bottom_qty)}</div>
+                        </div> },
+                      { title: '격차', dataIndex: 'gap_multiplier', width: 55, align: 'center' as const,
+                        render: (v: number) => <span style={{ color: '#ff4d4f', fontWeight: 700 }}>{v}x</span> },
+                    ]} />
+                )}
+              </Card>
+            </Col>
+
+            {/* 3. 전사 베스트셀러 */}
+            <Col xs={24} md={8}>
+              <Card type="inner" size="small" style={{ marginBottom: 12 }}
+                title={<span style={{ fontSize: 13 }}><StarOutlined style={{ color: '#faad14' }} /> 전사 베스트셀러</span>}>
+                <div style={{ fontSize: 11, color: '#999', marginBottom: 6 }}>모든 매장에서 고르게 잘 팔리는 상품</div>
+                {!uni.length ? <div style={{ textAlign: 'center', padding: 16, color: '#ccc' }}>해당 없음</div> : (
+                  <Table dataSource={uni} rowKey="product_code" size="small"
+                    pagination={false} scroll={{ y: 350 }}
+                    columns={[
+                      { title: '상품', dataIndex: 'product_name', ellipsis: true,
+                        render: (v: string, r: any) => <div>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{v}</div>
+                          <div style={{ fontSize: 10, color: '#999' }}>{r.category}</div>
+                        </div> },
+                      { title: '매장', dataIndex: 'store_count', width: 50, align: 'center' as const,
+                        render: (v: number) => <Tag color="blue" style={{ margin: 0 }}>{v}개</Tag> },
+                      { title: '평균순위', dataIndex: 'avg_rank', width: 65, align: 'center' as const,
+                        render: (v: number) => <span style={{ fontWeight: 700, color: v <= 10 ? '#52c41a' : v <= 20 ? '#1890ff' : '#666' }}>{v}위</span> },
+                      { title: isRevenue ? '총매출' : '총수량', width: 80, align: 'right' as const,
+                        render: (_: any, r: any) => <span style={{ fontWeight: 600 }}>{fmt(isRevenue ? r.total_revenue : r.total_qty)}</span> },
+                    ]} />
+                )}
+              </Card>
+            </Col>
+          </Row>
+        </Card>
+      )}
+
       {/* 히트맵 */}
       <Card size="small" title={<>매장 × 카테고리 매트릭스{excludePartners.length > 0 && <Tag color="orange" style={{ marginLeft: 8, fontSize: 11 }}>제외 {excludePartners.length}개 매장</Tag>}</>} style={{ marginBottom: 16 }}>
         <Table dataSource={matrix} columns={heatColumns} rowKey="partner_code" size="small"
           locale={{ emptyText: '조회된 데이터가 없습니다' }}
-          scroll={{ x: 120 + categories.length * 90, y: 400 }} pagination={false}
-          expandable={{
-            onExpand: (expanded, record) => { if (expanded) loadRanking(record.partner_code); },
-            expandedRowRender: (record) => {
-              const items = rankingCache[record.partner_code];
-              const isLoading = rankingLoading[record.partner_code];
-              if (isLoading) return <div style={{ textAlign: 'center', padding: 16 }}><Spin size="small" /> 상품 순위 로딩 중...</div>;
-              if (!items?.length) return <div style={{ textAlign: 'center', padding: 8, color: '#999' }}>판매 데이터 없음</div>;
-              return (
-                <Table dataSource={items} rowKey="product_code" size="small" pagination={false}
-                  style={{ margin: '-4px -8px' }}
-                  columns={[
-                    { title: '순위', dataIndex: 'rank', width: 50, align: 'center' as const,
-                      render: (v: number) => <span style={{ fontWeight: 700, color: v <= 3 ? '#fa541c' : v <= 10 ? '#1890ff' : '#666' }}>{v}</span> },
-                    { title: '상품명', dataIndex: 'product_name', ellipsis: true },
-                    { title: '카테고리', dataIndex: 'category', width: 90 },
-                    { title: '수량', dataIndex: 'sold_qty', width: 70, align: 'right' as const, render: (v: number) => fmt(v) },
-                    { title: '매출', dataIndex: 'revenue', width: 110, align: 'right' as const, render: (v: number) => fmt(v) },
-                    { title: '평균단가', dataIndex: 'avg_price', width: 90, align: 'right' as const, render: (v: number) => fmt(v) },
-                  ]} />
-              );
-            },
-          }} />
+          scroll={{ x: 120 + categories.length * 90, y: 400 }} pagination={false} />
       </Card>
 
       <Row gutter={16}>

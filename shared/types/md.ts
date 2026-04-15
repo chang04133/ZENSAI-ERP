@@ -87,15 +87,24 @@ export interface SeasonPerformanceResult {
   compare_seasons?: Record<number, SeasonRow[]>;  // year → SeasonRow[]
 }
 
+// ── Season Category Performance ──
+export interface SeasonCategoryRow {
+  category: string;
+  season_code: string;
+  style_count: number;
+  sold_qty: number;
+  revenue: number;
+}
+
+// year → SeasonCategoryRow[]
+export type SeasonCategoryResult = Record<number, SeasonCategoryRow[]>;
+
 // ── Size/Color Trends ──
 export interface SizeColorTrendsResult {
-  by_size: Array<{ size: string; sold_qty: number; sold_pct: number; inbound_qty: number; inbound_pct: number; gap: number }>;
-  by_color: Array<{ color: string; sold_qty: number; sold_pct: number; rank: number }>;
+  by_size: Array<{ size: string; sold_qty: number; sold_pct: number; inbound_qty: number; inbound_pct: number; gap: number; prev1_qty: number; prev2_qty: number; prev1_growth: number | null; prev2_growth: number | null }>;
+  by_color: Array<{ color: string; sold_qty: number; sold_pct: number; rank: number; prev1_qty: number; prev2_qty: number; prev1_growth: number | null; prev2_growth: number | null }>;
   by_category_size: Array<{ category: string; size: string; sold_qty: number; sold_pct: number }>;
   by_category_color: Array<{ category: string; color: string; sold_qty: number; sold_pct: number }>;
-  by_category_summary: Array<{ category: string; design_count: number; sold_qty: number; avg_qty_per_design: number }>;
-  by_style: Array<{ product_code: string; product_name: string; category: string; total_qty: number; sizes: Record<string, number> }>;
-  all_sizes: string[];
 }
 
 // ── Markdown Effectiveness ──
@@ -204,6 +213,54 @@ export interface MarkdownItemRow {
   original_price: number;
   markdown_price: number;
   status: string;
+}
+
+// ── Store Product Comparison (Auto Insights) ──
+export interface StoreComparisonExclusive {
+  product_code: string;
+  product_name: string;
+  category: string;
+  partner_code: string;
+  partner_name: string;
+  qty: number;
+  revenue: number;
+  avg_qty: number;
+  avg_revenue: number;
+  vs_avg_pct: number;
+  concentration_pct: number;
+}
+
+export interface StoreComparisonGap {
+  product_code: string;
+  product_name: string;
+  category: string;
+  top_store: string;
+  top_qty: number;
+  top_revenue: number;
+  bottom_store: string;
+  bottom_qty: number;
+  bottom_revenue: number;
+  gap_multiplier: number;
+  store_count: number;
+}
+
+export interface StoreComparisonUniversal {
+  product_code: string;
+  product_name: string;
+  category: string;
+  total_qty: number;
+  total_revenue: number;
+  store_count: number;
+  avg_rank: number;
+  top10_count: number;
+}
+
+export interface StoreProductComparisonResult {
+  exclusive_winners: StoreComparisonExclusive[];
+  sales_gaps: StoreComparisonGap[];
+  universal_bestsellers: StoreComparisonUniversal[];
+  total_products: number;
+  total_stores: number;
 }
 
 // ── Store-Product Fit ──

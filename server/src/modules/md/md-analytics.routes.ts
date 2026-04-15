@@ -82,6 +82,17 @@ router.post('/season-configs', authMiddleware, requireRole('ADMIN', 'SYS_ADMIN',
   res.json({ success: true, data });
 }));
 
+// 4-2. 시즌 × 카테고리별 성과
+router.get('/season-category', authMiddleware, asyncHandler(async (req, res) => {
+  const { years, month_from, month_to } = req.query as Record<string, string | undefined>;
+  if (!years) { res.status(400).json({ success: false, error: 'years 필요 (콤마 구분)' }); return; }
+  const yrs = years.split(',').map(Number).filter(n => n > 2000 && n < 2100);
+  const mFrom = month_from ? Number(month_from) : undefined;
+  const mTo = month_to ? Number(month_to) : undefined;
+  const data = await mdAnalyticsRepository.seasonCategoryPerformance(yrs, mFrom, mTo);
+  res.json({ success: true, data });
+}));
+
 // 5. 사이즈/컬러 트렌드
 router.get('/size-color-trends', authMiddleware, asyncHandler(async (req, res) => {
   const { date_from, date_to, category } = req.query as Record<string, string | undefined>;
@@ -112,7 +123,16 @@ router.get('/store-product-fit', authMiddleware, asyncHandler(async (req, res) =
   res.json({ success: true, data });
 }));
 
-// 7-1. 매장별 상품 판매 순위
+// 7-1. 매장별 상품 자동 비교 인사이트
+router.get('/store-product-comparison', authMiddleware, asyncHandler(async (req, res) => {
+  const { date_from, date_to, metric, strong_pct } = req.query as Record<string, string | undefined>;
+  if (!date_from || !date_to) { res.status(400).json({ success: false, error: 'date_from, date_to 필요' }); return; }
+  const sp = strong_pct ? parseInt(strong_pct, 10) : undefined;
+  const data = await mdAnalyticsRepository.storeProductComparison(date_from, date_to, metric === 'revenue' ? 'revenue' : 'qty', sp);
+  res.json({ success: true, data });
+}));
+
+// 7-2. 매장별 상품 판매 순위
 router.get('/store-product-ranking', authMiddleware, asyncHandler(async (req, res) => {
   const { date_from, date_to, partner_code, metric } = req.query as Record<string, string | undefined>;
   if (!date_from || !date_to || !partner_code) { res.status(400).json({ success: false, error: 'date_from, date_to, partner_code 필요' }); return; }

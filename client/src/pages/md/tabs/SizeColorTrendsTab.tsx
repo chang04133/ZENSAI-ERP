@@ -16,7 +16,6 @@ const COLOR_PALETTE: Record<string, string> = {
   핑크: '#ec4899', 옐로우: '#eab308', 라벤더: '#a78bfa', 오렌지: '#f97316', 아이보리: '#f5f0e1',
 };
 
-const SIZE_BAR_COLORS = ['#6366f1', '#818cf8', '#a78bfa', '#c4b5fd', '#93c5fd', '#86efac', '#fcd34d'];
 
 export default function SizeColorTrendsTab() {
   const [range, setRange] = useState<[Dayjs, Dayjs]>([dayjs().subtract(90, 'day'), dayjs()]);
@@ -42,11 +41,42 @@ export default function SizeColorTrendsTab() {
 
   const bySize = data?.by_size || [];
   const byColor = data?.by_color || [];
-  const byCatSummary = data?.by_category_summary || [];
-  const byStyle = data?.by_style || [];
-  const allSizes = data?.all_sizes || [];
+  const byCatSize = data?.by_category_size || [];
+  const byCatColor = data?.by_category_color || [];
   const maxSizePct = Math.max(...bySize.map(s => s.sold_pct), ...bySize.map(s => s.inbound_pct), 1);
   const maxColorSold = Math.max(...byColor.map(c => c.sold_qty), 1);
+
+  // 카테고리별 인기 사이즈 (카테고리 → TOP 5 사이즈)
+  const catSizeData = useMemo(() => {
+    const map: Record<string, Array<{ size: string; sold_qty: number; sold_pct: number }>> = {};
+    for (const r of byCatSize) {
+      if (!map[r.category]) map[r.category] = [];
+      map[r.category].push({ size: r.size, sold_qty: r.sold_qty, sold_pct: r.sold_pct });
+    }
+    return Object.entries(map).map(([cat, sizes]) => ({
+      category: cat,
+      sizes: sizes.sort((a, b) => b.sold_qty - a.sold_qty).slice(0, 5),
+      total: sizes.reduce((s, r) => s + r.sold_qty, 0),
+    })).sort((a, b) => b.total - a.total);
+  }, [byCatSize]);
+
+  // 카테고리별 인기 컬러 (카테고리 → TOP 5 컬러)
+  const catColorData = useMemo(() => {
+    const map: Record<string, Array<{ color: string; sold_qty: number; sold_pct: number }>> = {};
+    for (const r of byCatColor) {
+      if (!map[r.category]) map[r.category] = [];
+      map[r.category].push({ color: r.color, sold_qty: r.sold_qty, sold_pct: r.sold_pct });
+    }
+    return Object.entries(map).map(([cat, colors]) => ({
+      category: cat,
+      colors: colors.sort((a, b) => b.sold_qty - a.sold_qty).slice(0, 5),
+      total: colors.reduce((s, r) => s + r.sold_qty, 0),
+    })).sort((a, b) => b.total - a.total);
+  }, [byCatColor]);
+
+  const growthRender = (v: number | null) => v === null || v === undefined
+    ? <span style={{ color: '#ccc' }}>-</span>
+    : <span style={{ color: v > 0 ? '#ff4d4f' : v < 0 ? '#1890ff' : '#999', fontWeight: 500 }}>{v > 0 ? '+' : ''}{v}%</span>;
 
   const sizeColumns: any[] = [
     { title: '사이즈', dataIndex: 'size', width: 70, render: (v: string) => <Tag style={{ margin: 0, fontWeight: 600 }}>{v}</Tag> },
@@ -55,11 +85,15 @@ export default function SizeColorTrendsTab() {
     { title: '입고수량', dataIndex: 'inbound_qty', width: 90, align: 'right' as const, render: (v: number) => fmt(v) },
     { title: '입고비중', dataIndex: 'inbound_pct', width: 80, align: 'right' as const, render: (v: number) => `${v}%` },
     {
-      title: '갭', dataIndex: 'gap', width: 80, align: 'center' as const,
+      title: '갭', dataIndex: 'gap', width: 60, align: 'center' as const,
       render: (v: number) => v > 0
-        ? <Tag color="red">+{v}%p</Tag>
-        : v < 0 ? <Tag color="blue">{v}%p</Tag> : <span style={{ color: '#999' }}>0</span>,
+        ? <Tag color="red">+{v}</Tag>
+        : v < 0 ? <Tag color="blue">{v}</Tag> : <span style={{ color: '#999' }}>0</span>,
     },
+    { title: '전년', dataIndex: 'prev1_qty', width: 70, align: 'right' as const, render: (v: number) => v ? fmt(v) : <span style={{ color: '#ccc' }}>-</span> },
+    { title: '증감', dataIndex: 'prev1_growth', width: 70, align: 'right' as const, render: growthRender },
+    { title: '전전년', dataIndex: 'prev2_qty', width: 70, align: 'right' as const, render: (v: number) => v ? fmt(v) : <span style={{ color: '#ccc' }}>-</span> },
+    { title: '증감', dataIndex: 'prev2_growth', width: 70, align: 'right' as const, render: growthRender },
   ];
 
   const colorColumns: any[] = [
@@ -76,57 +110,17 @@ export default function SizeColorTrendsTab() {
     { title: '판매수량', dataIndex: 'sold_qty', width: 90, align: 'right' as const, render: (v: number) => fmt(v) },
     { title: '비중', dataIndex: 'sold_pct', width: 70, align: 'right' as const, render: (v: number) => `${v}%` },
     {
-      title: '비율', key: 'bar', width: 200,
+      title: '비율', key: 'bar', width: 140,
       render: (_: any, r: any) => (
         <div style={{ height: 14, background: '#f0f0f0', borderRadius: 7, overflow: 'hidden' }}>
           <div style={{ width: `${r.sold_qty / maxColorSold * 100}%`, height: '100%', background: COLOR_PALETTE[r.color] || '#6366f1', borderRadius: 7, minWidth: r.sold_qty > 0 ? 4 : 0 }} />
         </div>
       ),
     },
-  ];
-
-  // 스타일별 사이즈 분포 컬럼
-  const styleCatFilters = useMemo(() =>
-    [...new Set(byStyle.map(s => s.category))].map(c => ({ text: c, value: c })),
-  [byStyle]);
-
-  const styleColumns: any[] = [
-    {
-      title: '상품', key: 'product', width: 200, ellipsis: true, fixed: 'left' as const,
-      render: (_: any, r: any) => (
-        <div>
-          <div style={{ fontWeight: 600, fontSize: 12 }}>{r.product_name}</div>
-          <div style={{ fontSize: 10, color: '#999' }}>{r.product_code}</div>
-        </div>
-      ),
-    },
-    {
-      title: '카테고리', dataIndex: 'category', width: 80,
-      filters: styleCatFilters,
-      onFilter: (v: any, r: any) => r.category === v,
-    },
-    {
-      title: '총 수량', dataIndex: 'total_qty', width: 80, align: 'right' as const,
-      defaultSortOrder: 'descend' as const,
-      render: (v: number) => <span style={{ fontWeight: 600 }}>{fmt(v)}</span>,
-      sorter: (a: any, b: any) => a.total_qty - b.total_qty,
-    },
-    ...allSizes.map((size, si) => ({
-      title: size, dataIndex: ['sizes', size], width: 65, align: 'center' as const,
-      render: (v: number, r: any) => {
-        if (!v) return <span style={{ color: '#ddd' }}>-</span>;
-        const pct = Math.round(v / r.total_qty * 100);
-        return (
-          <div title={`${v}개 (${pct}%)`}>
-            <div style={{ fontSize: 12, fontWeight: 500 }}>{v}</div>
-            <div style={{ height: 3, background: '#f0f0f0', borderRadius: 2, marginTop: 1 }}>
-              <div style={{ width: `${pct}%`, height: '100%', background: SIZE_BAR_COLORS[si % SIZE_BAR_COLORS.length], borderRadius: 2 }} />
-            </div>
-          </div>
-        );
-      },
-      sorter: (a: any, b: any) => (a.sizes?.[size] || 0) - (b.sizes?.[size] || 0),
-    })),
+    { title: '전년', dataIndex: 'prev1_qty', width: 70, align: 'right' as const, render: (v: number) => v ? fmt(v) : <span style={{ color: '#ccc' }}>-</span> },
+    { title: '증감', dataIndex: 'prev1_growth', width: 70, align: 'right' as const, render: growthRender },
+    { title: '전전년', dataIndex: 'prev2_qty', width: 70, align: 'right' as const, render: (v: number) => v ? fmt(v) : <span style={{ color: '#ccc' }}>-</span> },
+    { title: '증감', dataIndex: 'prev2_growth', width: 70, align: 'right' as const, render: growthRender },
   ];
 
   return (
@@ -152,7 +146,7 @@ export default function SizeColorTrendsTab() {
                   title={`입고: ${s.inbound_pct}%`} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, marginTop: 4 }}>{s.size}</div>
-              {s.gap !== 0 && <div style={{ fontSize: 9, color: s.gap > 0 ? '#ff4d4f' : '#1890ff' }}>{s.gap > 0 ? '+' : ''}{s.gap}%p</div>}
+              {s.gap !== 0 && <div style={{ fontSize: 9, color: s.gap > 0 ? '#ff4d4f' : '#1890ff' }}>{s.gap > 0 ? '+' : ''}{s.gap}</div>}
             </div>
           ))}
         </div>
@@ -163,64 +157,83 @@ export default function SizeColorTrendsTab() {
       </Card>
 
       <Row gutter={16}>
-        <Col xs={24} md={12}>
+        <Col xs={24} lg={12}>
           <Card size="small" title="사이즈별 상세" style={{ marginBottom: 16 }}>
             <Table dataSource={bySize} columns={sizeColumns} rowKey="size" size="small" pagination={false}
-              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 500 }} />
+              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 800 }} />
           </Card>
         </Col>
-        <Col xs={24} md={12}>
+        <Col xs={24} lg={12}>
           <Card size="small" title="컬러 인기 순위 TOP 20" style={{ marginBottom: 16 }}>
             <Table dataSource={byColor} columns={colorColumns} rowKey="color" size="small" pagination={false}
-              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 500, y: 400 }} />
+              locale={{ emptyText: '조회된 데이터가 없습니다' }} scroll={{ x: 800, y: 400 }} />
           </Card>
         </Col>
       </Row>
 
-      {/* 카테고리별 디자인수 대비 판매수량 */}
-      {byCatSummary.length > 0 && (
-        <Card size="small" title="카테고리별 총 디자인수 대비 판매수량" style={{ marginBottom: 16 }}>
+      {/* 카테고리별 인기 사이즈 */}
+      {catSizeData.length > 0 && (
+        <Card size="small" title="카테고리별 인기 사이즈 TOP 5" style={{ marginBottom: 16 }}>
           <Table
-            dataSource={byCatSummary}
+            dataSource={catSizeData}
             rowKey="category"
             size="small"
             pagination={false}
-            scroll={{ x: 500 }}
+            scroll={{ x: 600 }}
             columns={[
-              { title: '카테고리', dataIndex: 'category', width: 120, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
-              { title: '디자인수', dataIndex: 'design_count', width: 100, align: 'right' as const, render: (v: number) => `${fmt(v)}개` },
-              { title: '판매수량', dataIndex: 'sold_qty', width: 100, align: 'right' as const, render: (v: number) => <span style={{ fontWeight: 600 }}>{fmt(v)}개</span> },
-              {
-                title: '디자인당 판매', dataIndex: 'avg_qty_per_design', width: 120, align: 'right' as const,
-                defaultSortOrder: 'descend' as const,
-                sorter: (a: any, b: any) => a.avg_qty_per_design - b.avg_qty_per_design,
-                render: (v: number) => <span style={{ fontWeight: 700, color: v >= 10 ? '#389e0d' : v >= 5 ? '#1890ff' : '#999' }}>{v}개</span>,
-              },
-              {
-                title: '비율', key: 'bar', width: 180,
+              { title: '카테고리', dataIndex: 'category', width: 100, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
+              { title: '총 판매', dataIndex: 'total', width: 90, align: 'right' as const, render: (v: number) => `${fmt(v)}개`, sorter: (a: any, b: any) => a.total - b.total, defaultSortOrder: 'descend' as const },
+              ...([1, 2, 3, 4, 5] as const).map(rank => ({
+                title: `${rank}위`, key: `size_${rank}`, width: 100, align: 'center' as const,
                 render: (_: any, r: any) => {
-                  const maxQty = Math.max(...byCatSummary.map(c => c.sold_qty), 1);
+                  const s = r.sizes[rank - 1];
+                  if (!s) return <span style={{ color: '#ddd' }}>-</span>;
                   return (
-                    <div style={{ height: 14, background: '#f0f0f0', borderRadius: 7, overflow: 'hidden' }}>
-                      <div style={{ width: `${r.sold_qty / maxQty * 100}%`, height: '100%', background: '#6366f1', borderRadius: 7, minWidth: r.sold_qty > 0 ? 4 : 0 }} />
+                    <div>
+                      <Tag style={{ margin: 0, fontWeight: 600 }}>{s.size}</Tag>
+                      <div style={{ fontSize: 10, color: '#888' }}>{s.sold_pct}%</div>
                     </div>
                   );
                 },
-              },
+              })),
             ]}
           />
         </Card>
       )}
 
-      {/* 스타일별 사이즈 분포 */}
-      {byStyle.length > 0 && (
-        <Card size="small" title={`스타일별 사이즈 분포 (판매 TOP ${byStyle.length})`} style={{ marginBottom: 16 }}>
-          <Table dataSource={byStyle} columns={styleColumns} rowKey="product_code" size="small"
-            locale={{ emptyText: '조회된 데이터가 없습니다' }}
-            scroll={{ x: 400 + allSizes.length * 65, y: 500 }}
-            pagination={{ pageSize: 30, showTotal: t => `총 ${t}건` }} />
+      {/* 카테고리별 인기 컬러 */}
+      {catColorData.length > 0 && (
+        <Card size="small" title="카테고리별 인기 컬러 TOP 5" style={{ marginBottom: 16 }}>
+          <Table
+            dataSource={catColorData}
+            rowKey="category"
+            size="small"
+            pagination={false}
+            scroll={{ x: 600 }}
+            columns={[
+              { title: '카테고리', dataIndex: 'category', width: 100, render: (v: string) => <span style={{ fontWeight: 600 }}>{v}</span> },
+              { title: '총 판매', dataIndex: 'total', width: 90, align: 'right' as const, render: (v: number) => `${fmt(v)}개`, sorter: (a: any, b: any) => a.total - b.total, defaultSortOrder: 'descend' as const },
+              ...([1, 2, 3, 4, 5] as const).map(rank => ({
+                title: `${rank}위`, key: `color_${rank}`, width: 100, align: 'center' as const,
+                render: (_: any, r: any) => {
+                  const c = r.colors[rank - 1];
+                  if (!c) return <span style={{ color: '#ddd' }}>-</span>;
+                  return (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4, justifyContent: 'center' }}>
+                      <div style={{ width: 12, height: 12, borderRadius: 2, background: COLOR_PALETTE[c.color] || '#ccc', border: '1px solid #e8e8e8' }} />
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 500 }}>{c.color}</div>
+                        <div style={{ fontSize: 10, color: '#888' }}>{c.sold_pct}%</div>
+                      </div>
+                    </div>
+                  );
+                },
+              })),
+            ]}
+          />
         </Card>
       )}
+
     </div>
   );
 }

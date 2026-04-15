@@ -222,25 +222,6 @@ export default function MarginAnalysisTab() {
         </>
       )}
 
-      {s && (
-        <Card size="small" title="순마진 분포" style={{ marginBottom: 16 }}>
-          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end', height: 100 }}>
-            {s.margin_distribution.map((d, i) => {
-              const max = Math.max(...s.margin_distribution.map(x => x.count), 1);
-              const h = Math.max(d.count / max * 80, d.count > 0 ? 8 : 0);
-              const colors = ['#ff4d4f', '#faad14', '#1890ff', '#52c41a', '#13c2c2'];
-              return (
-                <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>{d.count}</div>
-                  <div style={{ height: h, background: colors[i], borderRadius: 4, margin: '0 auto', width: '70%' }} />
-                  <div style={{ fontSize: 10, color: '#999', marginTop: 4 }}>{d.range}</div>
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
-
       <Table dataSource={data?.items || []} columns={columns} rowKey="key" loading={loading} size="small"
         locale={{ emptyText: '조회된 데이터가 없습니다' }}
         scroll={{ x: 1400, y: 'calc(100vh - 480px)' }} pagination={{ pageSize: 50, showTotal: t => `총 ${t}건` }} />
